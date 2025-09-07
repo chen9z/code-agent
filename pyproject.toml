@@ -1,0 +1,23 @@
+[project]
+name = "code-agent"
+version = "0.1.0"
+description = "A code analysis agent with search and discovery tools"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "litellm>=1.76.3",
+    "numpy>=1.24.0",
+    "openai>=1.0.0",
+    "qdrant-client>=1.15.1",
+    "tree-sitter>=0.25.1",
+]
+
+[project.optional-dependencies]
+full = [
+    "qdrant-client>=1.13.0",
+    "langchain>=0.0.300",
+    "tiktoken>=0.5.0"
+]
+
+[project.scripts]
+code-agent = "agent:main"
