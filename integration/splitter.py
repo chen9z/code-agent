@@ -175,36 +175,46 @@ def _safe_decode(b: bytes) -> str:
         return b.decode("utf-8", errors="ignore")
 
 
-def chunk_code_file(path: Path, max_lines: int = 200, overlap: int = 20, pre_context: int = 2) -> List[Chunk]:
+def chunk_code_file(
+    path: Path,
+    max_lines: int = 200,
+    overlap: int = 0,
+    pre_context: int = 2,
+    *,
+    chunk_size: int | None = None,
+) -> List[Chunk]:
     """Chunk a single source file using tree-sitter when possible.
 
-    Fallback to simple line-based chunking when language parser is unavailable
-    or the file is not recognized as supported code.
+    Notes
+    - overlap is ignored (kept for backward compatibility). Chunks are non-overlapping.
+    - Each chunk will contain at most `chunk_size` (or `max_lines`) lines.
+    - Falls back to simple line-based chunking when no parser is available.
     """
+    size = int(chunk_size or max_lines)
     language = _detect_language(path)
     text = path.read_text(encoding="utf-8", errors="ignore")
     lines = text.splitlines(keepends=True)
 
     if not language:
         # Unknown language → line-based chunks
-        return _line_chunks(path, lines, max_lines)
+        return _line_chunks(path, lines, size)
 
     try:
         parser = get_parser(language)
     except Exception:
-        return _line_chunks(path, lines, max_lines)
+        return _line_chunks(path, lines, size)
 
     try:
         tree = parser.parse(text.encode("utf-8"))
     except Exception:
-        return _line_chunks(path, lines, max_lines)
+        return _line_chunks(path, lines, size)
 
     root = tree.root_node
     nodes = _gather_nodes(root, language)
     chunks: List[Chunk] = []
 
     if not nodes:
-        return _line_chunks(path, lines, max_lines)
+        return _line_chunks(path, lines, size)
 
     for node in nodes:
         start_line = node.start_point[0] + 1
@@ -212,7 +222,7 @@ def chunk_code_file(path: Path, max_lines: int = 200, overlap: int = 20, pre_con
         # include a bit of pre-context
         start_line_with_ctx = max(1, start_line - pre_context)
 
-        if end_line - start_line_with_ctx + 1 <= max_lines:
+        if end_line - start_line_with_ctx + 1 <= size:
             content = "".join(lines[start_line_with_ctx - 1 : end_line])
             chunks.append(
                 Chunk(
@@ -225,14 +235,16 @@ def chunk_code_file(path: Path, max_lines: int = 200, overlap: int = 20, pre_con
                 )
             )
         else:
-            # Split large definitions by lines with overlap
+            # Split large definitions by contiguous segments (no overlap)
             s = start_line_with_ctx
             while s <= end_line:
-                e = min(end_line, s + max_lines - 1)
+                e = min(end_line, s + size - 1)
                 content = "".join(lines[s - 1 : e])
                 sym = _get_node_name(node)
                 if sym:
-                    sym = f"{sym} (part {((s - start_line_with_ctx) // (max_lines - overlap)) + 1})"
+                    # Compute part index based on contiguous segmentation
+                    part_index = ((s - start_line_with_ctx) // max(1, size)) + 1
+                    sym = f"{sym} (part {part_index})"
                 chunks.append(
                     Chunk(
                         path=str(path),
@@ -245,7 +257,7 @@ def chunk_code_file(path: Path, max_lines: int = 200, overlap: int = 20, pre_con
                 )
                 if e == end_line:
                     break
-                s = e - overlap + 1
+                s = e + 1
 
     return chunks
 
@@ -268,4 +280,3 @@ def _line_chunks(path: Path, lines: List[str], max_lines: int) -> List[Chunk]:
         )
         start = end + 1
     return chunks
-

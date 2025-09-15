@@ -68,20 +68,22 @@ except ImportError as e:
         for indexing and searching codebases in development/CI.
         """
 
-        def __init__(self, model=None, vector_client=None, rerank_model=None):
+        def __init__(self, model=None, vector_client=None, rerank_model=None, *, chunk_size: int = 200):
             self.model = model
             self.vector_client = vector_client
             self.rerank_model = rerank_model
+            self._chunk_size = int(chunk_size)
             # project_name -> List[Document]
             self._index: dict[str, list[Document]] = {}
 
         def _iter_files(self, root: Path):
             yield from iter_repository_files(root)
 
-        def _chunk_file(self, path: Path, max_lines: int = 200):
+        def _chunk_file(self, path: Path, chunk_size: int | None = None):
             try:
                 chunks = []
-                for i, c in enumerate(chunk_code_file(path, max_lines=max_lines), start=0):
+                size = int(chunk_size or self._chunk_size)
+                for i, c in enumerate(chunk_code_file(path, chunk_size=size), start=0):
                     chunks.append(
                         Document(
                             path=c.path,
@@ -143,7 +145,9 @@ class RepositoryAdapter:
                  embedding_model: Optional[EmbeddingModel] = None,
                  vector_client: Optional[QdrantClient] = None,
                  rerank_model: Optional[RerankModel] = None,
-                 vector_store_path: str = "./storage"):
+                 vector_store_path: str = "./storage",
+                 *,
+                 chunk_size: int = 200):
         """
         Initialize the repository adapter.
         
@@ -152,8 +156,10 @@ class RepositoryAdapter:
             vector_client: Qdrant client instance
             rerank_model: Reranking model instance
             vector_store_path: Path to vector store
+            chunk_size: Maximum number of lines per chunk
         """
         self.vector_store_path = vector_store_path
+        self.chunk_size = int(chunk_size)
         
         # Initialize components with defaults if not provided
         # Use API-based models only (no local models)
@@ -166,11 +172,19 @@ class RepositoryAdapter:
         self.rerank_model = rerank_model or RerankAPIModel()
         
         # Create the actual repository instance
-        self.repository = ChatRepository(
-            model=self.embedding_model,
-            vector_client=self.vector_client,
-            rerank_model=self.rerank_model
-        )
+        if CHAT_CODEBASE_AVAILABLE:
+            self.repository = ChatRepository(
+                model=self.embedding_model,
+                vector_client=self.vector_client,
+                rerank_model=self.rerank_model,
+            )
+        else:
+            self.repository = ChatRepository(
+                model=self.embedding_model,
+                vector_client=self.vector_client,
+                rerank_model=self.rerank_model,
+                chunk_size=self.chunk_size,
+            )
     
     def index_project(self, project_path: str) -> None:
         """
@@ -270,5 +284,6 @@ def create_repository() -> RepositoryAdapter:
         embedding_model=embedding_model,
         vector_client=vector_client,
         rerank_model=rerank_model,
-        vector_store_path="./storage"
+        vector_store_path="./storage",
+        chunk_size=getattr(rag_config, 'chunk_size', 200),
     )

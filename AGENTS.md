@@ -3,8 +3,8 @@
 ## Project Structure & Module Organization
 - `main.py`: CLI/demo entrypoint for the agent.
 - `rag_flow.py`: Orchestrates Node/Flow RAG workflow.
-- `tools/`: Tooling (`rag_tool.py`) and bases (`base.py`, `base_node.py`).
-- `config/`: Centralized settings via Pydantic (`manager.py`). Env prefixes: `LLM_*` (LLM), `RAG_*` (embedding/rerank).
+- `tools/`: Nodes and bases (`rag_nodes.py`, `base.py`, `base_node.py`).
+- `config/`: Centralized settings via Pydantic (`manager.py`). Env prefixes: `LLM_*` (LLM), `RAG_*` (embedding/rerank, `RAG_CHUNK_SIZE`).
 - `integration/`: External adapters (e.g., Qdrant, chat‑codebase bridge).
 - `tests/`: Pytest suite (`test_*.py`, `conftest.py`).
 - `storage/`: Local vector store data (Qdrant). Avoid committing large files/secrets.

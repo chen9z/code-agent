@@ -3,24 +3,18 @@ Test module for RAG integration functionality.
 """
 
 import os
+from pathlib import Path
 import pytest
 import tempfile
 
 
-def test_rag_tool_creation():
-    """Test that RAG tool can be created successfully."""
-    from tools.rag_tool import create_rag_tool
-    
-    rag_tool = create_rag_tool()
-    
-    assert rag_tool is not None
-    assert hasattr(rag_tool, 'name')
-    assert hasattr(rag_tool, 'description')
-    assert hasattr(rag_tool, 'parameters')
-    
-    # Test parameters
-    params = rag_tool.parameters
-    assert "action" in params["properties"]
+def test_nodes_creation():
+    """Test that RAG nodes can be instantiated."""
+    from rag_flow import RAGIndexNode, RAGSearchNode, RAGQueryNode
+
+    assert RAGIndexNode() is not None
+    assert RAGSearchNode() is not None
+    assert RAGQueryNode() is not None
 
 
 def test_repository_adapter():
@@ -49,35 +43,33 @@ def test_config():
 
 
 def test_rag_operations():
-    """Test basic RAG operations."""
-    from tools.rag_tool import create_rag_tool
-    
-    rag_tool = create_rag_tool()
-    
+    """Test basic RAG operations using the flow API."""
+    from rag_flow import run_rag_workflow
+
     # Create a temporary test project
     with tempfile.TemporaryDirectory() as test_project:
         # Create a test file
         test_file = os.path.join(test_project, "test.py")
         with open(test_file, "w") as f:
             f.write("def hello_world():\n    print('Hello, World!')\n")
-        
-        # Test indexing (will use fallback since chat-codebase not available)
-        result = rag_tool.execute(action="index", project_path=test_project)
+
+        # Test indexing
+        result = run_rag_workflow(action="index", project_path=test_project)
         assert result["status"] == "success"
-        
-        # Test search (fallback mode)
-        result = rag_tool.execute(
-            action="search", 
-            project_name="test_project", 
-            query="hello world"
+
+        # Test search
+        result = run_rag_workflow(
+            action="search",
+            project_name=Path(test_project).name,
+            query="hello world",
         )
         assert result["status"] == "success"
-        
-        # Test query (fallback mode) 
-        result = rag_tool.execute(
+
+        # Test query
+        result = run_rag_workflow(
             action="query",
-            project_name="test_project",
-            query="What does this code do?"
+            project_name=Path(test_project).name,
+            question="What does this code do?",
         )
         assert result["status"] == "success"
 
@@ -92,34 +84,31 @@ def test_rag_flow():
         with open(test_file, "w") as f:
             f.write("def hello_world():\n    return 'Hello, World!'\n")
         
-        # Test indexing flow - should complete without error
+        # Test indexing flow
         try:
             result = run_rag_workflow(action="index", project_path=test_project)
-            # Flow returns None when completed successfully
-            assert result is None
+            assert isinstance(result, dict) and result.get("status") == "success"
         except Exception as e:
             pytest.fail(f"Index flow failed: {e}")
         
-        # Test search flow - should complete without error
+        # Test search flow
         try:
             result = run_rag_workflow(
                 action="search", 
-                project_name="test_project", 
+                project_name=Path(test_project).name, 
                 query="function definition"
             )
-            # Flow returns None when completed successfully
-            assert result is None
+            assert isinstance(result, dict) and result.get("status") == "success"
         except Exception as e:
             pytest.fail(f"Search flow failed: {e}")
         
-        # Test query flow - should complete without error
+        # Test query flow
         try:
             result = run_rag_workflow(
                 action="query", 
-                project_name="test_project", 
+                project_name=Path(test_project).name, 
                 question="What does this code do?"
             )
-            # Flow returns None when completed successfully
-            assert result is None
+            assert isinstance(result, dict) and result.get("status") == "success"
         except Exception as e:
             pytest.fail(f"Query flow failed: {e}")

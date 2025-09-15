@@ -6,7 +6,9 @@ from pathlib import Path
 
 # Import flow/node classes directly from main __init__.py
 from __init__ import BaseNode, Node, Flow
-from tools.rag_tool import create_rag_tool
+from integration.repository import create_repository
+from clients.llm import get_default_llm_client
+from config.manager import get_config
 
 
 class RAGIndexNode(Node):
@@ -14,27 +16,21 @@ class RAGIndexNode(Node):
     
     def __init__(self, max_retries: int = 1, wait: int = 0):
         super().__init__(max_retries, wait)
-        self.rag_tool = None
+        self.repository = create_repository()
     
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare for indexing."""
-        if self.rag_tool is None:
-            self.rag_tool = create_rag_tool()
-        
         project_path = self.params.get("project_path") or shared.get("project_path")
         if not project_path:
             raise ValueError("project_path parameter is required")
         
         return {
-            "project_path": Path(project_path).expanduser().resolve(),
-            "rag_tool": self.rag_tool
+            "project_path": Path(project_path).expanduser().resolve()
         }
     
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         """Execute project indexing."""
         project_path = prep_res["project_path"]
-        rag_tool = prep_res["rag_tool"]
-        
         if not project_path.exists():
             raise FileNotFoundError(f"Project directory not found: {project_path}")
         
@@ -42,21 +38,15 @@ class RAGIndexNode(Node):
             raise ValueError(f"Path is not a directory: {project_path}")
         
         # Index the project
-        result = rag_tool.execute(
-            action="index",
-            project_path=str(project_path)
-        )
-        
-        if result["status"] != "success":
-            raise RuntimeError(f"Indexing failed: {result.get('message', 'Unknown error')}")
+        self.repository.index_project(str(project_path))
         
         # Return the action to determine next node
         action = self.params.get("action") or "index"
         
         return {
             "status": "success",
-            "project_name": result.get("project_name", project_path.name),
-            "message": result.get("message", "Project indexed successfully"),
+            "project_name": project_path.name,
+            "message": f"Successfully indexed project: {project_path.name}",
             "project_path": str(project_path),
             "action": action  # Return action for flow routing
         }
@@ -75,13 +65,10 @@ class RAGSearchNode(Node):
     
     def __init__(self, max_retries: int = 1, wait: int = 0):
         super().__init__(max_retries, wait)
-        self.rag_tool = None
+        self.repository = create_repository()
     
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare for search."""
-        if self.rag_tool is None:
-            self.rag_tool = create_rag_tool()
-        
         project_name = self.params.get("project_name") or shared.get("project_name")
         query = self.params.get("query") or shared.get("query")
         limit = self.params.get("limit", 5)
@@ -94,27 +81,32 @@ class RAGSearchNode(Node):
         return {
             "project_name": project_name,
             "query": query,
-            "limit": limit,
-            "rag_tool": self.rag_tool
+            "limit": limit
         }
     
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         """Execute semantic search."""
-        rag_tool = prep_res["rag_tool"]
-        
-        result = rag_tool.execute(
-            action="search",
-            project_name=prep_res["project_name"],
-            query=prep_res["query"],
-            limit=prep_res["limit"]
+        results = self.repository.search(
+            prep_res["project_name"], prep_res["query"], prep_res["limit"]
         )
-        
-        if result["status"] != "success":
-            raise RuntimeError(f"Search failed: {result.get('message', 'Unknown error')}")
-        
-        # Return action for flow routing
-        result["action"] = "search"
-        return result
+        matches = []
+        for doc in results:
+            matches.append({
+                "file": doc.path,
+                "chunk_id": getattr(doc, 'chunk_id', None),
+                "content": doc.content,
+                "score": getattr(doc, 'score', 0.0),
+                "start_line": getattr(doc, 'start_line', 0),
+                "end_line": getattr(doc, 'end_line', 0)
+            })
+        return {
+            "status": "success",
+            "project_name": prep_res["project_name"],
+            "query": prep_res["query"],
+            "matches": matches,
+            "total_results": len(matches),
+            "action": "search",
+        }
     
     def exec_fallback(self, prep_res: Dict[str, Any], exc: Exception) -> Dict[str, Any]:
         """Handle search failures."""
@@ -133,13 +125,12 @@ class RAGQueryNode(Node):
     
     def __init__(self, max_retries: int = 1, wait: int = 0):
         super().__init__(max_retries, wait)
-        self.rag_tool = None
+        self.repository = create_repository()
+        self.llm = get_default_llm_client()
+        self.cfg = get_config()
     
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare for RAG query."""
-        if self.rag_tool is None:
-            self.rag_tool = create_rag_tool()
-        
         project_name = self.params.get("project_name") or shared.get("project_name")
         # Accept both 'question' and 'query' for compatibility
         question = (
@@ -158,28 +149,50 @@ class RAGQueryNode(Node):
         return {
             "project_name": project_name,
             "question": question,
-            "limit": limit,
-            "rag_tool": self.rag_tool
+            "limit": limit
         }
     
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         """Execute RAG query."""
-        rag_tool = prep_res["rag_tool"]
-        
-        result = rag_tool.execute(
-            action="query",
-            project_name=prep_res["project_name"],
-            # 'execute' accepts aliasing; pass as 'question' for clarity
-            question=prep_res["question"],
-            limit=prep_res["limit"]
+        results = self.repository.search(
+            prep_res["project_name"], prep_res["question"], prep_res["limit"]
         )
-        
-        if result["status"] != "success":
-            raise RuntimeError(f"RAG query failed: {result.get('message', 'Unknown error')}")
-        
-        # Return action for flow routing
-        result["action"] = "query"
-        return result
+        if not results:
+            return {
+                "status": "success",
+                "message": "No relevant code context found for your question.",
+                "answer": "I couldn't find any relevant code context to answer your question.",
+                "action": "query",
+            }
+        context = ""
+        for doc in results:
+            context += f"File: {doc.path}\n"
+            if hasattr(doc, 'start_line') and hasattr(doc, 'end_line'):
+                context += f"Lines: {doc.start_line}-{doc.end_line}\n"
+            context += f"Content:\n{doc.content}\n\n"
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert code assistant. Use the provided code context to answer the user's question accurately and concisely. If the context doesn't contain relevant information, say so.",
+            },
+            {
+                "role": "user",
+                "content": f"Code Context:\n{context}\n\nQuestion: {prep_res['question']}\n\nAnswer:",
+            },
+        ]
+        chunks = list(self.llm.get_response(model=self.cfg.llm.model, messages=messages, stream=False))
+        answer = "".join(chunks)
+        return {
+            "status": "success",
+            "project_name": prep_res["project_name"],
+            "question": prep_res["question"],
+            "answer": answer,
+            "context_sources": [{
+                "file": doc.path,
+                "score": getattr(doc, 'score', 0.0)
+            } for doc in results],
+            "action": "query",
+        }
     
     def exec_fallback(self, prep_res: Dict[str, Any], exc: Exception) -> Dict[str, Any]:
         """Handle RAG query failures."""
@@ -243,20 +256,13 @@ class RAGFlow(Flow):
         return {"action": action}
     
     def _orch(self, shared: Dict[str, Any], params=None):
-        """Custom orchestration to handle different starting points based on action."""
+        """Run exactly one node based on the requested action and return its result."""
         action = self.params.get("action") or shared.get("action") or "index"
-        
-        # Start with the appropriate node based on action
-        curr = copy.copy(self.nodes.get(action, self.index_node))
-        p = (params or {**self.params})
-        last_action = None
-        
-        while curr:
-            curr.set_params(p)
-            last_action = curr._run(shared)
-            curr = copy.copy(self.get_next_node(curr, last_action))
-        
-        return last_action
+        node = self.nodes.get(action)
+        if not node:
+            raise ValueError(f"Unknown action: {action}")
+        node.set_params(params or {**self.params})
+        return node._run(shared)
     
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> Any:
         """Post-process the RAG flow results."""
@@ -292,37 +298,4 @@ def run_rag_workflow(action: str, **kwargs) -> Dict[str, Any]:
 
 # Example usage
 if __name__ == "__main__":
-    # Example 1: Index a project
-    print("Example 1: Indexing a project")
-    try:
-        result = run_rag_workflow(
-            action="index",
-            project_path="/tmp/test_project"
-        )
-        print(f"Result: {result}")
-    except Exception as e:
-        print(f"Error: {e}")
-    
-    # Example 2: Search for code
-    print("\nExample 2: Searching for code")
-    try:
-        result = run_rag_workflow(
-            action="search",
-            project_name="test_project",
-            query="function definition"
-        )
-        print(f"Found {result.get('total_results', 0)} results")
-    except Exception as e:
-        print(f"Error: {e}")
-    
-    # Example 3: Ask a question
-    print("\nExample 3: Asking a question")
-    try:
-        result = run_rag_workflow(
-            action="query",
-            project_name="test_project",
-            question="What does this code do?"
-        )
-        print(f"Answer: {result.get('answer', 'No answer')}")
-    except Exception as e:
-        print(f"Error: {e}")
+    print("Use run_rag_workflow(action=..., **kwargs) from Python.")

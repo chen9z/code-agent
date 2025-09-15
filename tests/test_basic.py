@@ -11,12 +11,14 @@ def test_main_import():
     """Test that main modules can be imported."""
     import rag_flow
     from config import manager as config_manager
-    from tools import rag_tool
+    import rag_flow as rf
     from integration import repository
     
     assert rag_flow is not None
     assert config_manager is not None
-    assert rag_tool is not None
+    assert hasattr(rf, 'RAGIndexNode')
+    assert hasattr(rf, 'RAGSearchNode')
+    assert hasattr(rf, 'RAGQueryNode')
     assert repository is not None
 
 def test_rag_flow_import():

@@ -83,6 +83,14 @@ class RAGConfig(BaseSettings):
         description="Reranking model to use (api only for API mode)"
     )
 
+    # Chunking settings
+    chunk_size: int = Field(
+        default=200,
+        description="Maximum number of lines per chunk",
+        ge=1,
+        le=2000,
+    )
+
     class Config:
         env_prefix = "RAG_"
         case_sensitive = False
