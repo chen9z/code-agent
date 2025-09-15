@@ -37,15 +37,15 @@ def test_repository_adapter():
 
 
 def test_config():
-    """Test configuration loading."""
-    from config.rag_config import get_rag_config
-    
-    config = get_rag_config()
-    
-    assert config is not None
-    assert hasattr(config, 'vector_store_path')
-    assert hasattr(config, 'embedding_model')
-    assert hasattr(config, 'rerank_model')
+    """Test configuration loading (minimal)."""
+    from config.manager import get_config
+
+    cfg = get_config()
+
+    assert cfg is not None
+    assert hasattr(cfg, 'rag')
+    assert hasattr(cfg.rag, 'embedding_model')
+    assert hasattr(cfg.rag, 'rerank_model')
 
 
 def test_rag_operations():

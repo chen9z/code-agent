@@ -1,60 +1,44 @@
 # Repository Guidelines
 
-## Project Structure & Modules
+## Project Structure & Module Organization
 - `main.py`: CLI/demo entrypoint for the agent.
 - `rag_flow.py`: Orchestrates Node/Flow RAG workflow.
-- `tools/`: Tooling (`rag_tool.py`) plus bases (`base.py`, `base_node.py`).
-- `config/`: Centralized settings (`manager.py`, `rag_config.py`) via Pydantic; env prefixes `RAG_`, `LLM_`, `VECTORDB_`, `APP_`.
-- `integration/`: External adapters (Qdrant + chat-codebase bridge).
+- `tools/`: Tooling (`rag_tool.py`) and bases (`base.py`, `base_node.py`).
+- `config/`: Centralized settings via Pydantic (`manager.py`). Env prefixes: `LLM_*` (LLM), `RAG_*` (embedding/rerank).
+- `integration/`: External adapters (e.g., Qdrant, chat‑codebase bridge).
 - `tests/`: Pytest suite (`test_*.py`, `conftest.py`).
-- `storage/`: Local vector store (Qdrant) data.
-- Docs: `requirements.md`, `design.md`, `tasks.md`, `CLAUDE.md`, `docs/ARCHITECTURE.md`.
+- `storage/`: Local vector store data (Qdrant). Avoid committing large files/secrets.
+- Docs: `requirements.md`, `design.md`, `tasks.md`, `docs/ARCHITECTURE.md`.
 
 ## Build, Test, and Development
-- Python: `>=3.11`. Package manager: `uv`.
-- Setup venv: `uv venv && source .venv/bin/activate && uv sync`
-- Install (editable + tests): `uv pip install -e '.[test]'`
+- Requires Python `>=3.11` and `uv`.
+- Setup: `uv venv && source .venv/bin/activate && uv sync`.
+- Install (editable + tests): `uv pip install -e '.[test]'`.
 - Run tests: `uv run pytest` (uses `pytest.ini` → `-v --tb=short`).
-- Run demo: `uv run python main.py`
-- Tip: `OPENAI_API_BASE`/`OPENAI_API_KEY` and optional `CHAT_CODEBASE_PATH` are read (also via `.env`). Vector store defaults to `./storage`.
+- Focused test: `uv run pytest tests/test_rag.py::test_rag_flow -q`.
+- Run demo: `uv run python main.py`.
 
-## Coding Style & Naming
+## Coding Style & Naming Conventions
 - Follow PEP 8; 4‑space indentation; add type hints where practical.
-- Names: modules and functions `snake_case`; classes `PascalCase` (e.g., `RAGIndexNode`).
+- Names: modules/functions `snake_case`; classes `PascalCase` (e.g., `RAGIndexNode`).
 - Docstrings: triple double quotes; keep functions small and cohesive.
-- JSON‑schema for tool params lives on the tool (`parameters` property).
+- Tool params JSON‑schema lives on the tool (`parameters` property).
 
 ## Testing Guidelines
-- Framework: Pytest. Place tests under `tests/` as `test_*.py`; test functions `test_*`.
-- Run focused tests: `uv run pytest tests/test_rag.py::test_rag_flow -q`.
+- Framework: Pytest. Place tests under `tests/` as `test_*.py`; functions `test_*`.
+- Keep tests fast and deterministic; favor unit coverage for nodes/tools/flows.
 - Optional coverage (if installed): `uv run pytest --cov`.
 
-## Commit & Pull Requests
-- Commits: imperative mood, concise scope, link issues (e.g., `Fix: handle empty search results (#123)`).
-- PRs must include:
-  - Clear description and rationale; linked issue(s).
-  - Test plan/results (commands used and output summary).
-  - Updates to docs if behavior/config changes (`requirements.md`, `design.md`, `tasks.md`).
-  - Screenshots/logs when helpful (CLI output for flows/tests).
+## Commit & Pull Request Guidelines
+- Commits: imperative mood, concise scope; link issues (e.g., `Fix: handle empty search results (#123)`).
+- PRs must include: clear description + rationale, linked issue(s), test plan/results (commands used + output summary), and docs updates for behavior/config changes. Add CLI logs/screenshots when helpful.
 
 ## Security & Configuration
-- Configure via env vars: `RAG_*`, `LLM_*`, `VECTORDB_*`, `APP_*`, plus `OPENAI_API_BASE`, `OPENAI_API_KEY`, and optional `CHAT_CODEBASE_PATH`.
-- Example:
-  - `export OPENAI_API_BASE=https://api.deepseek.com`
-  - `export OPENAI_API_KEY=...`
-- Avoid committing secrets or large files in `storage/`.
+- Configure via env vars: `RAG_*`, `LLM_*`, `VECTORDB_*`, `APP_*`, plus `OPENAI_API_BASE`, `OPENAI_API_KEY`, optional `CHAT_CODEBASE_PATH`.
+- Example: `export OPENAI_API_BASE=https://api.deepseek.com`; `export OPENAI_API_KEY=...`.
+- Vector store defaults to `./storage`; avoid committing secrets or large artifacts.
 
-## Minimal RAG Examples
-```python
-from rag_flow import run_rag_workflow
-# Index
-run_rag_workflow(action="index", project_path="/path/to/project")
-# Search
-run_rag_workflow(action="search", project_name="project", query="function definition")
-# Query
-run_rag_workflow(action="query", project_name="project", question="How does it work?")
-```
-
-## Agent-Specific Notes
-- New tools should subclass `tools.base.BaseTool`; expose `name`, `description`, `parameters`, `execute`.
-- New flows/nodes should extend `Node`/`Flow` and route by action strings (see `rag_flow.py`).
+## Agent‑Specific Notes
+- New tools: subclass `tools.base.BaseTool`; expose `name`, `description`, `parameters`, `execute`.
+- New flows/nodes: extend `Node`/`Flow`; route by action strings (see `rag_flow.py`).
+- Use `config.manager` for settings; prefer dependency injection for testability.

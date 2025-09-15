@@ -246,7 +246,6 @@ def create_repository() -> RepositoryAdapter:
     """
     config = get_config()
     rag_config = config.rag
-    vectordb_config = config.vectordb
     
     # Use API-based models only
     if rag_config.embedding_model == "openai-like":
@@ -260,18 +259,10 @@ def create_repository() -> RepositoryAdapter:
     else:
         rerank_model = RerankAPIModel()
     
-    # Create vector client only when external chat-codebase is available
+    # Create a local vector client only when external chat-codebase is available
+    # Use a default on-disk path to avoid extra configuration
     if CHAT_CODEBASE_AVAILABLE:
-        if vectordb_config.host == "localhost":
-            vector_client = QdrantClient(
-                path=rag_config.vector_store_path,
-                port=vectordb_config.port
-            )
-        else:
-            vector_client = QdrantClient(
-                host=vectordb_config.host,
-                port=vectordb_config.port
-            )
+        vector_client = QdrantClient(path="./storage")
     else:
         vector_client = None
     
@@ -279,5 +270,5 @@ def create_repository() -> RepositoryAdapter:
         embedding_model=embedding_model,
         vector_client=vector_client,
         rerank_model=rerank_model,
-        vector_store_path=rag_config.vector_store_path
+        vector_store_path="./storage"
     )

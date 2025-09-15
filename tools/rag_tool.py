@@ -60,6 +60,10 @@ class RAGTool(BaseTool):
                     "type": "string",
                     "description": "Search query or question to ask"
                 },
+                "question": {
+                    "type": "string",
+                    "description": "Alias of 'query' for question input"
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of search results to return",

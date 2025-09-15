@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Generator, List, Dict, Any
+from config.manager import get_config
 
 
 class BaseLLMClient:
@@ -45,9 +46,18 @@ class OpenAICompatLLMClient(BaseLLMClient):
 
 
 def get_default_llm_client() -> BaseLLMClient:
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_API_BASE")
+    """Construct default LLM client using centralized config.
+
+    Precedence:
+    1) LLM_* from config.manager (recommended)
+    2) OPENAI_API_KEY / OPENAI_API_BASE environment variables (fallback)
+    """
+    cfg = get_config()
+    llm_cfg = cfg.llm
+
+    api_key = llm_cfg.api_key or os.getenv("OPENAI_API_KEY")
+    base_url = llm_cfg.api_base or os.getenv("OPENAI_API_BASE")
+
     if not api_key:
         return StubLLMClient()
     return OpenAICompatLLMClient(api_key=api_key, base_url=base_url)
-

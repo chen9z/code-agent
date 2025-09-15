@@ -23,7 +23,12 @@ except ImportError:
     from pydantic.types import SecretStr
     from pydantic import parse_obj_as
 
-from .rag_config import RAGConfig
+"""Centralized application configuration.
+
+Defines all config sections inline to avoid scattering configuration across
+multiple modules. RAG-related settings are kept under the unified manager.
+"""
+
 
 
 class LLMConfig(BaseSettings):
@@ -63,55 +68,27 @@ class LLMConfig(BaseSettings):
         case_sensitive = False
 
 
-class VectorDBConfig(BaseSettings):
-    """Configuration for Vector Database."""
-    
-    host: str = Field(
-        default="localhost",
-        description="Vector database host"
+class RAGConfig(BaseSettings):
+    """Configuration for RAG components."""
+
+    # Embedding model settings
+    embedding_model: str = Field(
+        default="openai-like",
+        description="Embedding model to use (openai-like only for API mode)"
     )
-    
-    port: int = Field(
-        default=6333,
-        description="Vector database port",
-        ge=1,
-        le=65535
+
+    # Reranking settings
+    rerank_model: str = Field(
+        default="api",
+        description="Reranking model to use (api only for API mode)"
     )
-    
-    collection_name: str = Field(
-        default="code_embeddings",
-        description="Default collection name"
-    )
-    
+
     class Config:
-        env_prefix = "VECTORDB_"
+        env_prefix = "RAG_"
         case_sensitive = False
 
-
-class AppSettings(BaseSettings):
-    """Application settings."""
-    
-    debug: bool = Field(
-        default=False,
-        description="Enable debug mode"
-    )
-    
-    log_level: str = Field(
-        default="INFO",
-        description="Logging level",
-        regex="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$"
-    )
-    
-    max_workers: int = Field(
-        default=4,
-        description="Maximum worker threads",
-        ge=1,
-        le=32
-    )
-    
-    class Config:
-        env_prefix = "APP_"
-        case_sensitive = False
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 
 class AppConfig(BaseModel):
@@ -119,8 +96,6 @@ class AppConfig(BaseModel):
     
     rag: RAGConfig
     llm: LLMConfig
-    vectordb: VectorDBConfig
-    app: AppSettings
     
     class Config:
         arbitrary_types_allowed = True
@@ -141,18 +116,14 @@ class ConfigManager:
     def _load_config(self) -> None:
         """Load configuration from environment variables and defaults."""
         try:
-            # Load individual configs
+            # Load individual configs (single source of truth)
             rag_config = RAGConfig()
             llm_config = LLMConfig()
-            vectordb_config = VectorDBConfig()
-            app_settings = AppSettings()
             
             # Create main config
             self._config = AppConfig(
                 rag=rag_config,
                 llm=llm_config,
-                vectordb=vectordb_config,
-                app=app_settings
             )
         except Exception as e:
             # If validation fails, use safe defaults
@@ -160,28 +131,12 @@ class ConfigManager:
             
             # Create config with safe default values
             self._config = AppConfig(
-                rag=RAGConfig(
-                    vector_store_path="./storage",
-                    embedding_model="openai-like",
-                    rerank_model="api",
-                    llm_model="deepseek-chat",
-                    default_search_limit=5
-                ),
+                rag=RAGConfig(embedding_model="openai-like", rerank_model="api"),
                 llm=LLMConfig(
                     model="deepseek-chat",
                     temperature=0.1,
                     max_tokens=2000
                 ),
-                vectordb=VectorDBConfig(
-                    host="localhost",
-                    port=6333,
-                    collection_name="code_embeddings"
-                ),
-                app=AppSettings(
-                    debug=False,
-                    log_level="INFO",
-                    max_workers=4
-                )
             )
     
     def get_config(self) -> AppConfig:

@@ -8,7 +8,7 @@ This project is a code-agent built on a Flow/Node runtime. The core Flow/Node co
 - tools: Reusable actions with JSON-schema parameters (e.g., `rag_tool`). Tools avoid global state and are idempotent when possible.
 - integrations: External adapters (code repository index/search, VCS, CI). `integration/repository.py` provides a functional fallback `ChatRepository` for local indexing/search.
 - clients: Service adapters (LLM, Vector DB). Centralize API usage, retries, and streaming.
-- config: Centralized settings via Pydantic with env prefixes: `RAG_`, `LLM_`, `VECTORDB_`, `APP_`.
+- config: Centralized settings via Pydantic with env prefixes: `LLM_*` for LLM, `RAG_*` for embedding/rerank. Other settings use sensible defaults.
 - ui: CLI/TUI entrypoints and HTTP adapters.
 
 ## Module Responsibilities
