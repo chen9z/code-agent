@@ -7,20 +7,11 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config.manager import get_config, reload_config, validate_config, ConfigManager
-
-
-def test_config_manager_singleton():
-    """Test that ConfigManager is a proper singleton."""
-    manager1 = ConfigManager()
-    manager2 = ConfigManager()
-    
-    assert manager1 is manager2
-    assert id(manager1) == id(manager2)
+from config.manager import get_config, reload_config, validate_config
 
 
 def test_get_config_singleton():
-    """Test that get_config returns the same instance."""
+    """Test that get_config returns the same cached instance."""
     config1 = get_config()
     config2 = get_config()
     
@@ -46,6 +37,8 @@ def test_config_structure():
     assert hasattr(config.llm, 'api_key')
     assert hasattr(config.llm, 'temperature')
     assert hasattr(config.llm, 'max_tokens')
+    # RAG chunk size
+    assert hasattr(config.rag, 'chunk_size')
 
 
 def test_config_default_values():
@@ -60,6 +53,8 @@ def test_config_default_values():
     assert config.llm.model == "deepseek-chat"
     assert config.llm.temperature == 0.1
     assert config.llm.max_tokens == 2000
+    # RAG defaults
+    assert config.rag.chunk_size == 200
 
 
 def test_environment_variable_override():
@@ -70,15 +65,17 @@ def test_environment_variable_override():
         'RAG_RERANK_MODEL': 'custom-reranker',
         'LLM_MODEL': 'custom-model',
         'LLM_TEMPERATURE': '0.5',
+        'RAG_CHUNK_SIZE': '123',
     }):
         # Reload config to pick up environment variables
         config = reload_config()
-
+        
         # Check that environment variables override defaults
         assert config.rag.embedding_model == "custom-embedding"
         assert config.rag.rerank_model == "custom-reranker"
         assert config.llm.model == "custom-model"
         assert config.llm.temperature == 0.5
+        assert config.rag.chunk_size == 123
 
 
 def test_config_validation():
@@ -105,10 +102,12 @@ def test_config_reload():
     """Test that config reloading works correctly."""
     config1 = get_config()
     original_embedding = config1.rag.embedding_model
+    original_chunk_size = config1.rag.chunk_size
 
     # Change environment and reload
     with patch.dict(os.environ, {
-        'RAG_EMBEDDING_MODEL': 'reloaded-embedding'
+        'RAG_EMBEDDING_MODEL': 'reloaded-embedding',
+        'RAG_CHUNK_SIZE': '321'
     }):
         config2 = reload_config()
 
@@ -117,15 +116,19 @@ def test_config_reload():
 
         # But values should be updated
         assert config2.rag.embedding_model == "reloaded-embedding"
+        assert config2.rag.chunk_size == 321
 
     # Clean up environment and restore original config
     with patch.dict(os.environ, {
-        'RAG_EMBEDDING_MODEL': original_embedding
+        'RAG_EMBEDDING_MODEL': original_embedding,
+        'RAG_CHUNK_SIZE': str(original_chunk_size)
     }):
         reload_config()
 
         # Should be back to original
-        assert get_config().rag.embedding_model == original_embedding
+        cfg = get_config()
+        assert cfg.rag.embedding_model == original_embedding
+        assert cfg.rag.chunk_size == original_chunk_size
 
 
 def test_config_backward_compatibility():
