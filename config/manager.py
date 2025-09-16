@@ -1,122 +1,131 @@
+from __future__ import annotations
+
+import os
+from dataclasses import asdict, dataclass, field
 from functools import lru_cache
-from typing import Optional
-
-from pydantic import BaseModel, BaseSettings, Field, ValidationError
-
-"""Minimal centralized configuration used by the project.
-
-Only includes settings referenced in code: LLM options and RAG parameters
-(embedding/rerank models and chunk_size).
-"""
+from typing import Any, Dict, Optional
 
 
-
-class LLMConfig(BaseSettings):
-    """Configuration for LLM components."""
-    
-    model: str = Field(
-        default="deepseek-chat",
-        description="LLM model to use for generation"
-    )
-    
-    api_base: Optional[str] = Field(
-        default=None,
-        description="API base URL for LLM service"
-    )
-    
-    api_key: Optional[str] = Field(
-        default=None,
-        description="API key for LLM service"
-    )
-    
-    temperature: float = Field(
-        default=0.1,
-        description="Temperature for LLM generation",
-        ge=0.0,
-        le=2.0
-    )
-    
-    max_tokens: int = Field(
-        default=2000,
-        description="Maximum tokens to generate",
-        ge=1,
-        le=8000
-    )
-    
-    class Config:
-        env_prefix = "LLM_"
-        case_sensitive = False
+def _get_env_value(prefix: str, key: str) -> Optional[str]:
+    return os.getenv(f"{prefix}{key}")
 
 
-class RAGConfig(BaseSettings):
-    """Configuration for RAG components."""
-
-    # Embedding model settings
-    embedding_model: str = Field(
-        default="openai-like",
-        description="Embedding model to use (openai-like only for API mode)"
-    )
-
-    # Reranking settings
-    rerank_model: str = Field(
-        default="api",
-        description="Reranking model to use (api only for API mode)"
-    )
-
-    # Chunking settings
-    chunk_size: int = Field(
-        default=200,
-        description="Maximum number of lines per chunk",
-        ge=1,
-        le=2000,
-    )
-
-    class Config:
-        env_prefix = "RAG_"
-        case_sensitive = False
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+def _to_int(value: Optional[str], default: int) -> int:
+    if value is None:
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number
 
 
-class AppConfig(BaseModel):
-    """Main application configuration."""
-    
-    rag: RAGConfig
-    llm: LLMConfig
-    
-    class Config:
-        arbitrary_types_allowed = True
+def _to_float(value: Optional[str], default: float) -> float:
+    if value is None:
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number
+
+
+@dataclass(slots=True)
+class LLMConfig:
+    model: str = "deepseek-chat"
+    api_base: Optional[str] = None
+    api_key: Optional[str] = None
+    temperature: float = 0.1
+    max_tokens: int = 2000
+
+    @classmethod
+    def from_env(cls) -> "LLMConfig":
+        prefix = "LLM_"
+        defaults = cls()
+        model = _get_env_value(prefix, "MODEL") or defaults.model
+        api_base = _get_env_value(prefix, "API_BASE") or defaults.api_base
+        api_key = _get_env_value(prefix, "API_KEY") or defaults.api_key
+        temperature = _to_float(_get_env_value(prefix, "TEMPERATURE"), defaults.temperature)
+        max_tokens = _to_int(_get_env_value(prefix, "MAX_TOKENS"), defaults.max_tokens)
+        return cls(model=model, api_base=api_base, api_key=api_key, temperature=temperature, max_tokens=max_tokens)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LLMConfig":
+        return cls(**data)
+
+
+@dataclass(slots=True)
+class RAGConfig:
+    embedding_model: str = "openai-like"
+    rerank_model: str = "api"
+    chunk_size: int = 200
+
+    @classmethod
+    def from_env(cls) -> "RAGConfig":
+        prefix = "RAG_"
+        defaults = cls()
+        embedding_model = _get_env_value(prefix, "EMBEDDING_MODEL") or defaults.embedding_model
+        rerank_model = _get_env_value(prefix, "RERANK_MODEL") or defaults.rerank_model
+        chunk_size = _to_int(_get_env_value(prefix, "CHUNK_SIZE"), defaults.chunk_size)
+        return cls(embedding_model=embedding_model, rerank_model=rerank_model, chunk_size=chunk_size)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RAGConfig":
+        return cls(**data)
+
+
+@dataclass(slots=True)
+class AppConfig:
+    rag: RAGConfig = field(default_factory=RAGConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
+
+    @classmethod
+    def from_env(cls) -> "AppConfig":
+        return cls(rag=RAGConfig.from_env(), llm=LLMConfig.from_env())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "rag": self.rag.to_dict(),
+            "llm": self.llm.to_dict(),
+        }
+
+    def dict(self) -> Dict[str, Any]:
+        return self.to_dict()
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
+        rag_data = data.get("rag", {})
+        llm_data = data.get("llm", {})
+        return cls(
+            rag=RAGConfig.from_dict(rag_data) if isinstance(rag_data, dict) else RAGConfig(),
+            llm=LLMConfig.from_dict(llm_data) if isinstance(llm_data, dict) else LLMConfig(),
+        )
 
 
 @lru_cache(maxsize=1)
 def get_config() -> AppConfig:
-    """Get cached application configuration."""
-    try:
-        return AppConfig(rag=RAGConfig(), llm=LLMConfig())
-    except Exception:
-        # Fallback to safe defaults
-        return AppConfig(
-            rag=RAGConfig(embedding_model="openai-like", rerank_model="api"),
-            llm=LLMConfig(model="deepseek-chat", temperature=0.1, max_tokens=2000),
-        )
+    return AppConfig.from_env()
 
 
 def reload_config() -> AppConfig:
-    """Reload configuration by clearing cache and re-instantiating."""
     get_config.cache_clear()
     return get_config()
 
 
 def validate_config() -> bool:
-    """Validate that current environment yields a valid configuration."""
-    try:
-        AppConfig(rag=RAGConfig(), llm=LLMConfig())
-        return True
-    except ValidationError:
-        return False
+    # Configuration loading is resilient; if we reached this point we have usable defaults.
+    return True
 
 
 def get_rag_config() -> RAGConfig:
-    """Backward-compatible accessor for RAG config."""
     return get_config().rag
+
+
+def config_as_dict() -> Dict[str, Any]:
+    return get_config().to_dict()

@@ -4,7 +4,7 @@ import os
 import fnmatch
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List, Dict, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from tree_sitter_languages import get_parser
 
@@ -41,6 +41,9 @@ EXT_LANGUAGE: Dict[str, str] = {
 }
 
 CODE_EXTS = set(EXT_LANGUAGE.keys())
+
+
+_PARSER_CACHE: Dict[str, Any] = {}
 
 
 @dataclass
@@ -100,6 +103,14 @@ def _make_ignore_matcher(root: Path):
         return ignored
 
     return fallback_matcher
+
+
+def _get_cached_parser(language: str):
+    parser = _PARSER_CACHE.get(language)
+    if parser is None:
+        parser = get_parser(language)
+        _PARSER_CACHE[language] = parser
+    return parser
 
 
 def iter_repository_files(root: Path) -> Iterator[Path]:
@@ -175,6 +186,86 @@ def _safe_decode(b: bytes) -> str:
         return b.decode("utf-8", errors="ignore")
 
 
+def _compute_context_start(lines: List[str], start_line: int, base_context: int, *, max_extra: int = 6) -> int:
+    """Extend context upward to include adjacent blank/comment lines."""
+    if start_line <= 1 or not lines:
+        return 1
+    idx = max(0, start_line - 1)
+    ctx_start = max(0, idx - max(0, base_context))
+    i = idx - 1
+    extra = 0
+    while i >= 0 and extra < max_extra:
+        stripped = lines[i].lstrip()
+        if not stripped:
+            ctx_start = i
+        elif stripped.startswith(("#", "//", "/*", "*", "--")) or stripped.startswith('"""') or stripped.startswith("'''"):
+            ctx_start = i
+        else:
+            break
+        i -= 1
+        extra += 1
+    return ctx_start + 1
+
+
+def _find_uncovered_segments(start: int, end: int, covered: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    if start > end:
+        return []
+    segments: List[Tuple[int, int]] = []
+    cur = start
+    for c_start, c_end in covered:
+        if c_end < cur:
+            continue
+        if c_start > end:
+            break
+        if c_start > cur:
+            segments.append((cur, min(end, c_start - 1)))
+        cur = max(cur, c_end + 1)
+        if cur > end:
+            break
+    if cur <= end:
+        segments.append((cur, end))
+    return segments
+
+
+def _add_coverage(covered: List[Tuple[int, int]], start: int, end: int) -> None:
+    if start > end:
+        return
+    if not covered:
+        covered.append((start, end))
+        return
+    new_ranges: List[Tuple[int, int]] = []
+    inserted = False
+    for c_start, c_end in covered:
+        if c_end + 1 < start:
+            new_ranges.append((c_start, c_end))
+            continue
+        if end + 1 < c_start:
+            if not inserted:
+                new_ranges.append((start, end))
+                inserted = True
+            new_ranges.append((c_start, c_end))
+            continue
+        start = min(start, c_start)
+        end = max(end, c_end)
+    if not inserted:
+        new_ranges.append((start, end))
+    covered[:] = new_ranges
+
+
+def _split_segment(start: int, end: int, limit: int) -> List[Tuple[int, int]]:
+    if start > end:
+        return []
+    if limit <= 0:
+        return [(start, end)]
+    pieces: List[Tuple[int, int]] = []
+    s = start
+    while s <= end:
+        e = min(end, s + limit - 1)
+        pieces.append((s, e))
+        s = e + 1
+    return pieces
+
+
 def chunk_code_file(
     path: Path,
     max_lines: int = 200,
@@ -190,17 +281,21 @@ def chunk_code_file(
     - Each chunk will contain at most `chunk_size` (or `max_lines`) lines.
     - Falls back to simple line-based chunking when no parser is available.
     """
-    size = int(chunk_size or max_lines)
+    size = max(1, int(chunk_size or max_lines))
     language = _detect_language(path)
     text = path.read_text(encoding="utf-8", errors="ignore")
     lines = text.splitlines(keepends=True)
+    total_lines = len(lines)
+
+    if total_lines == 0:
+        return []
 
     if not language:
         # Unknown language → line-based chunks
         return _line_chunks(path, lines, size)
 
     try:
-        parser = get_parser(language)
+        parser = _get_cached_parser(language)
     except Exception:
         return _line_chunks(path, lines, size)
 
@@ -211,54 +306,87 @@ def chunk_code_file(
 
     root = tree.root_node
     nodes = _gather_nodes(root, language)
-    chunks: List[Chunk] = []
-
     if not nodes:
         return _line_chunks(path, lines, size)
 
+    node_entries: List[Tuple[int, int, int, int, Any]] = []
     for node in nodes:
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
-        # include a bit of pre-context
-        start_line_with_ctx = max(1, start_line - pre_context)
+        if end_line < start_line:
+            continue
+        ctx_start = _compute_context_start(lines, start_line, pre_context)
+        length = end_line - start_line + 1
+        node_entries.append((length, start_line, ctx_start, end_line, node))
 
-        if end_line - start_line_with_ctx + 1 <= size:
-            content = "".join(lines[start_line_with_ctx - 1 : end_line])
+    if not node_entries:
+        return _line_chunks(path, lines, size)
+
+    node_entries.sort(key=lambda entry: (entry[0], entry[1]))
+
+    chunks: List[Chunk] = []
+    covered: List[Tuple[int, int]] = []
+
+    for _, start_line, ctx_start, end_line, node in node_entries:
+        target_start = max(1, min(ctx_start, total_lines))
+        target_end = min(total_lines, max(target_start, end_line))
+        segments: List[Tuple[int, int]] = []
+        has_split = False
+        for seg_start, seg_end in _find_uncovered_segments(target_start, target_end, covered):
+            if seg_end < seg_start:
+                continue
+            if seg_end - seg_start + 1 > size:
+                has_split = True
+                segments.extend(_split_segment(seg_start, seg_end, size))
+            else:
+                segments.append((seg_start, seg_end))
+        if not segments:
+            continue
+        base_symbol = _get_node_name(node)
+        use_part_labels = has_split or len(segments) > 1
+        for idx, (seg_start, seg_end) in enumerate(segments, start=1):
+            content = "".join(lines[seg_start - 1 : seg_end])
+            if not content.strip():
+                continue
+            symbol = base_symbol
+            if base_symbol and use_part_labels:
+                symbol = f"{base_symbol} (part {idx})"
             chunks.append(
                 Chunk(
                     path=str(path),
                     content=content,
-                    start_line=start_line_with_ctx,
-                    end_line=end_line,
+                    start_line=seg_start,
+                    end_line=seg_end,
                     language=language,
-                    symbol=_get_node_name(node),
+                    symbol=symbol,
                 )
             )
-        else:
-            # Split large definitions by contiguous segments (no overlap)
-            s = start_line_with_ctx
-            while s <= end_line:
-                e = min(end_line, s + size - 1)
-                content = "".join(lines[s - 1 : e])
-                sym = _get_node_name(node)
-                if sym:
-                    # Compute part index based on contiguous segmentation
-                    part_index = ((s - start_line_with_ctx) // max(1, size)) + 1
-                    sym = f"{sym} (part {part_index})"
-                chunks.append(
-                    Chunk(
-                        path=str(path),
-                        content=content,
-                        start_line=s,
-                        end_line=e,
-                        language=language,
-                        symbol=sym,
-                    )
-                )
-                if e == end_line:
-                    break
-                s = e + 1
+            _add_coverage(covered, seg_start, seg_end)
 
+    for seg_start, seg_end in _find_uncovered_segments(1, total_lines, covered):
+        if seg_end < seg_start:
+            continue
+        overflow_segments: List[Tuple[int, int]]
+        if seg_end - seg_start + 1 > size:
+            overflow_segments = _split_segment(seg_start, seg_end, size)
+        else:
+            overflow_segments = [(seg_start, seg_end)]
+        for piece_start, piece_end in overflow_segments:
+            content = "".join(lines[piece_start - 1 : piece_end])
+            if not content.strip():
+                continue
+            chunks.append(
+                Chunk(
+                    path=str(path),
+                    content=content,
+                    start_line=piece_start,
+                    end_line=piece_end,
+                    language=language,
+                )
+            )
+            _add_coverage(covered, piece_start, piece_end)
+
+    chunks.sort(key=lambda c: (c.start_line, c.end_line))
     return chunks
 
 

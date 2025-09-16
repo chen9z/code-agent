@@ -9,7 +9,6 @@ dependencies = [
     "litellm>=1.76.3",
     "numpy>=1.24.0",
     "openai>=1.0.0",
-    "pydantic>=2.11.7",
     "pytest>=8.4.2",
     "python-dotenv>=1.1.1",
     "qdrant-client>=1.15.1",
@@ -37,6 +36,39 @@ test = [
 
 [tool.uv]
 dev-dependencies = ["pytest>=8.4.2", "pytest-cov>=5.0.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["clients", "integration"]
+include = [
+    "__init__.py",
+    "main.py",
+    "model.py",
+    "rag_flow.py",
+    "config/*.py",
+    "tools/*.py",
+]
+exclude = [
+    "tests/**",
+    "docs/**",
+    "storage/**",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "__init__.py",
+    "main.py",
+    "model.py",
+    "rag_flow.py",
+    "config/*.py",
+    "tools/*.py",
+    "clients/**",
+    "integration/**",
+]
+exclude = [
+    "tests/**",
+    "docs/**",
+    "storage/**",
+]
 
 [build-system]
 requires = ["hatchling"]

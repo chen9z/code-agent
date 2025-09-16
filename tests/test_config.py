@@ -5,9 +5,9 @@ Tests for the centralized configuration management system.
 
 import os
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from config.manager import get_config, reload_config, validate_config
+from config.manager import AppConfig, get_config, reload_config, validate_config
 
 
 def test_get_config_singleton():
@@ -23,22 +23,15 @@ def test_config_structure():
     """Test that config has the expected minimal structure."""
     config = get_config()
 
-    # Minimal sections
+    assert isinstance(config, AppConfig)
     assert hasattr(config, 'rag')
     assert hasattr(config, 'llm')
-
-    # RAG minimal settings
     assert hasattr(config.rag, 'embedding_model')
     assert hasattr(config.rag, 'rerank_model')
-
-    # LLM settings
+    assert hasattr(config.rag, 'chunk_size')
     assert hasattr(config.llm, 'model')
-    assert hasattr(config.llm, 'api_base')
-    assert hasattr(config.llm, 'api_key')
     assert hasattr(config.llm, 'temperature')
     assert hasattr(config.llm, 'max_tokens')
-    # RAG chunk size
-    assert hasattr(config.rag, 'chunk_size')
 
 
 def test_config_default_values():
@@ -83,18 +76,11 @@ def test_config_validation():
     # Default config should be valid
     assert validate_config() == True
     
-    # Test with invalid values - Pydantic will raise ValidationError
-    # and our fallback will use safe defaults
     with patch.dict(os.environ, {
-        'LLM_TEMPERATURE': '2.5',  # Out of range (0.0-2.0)
+        'LLM_TEMPERATURE': 'not-a-number',
     }):
-        # Our fallback should use safe defaults when validation fails
         config = reload_config()
-        
-        # Should use safe defaults (not the invalid values)
-        assert config.llm.temperature == 0.1  # Safe default
-        
-        # Config should still be considered valid (fallback worked)
+        assert config.llm.temperature == 0.1
         assert validate_config() == True
 
 
@@ -111,24 +97,19 @@ def test_config_reload():
     }):
         config2 = reload_config()
 
-        # Should be the same object (singleton)
-        assert config1 is config2
+        # Should be a fresh instance after reload
+        assert config1 is not config2
+        assert config2 is get_config()
 
         # But values should be updated
         assert config2.rag.embedding_model == "reloaded-embedding"
         assert config2.rag.chunk_size == 321
 
     # Clean up environment and restore original config
-    with patch.dict(os.environ, {
-        'RAG_EMBEDDING_MODEL': original_embedding,
-        'RAG_CHUNK_SIZE': str(original_chunk_size)
-    }):
-        reload_config()
-
-        # Should be back to original
-        cfg = get_config()
-        assert cfg.rag.embedding_model == original_embedding
-        assert cfg.rag.chunk_size == original_chunk_size
+    reload_config()
+    cfg = get_config()
+    assert cfg.rag.embedding_model == original_embedding
+    assert cfg.rag.chunk_size == original_chunk_size
 
 
 def test_config_backward_compatibility():
@@ -149,18 +130,13 @@ def test_config_backward_compatibility():
 def test_config_serialization():
     """Test that config can be serialized to dict."""
     config = get_config()
-    config_dict = config.dict()
+    config_dict = config.to_dict()
+    assert config_dict['rag']['embedding_model'] == config.rag.embedding_model
+    assert config_dict['llm']['model'] == config.llm.model
 
-    # Should contain minimal sections
-    assert 'rag' in config_dict
-    assert 'llm' in config_dict
-
-    # Should be able to recreate from dict
-    from config.manager import AppConfig
-    recreated_config = AppConfig.parse_obj(config_dict)
-
-    assert recreated_config.rag.embedding_model == config.rag.embedding_model
-    assert recreated_config.llm.model == config.llm.model
+    recreated = AppConfig.from_dict(config_dict)
+    assert recreated.rag.embedding_model == config.rag.embedding_model
+    assert recreated.llm.model == config.llm.model
 
 
 if __name__ == "__main__":

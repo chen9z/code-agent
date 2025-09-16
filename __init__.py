@@ -8,7 +8,7 @@ class BaseNode:
         self.successors[action]=node; return node
     def prep(self,shared): pass
     def exec(self,prep_res): pass
-    def post(self,shared,prep_res,exec_res): pass
+    def post(self,shared,prep_res,exec_res): return exec_res
     def _exec(self,prep_res): return self.exec(prep_res)
     def _run(self,shared): p=self.prep(shared); e=self._exec(p); return self.post(shared,p,e)
     def run(self,shared): 
