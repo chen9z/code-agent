@@ -1,44 +1,37 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `main.py`: CLI/demo entrypoint for the agent.
-- `rag_flow.py`: Orchestrates Node/Flow RAG workflow.
-- `tools/`: Nodes and bases (`rag_nodes.py`, `base.py`, `base_node.py`).
-- `configs/`: Centralized settings (`manager.py`). Env prefixes: `LLM_*` (LLM), `RAG_*` (embedding/rerank, `RAG_CHUNK_SIZE`).
-- `integrations/`: External adapters (e.g., Qdrant, chat‑codebase bridge).
-- `tests/`: Pytest suite (`test_*.py`, `conftest.py`).
-- `storage/`: Local vector store data (Qdrant). Avoid committing large files/secrets.
-- Docs: `requirements.md`, `design.md`, `tasks.md`, `docs/ARCHITECTURE.md`.
+- `core/`: Runtime primitives for flows and nodes; import from `core.base` or top-level `__init__`.
+- `agents/`: Ready-to-run agent flows (e.g., `agents/code_rag.py`). Use `register_agent` to expose new flows.
+- `integrations/`: Adapters for external systems such as repositories and vector stores (`integrations/repository.py`).
+- `configs/`: Environment-driven configuration (`configs/manager.py`).
+- `clients/` & `tools/`: LLM clients and reusable tool abstractions.
+- `tests/`: Pytest suite mirroring runtime layout.
 
-## Build, Test, and Development
-- Requires Python `>=3.11` and `uv`.
-- Setup: `uv venv && source .venv/bin/activate && uv sync`.
-- Install (editable + tests): `uv pip install -e '.[test]'`.
-- Run tests: `uv run pytest` (uses `pytest.ini` → `-v --tb=short`).
-- Focused test: `uv run pytest tests/test_rag.py::test_rag_flow -q`.
-- Run demo: `uv run python main.py`.
+## Build, Test, and Development Commands
+- `uv venv && source .venv/bin/activate`: create and activate the local virtualenv.
+- `uv sync` or `uv pip install -e '.[test]'`: install editable dependencies.
+- `uv run pytest`: run the full test suite.
+- `uv run pytest tests/test_rag.py::test_rag_flow -q`: focused flow test.
+- `uv run python main.py`: demo the CLI entrypoint.
 
 ## Coding Style & Naming Conventions
-- Follow PEP 8; 4‑space indentation; add type hints where practical.
-- Names: modules/functions `snake_case`; classes `PascalCase` (e.g., `RAGIndexNode`).
-- Docstrings: triple double quotes; keep functions small and cohesive.
-- Tool params JSON‑schema lives on the tool (`parameters` property).
+- Python 3.11+, 4-space indentation, PEP 8-aligned naming (`snake_case` for functions/modules, `PascalCase` for classes).
+- Keep node/flow logic small and composable; prefer dependency injection for integrations.
+- Use concise comments only where non-obvious orchestration occurs.
 
 ## Testing Guidelines
-- Framework: Pytest. Place tests under `tests/` as `test_*.py`; functions `test_*`.
-- Keep tests fast and deterministic; favor unit coverage for nodes/tools/flows.
-- Optional coverage (if installed): `uv run pytest --cov`.
+- Tests live under `tests/` with `test_*.py` / `test_*` functions.
+- Prefer unit coverage for nodes, tools, and agent flows; integrate stubs for external services.
+- Run `uv run pytest --maxfail=1 -q` before submitting to ensure the fast path passes.
 
 ## Commit & Pull Request Guidelines
-- Commits: imperative mood, concise scope; link issues (e.g., `Fix: handle empty search results (#123)`).
-- PRs must include: clear description + rationale, linked issue(s), test plan/results (commands used + output summary), and docs updates for behavior/config changes. Add CLI logs/screenshots when helpful.
+- Commits: imperative mood, scoped messages (e.g., `Refactor: reorganize runtime`).
+- PRs: include summary, rationale, linked issue if applicable, and `Test Plan` section with commands executed. Attach screenshots/logs for UX changes.
 
-## Security & Configuration
-- Configure via env vars: `RAG_*`, `LLM_*`, `VECTORDB_*`, `APP_*`, plus `OPENAI_API_BASE`, `OPENAI_API_KEY`, optional `CHAT_CODEBASE_PATH`.
-- Example: `export OPENAI_API_BASE=https://api.deepseek.com`; `export OPENAI_API_KEY=...`.
-- Vector store defaults to `./storage`; avoid committing secrets or large artifacts.
+## Security & Configuration Tips
+- Configure runtime via environment variables (`LLM_*`, `RAG_*`, `OPENAI_API_KEY`, `CHAT_CODEBASE_PATH`).
+- Avoid committing secrets or large artifacts; local vector data stays in `storage/` (gitignored).
 
-## Agent‑Specific Notes
-- New tools: subclass `tools.base.BaseTool`; expose `name`, `description`, `parameters`, `execute`.
-- New flows/nodes: extend `Node`/`Flow`; route by action strings (see `rag_flow.py`).
-- Use `configs.manager` for settings; prefer dependency injection for testability.
+## Agent-Specific Notes
+- New agents should subclass existing nodes or compose tools via `core.Flow`. Register with `agents.register_agent("my_agent", factory)` and document entrypoints under `agents/`.

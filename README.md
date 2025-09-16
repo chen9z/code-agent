@@ -1,26 +1,40 @@
-# Code Agent (RAG)
+# Code Agent
 
-Lightweight codebase search and RAG utilities. Index a repository, semantically search code, and ask questions grounded in relevant snippets. Works offline with a stub LLM; optionally uses OpenAI‑compatible APIs when configured.
+Composable agent runtime focused on code understanding. Index repositories, run semantic search, and answer questions with retrieved context. Ships with a fallback stub LLM and optional OpenAI-compatible clients.
+
+## Project Layout
+
+- `core/` – flow/node runtime primitives exported via top-level `__init__`.
+- `agents/` – packaged agents (e.g., `code_rag`) built from reusable nodes and tools.
+- `integrations/` – adapters for repositories, vector stores, external bridges.
+- `configs/` – environment-driven configuration helpers.
+- `clients/` / `tools/` – LLM clients and tool abstractions.
+- `tests/` – pytest suite mirroring runtime modules.
+
+Vector data persists in `storage/` (gitignored).
 
 ## Quick Start
 
-Prereqs: Python >= 3.11 and uv.
+Prerequisites: Python ≥ 3.11 and `uv`.
 
-- Setup env
-  - `uv venv && source .venv/bin/activate && uv sync`
-  - Install (editable + tests): `uv pip install -e '.[test]'`
-- Optional API config
-  - `export OPENAI_API_BASE=https://api.deepseek.com`
-  - `export OPENAI_API_KEY=...`
-- Optional chat-codebase bridge
-  - `export CHAT_CODEBASE_PATH=/path/to/chat-codebase` (fallback repo is used if absent)
+```bash
+uv venv && source .venv/bin/activate
+uv sync
+# optional extras
+uv pip install -e '.[test]'
+```
 
-## Notes
-- Vector store defaults to `./storage` (ignored by VCS).
+Optional configuration:
+
+```bash
+export OPENAI_API_BASE=https://api.deepseek.com
+export OPENAI_API_KEY=sk-...
+export CHAT_CODEBASE_PATH=/path/to/chat-codebase  # optional deep integration
+```
 
 ## Python API
 
-Minimal RAG examples:
+Minimal Code-RAG examples:
 
 ```python
 from rag_flow import run_rag_workflow
@@ -35,7 +49,10 @@ res = run_rag_workflow(action="search", project_name="project", query="function 
 res = run_rag_workflow(action="query", project_name="project", question="How does it work?", limit=5)
 ```
 
-## Test
+## Development
 
-- Run tests: `uv run pytest` (uses `-v --tb=short`).
-- Focused: `uv run pytest tests/test_rag.py::test_rag_flow -q`.
+- Run tests: `uv run pytest`
+- Focused flow test: `uv run pytest tests/test_rag.py::test_rag_flow -q`
+- Demo CLI banner: `uv run python main.py`
+
+Refer to `AGENTS.md` for contributor guidance and coding conventions.
