@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Generator, List, Dict, Any
-from config.manager import get_config
+from configs.manager import get_config
 
 
 class BaseLLMClient:
@@ -49,7 +49,7 @@ def get_default_llm_client() -> BaseLLMClient:
     """Construct default LLM client using centralized config.
 
     Precedence:
-    1) LLM_* from config.manager (recommended)
+    1) LLM_* from configs.manager (recommended)
     2) OPENAI_API_KEY / OPENAI_API_BASE environment variables (fallback)
     """
     cfg = get_config()

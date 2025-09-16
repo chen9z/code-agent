@@ -7,7 +7,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from config.manager import AppConfig, get_config, reload_config, validate_config
+from configs.manager import AppConfig, get_config, reload_config, validate_config
 
 
 def test_get_config_singleton():
@@ -114,7 +114,7 @@ def test_config_reload():
 
 def test_config_backward_compatibility():
     """Test backward compatibility with old get_rag_config function."""
-    from config.manager import get_rag_config
+    from configs.manager import get_rag_config
 
     rag_config = get_rag_config()
     main_config = get_config()

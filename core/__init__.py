@@ -1,6 +1,6 @@
-"""Backward-compatibility exports for legacy imports."""
+"""Core runtime exports."""
 
-from core.base import (  # noqa: F401
+from .base import (
     AsyncBatchFlow,
     AsyncBatchNode,
     AsyncFlow,

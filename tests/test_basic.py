@@ -10,9 +10,9 @@ def test_package_import():
 def test_main_import():
     """Test that main modules can be imported."""
     import rag_flow
-    from config import manager as config_manager
+    from configs import manager as config_manager
     import rag_flow as rf
-    from integration import repository
+    from integrations import repository
     
     assert rag_flow is not None
     assert config_manager is not None

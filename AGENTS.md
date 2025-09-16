@@ -4,8 +4,8 @@
 - `main.py`: CLI/demo entrypoint for the agent.
 - `rag_flow.py`: Orchestrates Node/Flow RAG workflow.
 - `tools/`: Nodes and bases (`rag_nodes.py`, `base.py`, `base_node.py`).
-- `config/`: Centralized settings via Pydantic (`manager.py`). Env prefixes: `LLM_*` (LLM), `RAG_*` (embedding/rerank, `RAG_CHUNK_SIZE`).
-- `integration/`: External adapters (e.g., Qdrant, chat‑codebase bridge).
+- `configs/`: Centralized settings (`manager.py`). Env prefixes: `LLM_*` (LLM), `RAG_*` (embedding/rerank, `RAG_CHUNK_SIZE`).
+- `integrations/`: External adapters (e.g., Qdrant, chat‑codebase bridge).
 - `tests/`: Pytest suite (`test_*.py`, `conftest.py`).
 - `storage/`: Local vector store data (Qdrant). Avoid committing large files/secrets.
 - Docs: `requirements.md`, `design.md`, `tasks.md`, `docs/ARCHITECTURE.md`.
@@ -41,4 +41,4 @@
 ## Agent‑Specific Notes
 - New tools: subclass `tools.base.BaseTool`; expose `name`, `description`, `parameters`, `execute`.
 - New flows/nodes: extend `Node`/`Flow`; route by action strings (see `rag_flow.py`).
-- Use `config.manager` for settings; prefer dependency injection for testability.
+- Use `configs.manager` for settings; prefer dependency injection for testability.

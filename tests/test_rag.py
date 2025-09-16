@@ -19,7 +19,7 @@ def test_nodes_creation():
 
 def test_repository_adapter():
     """Test repository adapter functionality."""
-    from integration.repository import RepositoryAdapter
+    from integrations.repository import RepositoryAdapter
     
     # Test fallback mode (since chat-codebase may not be available)
     adapter = RepositoryAdapter()
@@ -32,7 +32,7 @@ def test_repository_adapter():
 
 def test_config():
     """Test configuration loading (minimal)."""
-    from config.manager import get_config
+    from configs.manager import get_config
 
     cfg = get_config()
 
