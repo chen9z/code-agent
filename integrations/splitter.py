@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from tree_sitter_languages import get_parser
+from tree_sitter import Parser
+
+from integrations.tree_sitter.language_loader import (
+    is_language_supported,
+    load_language,
+)
 
 try:
     import pathspec  # type: ignore
@@ -106,9 +111,12 @@ def _make_ignore_matcher(root: Path):
 
 
 def _get_cached_parser(language: str):
+    if not is_language_supported(language):
+        return None
     parser = _PARSER_CACHE.get(language)
     if parser is None:
-        parser = get_parser(language)
+        parser = Parser()
+        parser.language = load_language(language)
         _PARSER_CACHE[language] = parser
     return parser
 
@@ -297,6 +305,8 @@ def chunk_code_file(
     try:
         parser = _get_cached_parser(language)
     except Exception:
+        parser = None
+    if parser is None:
         return _line_chunks(path, lines, size)
 
     try:

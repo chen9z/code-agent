@@ -12,12 +12,26 @@ dependencies = [
     "pytest>=8.4.2",
     "python-dotenv>=1.1.1",
     "qdrant-client>=1.15.1",
+    "diskcache>=5.6.3",
+    "grep-ast>=0.3.3",
     "rich>=14.1.0",
     "tenacity>=9.1.2",
     "tiktoken>=0.11.0",
     "tqdm>=4.67.1",
     "tree-sitter>=0.25.1",
-    "tree-sitter-languages>=1.10.2",
+    "tree-sitter-python>=0.0.1",
+    "tree-sitter-javascript>=0.0.1",
+    "tree-sitter-typescript>=0.0.1",
+    "tree-sitter-go>=0.0.1",
+    "tree-sitter-java>=0.0.1",
+    "tree-sitter-rust>=0.0.1",
+    "tree-sitter-c>=0.0.1",
+    "tree-sitter-cpp>=0.0.1",
+    "tree-sitter-c-sharp>=0.0.1",
+    "tree-sitter-php>=0.0.1",
+    "tree-sitter-ruby>=0.0.1",
+    "tree-sitter-swift>=0.0.1",
+    "tree-sitter-kotlin>=0.0.1",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +60,9 @@ include = [
     "rag_flow.py",
     "configs/*.py",
     "tools/*.py",
+    "integrations/tree_sitter/*.py",
+    "integrations/tree_sitter/queries/*.scm",
+    "integrations/tree_sitter/queries/README.md",
 ]
 exclude = [
     "tests/**",

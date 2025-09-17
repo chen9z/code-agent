@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from core.base import Flow, Node
 from integrations.repository import create_repository
+from integrations.tree_sitter import TreeSitterProjectParser
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 
@@ -17,6 +18,7 @@ class RAGIndexNode(Node):
     def __init__(self, max_retries: int = 1, wait: int = 0) -> None:
         super().__init__(max_retries, wait)
         self.repository = create_repository()
+        self.ts_parser = TreeSitterProjectParser()
 
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         project_path = self.params.get("project_path") or shared.get("project_path")
@@ -32,6 +34,19 @@ class RAGIndexNode(Node):
             raise ValueError(f"Path is not a directory: {project_path}")
 
         self.repository.index_project(str(project_path))
+
+        symbols_error: Optional[str] = None
+        try:
+            symbols = self.ts_parser.parse_project(project_path)
+            storage_dir = Path("storage/tree_sitter").resolve()
+            storage_dir.mkdir(parents=True, exist_ok=True)
+            symbols_path = storage_dir / f"{project_path.name}_symbols.jsonl"
+            self.ts_parser.export_symbols(symbols, symbols_path)
+            symbols_path_str: Optional[str] = str(symbols_path)
+        except Exception as exc:
+            symbols = []
+            symbols_path_str = None
+            symbols_error = str(exc)
         action = self.params.get("action") or "index"
 
         return {
@@ -39,6 +54,9 @@ class RAGIndexNode(Node):
             "project_name": project_path.name,
             "message": f"Successfully indexed project: {project_path.name}",
             "project_path": str(project_path),
+            "parsed_symbols_count": len(symbols),
+            "parsed_symbols_path": symbols_path_str,
+            "parsed_symbols_error": symbols_error,
             "action": action,
         }
 
