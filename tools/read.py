@@ -9,6 +9,28 @@ MAX_LINE_LENGTH = 2000
 DEFAULT_LIMIT = 2000
 
 
+# Tracks files that have been read along with their modification timestamps.
+READ_REGISTRY: Dict[str, float] = {}
+
+
+def register_read_path(path: Path) -> None:
+    """Record that a file was read, storing its current modification time."""
+    try:
+        READ_REGISTRY[str(path)] = path.stat().st_mtime
+    except FileNotFoundError:
+        READ_REGISTRY.pop(str(path), None)
+
+
+def get_last_read_mtime(path: Path) -> float | None:
+    """Retrieve the recorded modification time for a previously read file."""
+    return READ_REGISTRY.get(str(path))
+
+
+def clear_read_record(path: Path) -> None:
+    """Remove any stored read record for the given file."""
+    READ_REGISTRY.pop(str(path), None)
+
+
 class ReadTool(BaseTool):
     """Tool that reads files with optional pagination support."""
 
@@ -18,10 +40,7 @@ class ReadTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Reads a file from the local filesystem using cat -n formatted output. "
-            "Supports optional line offset and limit for large files."
-        )
+        return """Reads a file from the local filesystem using cat -n formatted output. Supports optional line offset and limit for large files."""
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -46,7 +65,6 @@ class ReadTool(BaseTool):
                     "description": "Absolute path to the file to read.",
                 },
             },
-            "additionalProperties": False,
         }
 
     def execute(
@@ -75,7 +93,7 @@ class ReadTool(BaseTool):
             if max_lines < 1:
                 raise ValueError("limit must be greater than or equal to 1")
 
-            resolved_path = str(path.resolve())
+            resolved_path = path.resolve()
             formatted_lines: List[str] = []
             lines_read = 0
             truncated = False
@@ -99,13 +117,15 @@ class ReadTool(BaseTool):
                     formatted_lines.append(f"{line_number:6}\t{stripped}")
                     lines_read += 1
 
+            register_read_path(resolved_path)
+
             result = "\n".join(formatted_lines)
 
             if not formatted_lines:
                 result = "[empty output]"
 
             return {
-                "file_path": resolved_path,
+                "file_path": str(resolved_path),
                 "offset": start_line,
                 "limit": max_lines,
                 "count": lines_read,
