@@ -15,10 +15,7 @@ class GlobTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Fast file pattern matching tool that supports glob patterns like '**/*.js' "
-            "or 'src/**/*.ts'. Returns matches sorted by modification time (newest first)."
-        )
+        return """Fast file pattern matching tool that supports glob patterns like '**/*.js' or 'src/**/*.ts'. Returns matches sorted by modification time (newest first)."""
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -38,7 +35,6 @@ class GlobTool(BaseTool):
                     "description": "Glob pattern to match entries against.",
                 },
             },
-            "additionalProperties": False,
         }
 
     def execute(self, *, pattern: str, path: str | None = None) -> Dict[str, Any]:
