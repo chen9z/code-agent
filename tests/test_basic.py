@@ -9,21 +9,21 @@ def test_package_import():
 
 def test_main_import():
     """Test that main modules can be imported."""
-    import rag_flow
+    import code_rag
     from configs import manager as config_manager
-    import rag_flow as rf
+    import code_rag as rf
     from integrations import repository
     
-    assert rag_flow is not None
+    assert code_rag is not None
     assert config_manager is not None
     assert hasattr(rf, 'RAGIndexNode')
     assert hasattr(rf, 'RAGSearchNode')
     assert hasattr(rf, 'RAGQueryNode')
     assert repository is not None
 
-def test_rag_flow_import():
-    """Test RAG flow specific imports."""
-    from rag_flow import RAGFlow, RAGIndexNode, RAGSearchNode, RAGQueryNode
+def test_code_rag_import():
+    """Test RAG flow specific imports via code_rag."""
+    from code_rag import RAGFlow, RAGIndexNode, RAGSearchNode, RAGQueryNode
     
     assert RAGFlow is not None
     assert RAGIndexNode is not None

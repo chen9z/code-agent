@@ -21,7 +21,7 @@ This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, e
 - Document model: `{path, content, chunk_id, start_line, end_line, score}`. Chunks are non-overlapping and max ~RAG_CHUNK_SIZE lines (default 200).
 
 ## Usage
-- Programmatic API: `rag_flow.run_rag_workflow(action=...)`.
+- Programmatic API: `code_rag.run_rag_workflow(action=...)`.
 
 ## Extensibility Guidelines
 - New nodes extend `Node`; keep side effects isolated and parameters explicit.

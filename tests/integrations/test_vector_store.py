@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from integrations.tree_sitter import ParsedSymbol, TagKind
+from integrations.tree_sitter.parser import ParsedSymbol, TagKind
 from integrations.vector_store import LocalQdrantStore, QdrantConfig
 
 

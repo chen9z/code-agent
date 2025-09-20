@@ -1,7 +1,7 @@
 # CLI Code Agent Plan
 
 ## 实施计划
-- 梳理现有代理框架：通读 `tool_agent.py`, `code_rag.py`, `nodes/tool_execution.py`, `tools/registry.py`，确认多工具并行/串行调度、`Flow` 生命周期以及配置注入方式。
+- 梳理现有代理框架：通读 `code_agent.py`, `code_rag.py`, `nodes/tool_execution.py`, `tools/registry.py`，确认多工具并行/串行调度、`Flow` 生命周期以及配置注入方式。
 - 设计 CLI Code Agent 交互：在根目录定义 `code_agent.py`，通过 `Flow`/`Node` 驱动最简交互循环。
 - 拓展可复用节点：复用 `ToolAgentFlow`，必要时包装单节点实现提示输出。
 - 集成工具与 LLM：使用默认 `create_default_registry()` 注册全部工具，保留配置中心化。

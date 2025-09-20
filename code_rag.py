@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from __init__ import Flow, Node
 from integrations.repository import create_repository
-from integrations.tree_sitter import TreeSitterProjectParser
+from integrations.tree_sitter.parser import TreeSitterProjectParser
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 
@@ -265,4 +265,3 @@ def run_rag_workflow(action: str, **kwargs: Any) -> Dict[str, Any]:
     flow = create_rag_flow()
     params = {"action": action, **kwargs}
     return flow.run(params)
-

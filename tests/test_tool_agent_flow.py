@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from tool_agent import create_tool_agent_flow
+from code_agent import create_tool_agent_flow
 from tools.registry import create_default_registry
 
 

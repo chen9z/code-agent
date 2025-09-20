@@ -10,7 +10,7 @@ import tempfile
 
 def test_nodes_creation():
     """Test that RAG nodes can be instantiated."""
-    from rag_flow import RAGIndexNode, RAGSearchNode, RAGQueryNode
+    from code_rag import RAGIndexNode, RAGSearchNode, RAGQueryNode
 
     assert RAGIndexNode() is not None
     assert RAGSearchNode() is not None
@@ -44,7 +44,7 @@ def test_config():
 
 def test_rag_operations():
     """Test basic RAG operations using the flow API."""
-    from rag_flow import run_rag_workflow
+    from code_rag import run_rag_workflow
 
     # Create a temporary test project
     with tempfile.TemporaryDirectory() as test_project:
@@ -76,7 +76,7 @@ def test_rag_operations():
 
 def test_rag_flow():
     """Test RAG flow functionality."""
-    from rag_flow import run_rag_workflow
+    from code_rag import run_rag_workflow
     
     with tempfile.TemporaryDirectory() as test_project:
         # Create a test file
