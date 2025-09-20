@@ -1,5 +1,6 @@
 """Tests for ToolExecutionBatchNode sequential and parallel execution."""
 
+import json
 import threading
 import time
 
@@ -37,11 +38,29 @@ class _RecorderTool(BaseTool):
         return {"echo": kwargs}
 
 
+class _EmptyTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "Empty"
+
+    @property
+    def description(self) -> str:
+        return "returns an empty list"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def execute(self, **kwargs):
+        return []
+
+
 @pytest.fixture()
 def registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(_RecorderTool("Echo"), key="echo")
     reg.register(_RecorderTool("Slow", delay=0.05), key="slow")
+    reg.register(_EmptyTool(), key="empty")
     return reg
 
 
@@ -66,6 +85,8 @@ def test_sequential_execution_updates_shared(registry: ToolRegistry):
     history = shared["history"]
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
+    assert json.loads(history[-2]["content"]) == {"echo": {"value": 1}}
+    assert json.loads(history[-1]["content"]) == {"echo": {"value": 2}}
 
 
 def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
@@ -88,6 +109,24 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
     assert statuses == {"a", "b"}
     history = shared["history"]
     assert all(entry["role"] == "tool" for entry in history[-2:])
+    contents = {json.loads(entry["content"])["echo"]["value"] for entry in history[-2:]}
+    assert contents == {"a", "b"}
+
+
+def test_history_preserves_falsy_output(registry: ToolRegistry):
+    node = ToolExecutionBatchNode(registry)
+    shared = {
+        "tool_plan": {
+            "tool_calls": [
+                {"key": "empty", "arguments": {}, "mode": "sequential"},
+            ]
+        }
+    }
+
+    node._run(shared)
+
+    history = shared["history"]
+    assert json.loads(history[-1]["content"]) == []
 
 
 def test_missing_tool_returns_error(registry: ToolRegistry):

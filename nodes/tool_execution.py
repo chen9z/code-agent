@@ -52,11 +52,12 @@ class ToolExecutionBatchNode(Node):
 
         history = shared.setdefault("history", [])
         for result in exec_res:
+            payload = result.get("output") if result.get("status") == "success" else result.get("error")
             message = {
                 "role": "tool",
                 "tool_call_id": result.get("id"),
                 "name": result.get("key"),
-                "content": json.dumps(result.get("output") or result.get("error"), ensure_ascii=False),
+                "content": json.dumps(payload, ensure_ascii=False),
             }
             history.append(message)
         return "summarize"
