@@ -24,11 +24,14 @@ uv sync
 uv pip install -e '.[test]'
 ```
 
-Optional configuration:
+Optional configuration (env vars consumed via `configs/manager.py`):
 
 ```bash
-export OPENAI_API_BASE=https://api.deepseek.com
-export OPENAI_API_KEY=sk-...
+export LLM_MODEL=deepseek-chat
+export LLM_API_KEY=sk-...
+export LLM_API_BASE=https://api.deepseek.com
+export OPENAI_API_KEY=sk-...            # compatibility fallback
+export OPENAI_API_BASE=https://api.openai.com/v1
 export CHAT_CODEBASE_PATH=/path/to/chat-codebase  # optional deep integration
 ```
 
@@ -49,10 +52,22 @@ res = run_rag_workflow(action="search", project_name="project", query="function 
 res = run_rag_workflow(action="query", project_name="project", question="How does it work?", limit=5)
 ```
 
+## Agent CLI
+
+Launch the code agent from the terminal and interact conversationally:
+
+```bash
+uv run python main.py          # starts the agent
+# or explicitly
+uv run python main.py agent
+```
+
+Type your prompts when the CLI shows `You: ` and enter `exit` (or `quit`) to finish. The agent streams planning thoughts, tool activity, and final answers inline.
+
 ## Development
 
 - Run tests: `uv run pytest`
 - Focused flow test: `uv run pytest tests/test_rag.py::test_rag_flow -q`
-- Demo CLI banner: `uv run python main.py`
+- Agent CLI smoke test: `uv run python main.py`
 
 Refer to `AGENTS.md` for contributor guidance and coding conventions.

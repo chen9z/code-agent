@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
-"""
-Minimal entrypoint for the code-agent with RAG integration.
-
-This script intentionally avoids a full CLI to keep the codebase tidy.
-Use the Python API via `rag_flow.run_rag_workflow` in your own scripts.
-"""
+"""Unified entrypoint for the code-agent CLI suite."""
 
 from __future__ import annotations
 
-import os
+import argparse
+from typing import Sequence
+
+from code_agent import run_code_agent_cli
 
 
-def main() -> None:
-    print("Code Agent (RAG)")
-    print("-----------------")
-    if not os.getenv("OPENAI_API_KEY"):
-        print("No OPENAI_API_KEY found. Using stub LLM (offline mode).")
-    print("Use rag_flow.run_rag_workflow(action=..., **kwargs) for programmatic use.")
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Code Agent command-line interface")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="agent",
+        help="Command to execute (only 'agent' is supported).",
+    )
+    args = parser.parse_args(argv)
+
+    if args.command == "agent":
+        return run_code_agent_cli()
+
+    parser.print_help()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
