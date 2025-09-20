@@ -52,12 +52,14 @@ test = [
 dev-dependencies = ["pytest>=8.4.2", "pytest-cov>=5.0.0"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["core", "agents", "configs", "integrations", "clients", "tools"]
+packages = ["configs", "integrations", "clients", "tools", "nodes"]
 include = [
     "__init__.py",
     "main.py",
     "model.py",
     "rag_flow.py",
+    "code_rag.py",
+    "tool_agent.py",
     "configs/*.py",
     "tools/*.py",
     "integrations/tree_sitter/*.py",
@@ -76,14 +78,13 @@ include = [
     "main.py",
     "model.py",
     "rag_flow.py",
-    "configs/*.py",
-    "tools/*.py",
+    "code_rag.py",
+    "tool_agent.py",
     "clients/**",
-    "core/**",
-    "agents/**",
     "configs/**",
     "integrations/**",
     "tools/**",
+    "nodes/**",
 ]
 exclude = [
     "tests/**",

@@ -1,4 +1,4 @@
-from core.base import Node
+from __init__ import Node
 from typing import Any, Dict, Optional
 from abc import abstractmethod
 

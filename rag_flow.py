@@ -1,6 +1,6 @@
 """Backward-compatible wrapper for the code RAG flow."""
 
-from agents.code_rag import (
+from code_rag import (
     RAGFlow,
     RAGIndexNode,
     RAGQueryNode,

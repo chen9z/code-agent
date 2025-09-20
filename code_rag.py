@@ -3,13 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.base import Flow, Node
+from __init__ import Flow, Node
 from integrations.repository import create_repository
 from integrations.tree_sitter import TreeSitterProjectParser
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
-
-from . import register_agent
 
 
 class RAGIndexNode(Node):
@@ -268,8 +266,6 @@ def run_rag_workflow(action: str, **kwargs: Any) -> Dict[str, Any]:
     params = {"action": action, **kwargs}
     return flow.run(params)
 
-
-register_agent("code_rag", create_rag_flow)
 
 __all__ = [
     "RAGFlow",

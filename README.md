@@ -4,8 +4,8 @@ Composable agent runtime focused on code understanding. Index repositories, run 
 
 ## Project Layout
 
-- `core/` – flow/node runtime primitives exported via top-level `__init__`.
-- `agents/` – packaged agents (e.g., `code_rag`) built from reusable nodes and tools.
+- Flow/node runtime primitives exported directly via top-level `__init__`.
+- Agent modules (e.g., `code_rag.py`, `tool_agent.py`) built from reusable nodes and tools.
 - `integrations/` – adapters for repositories, vector stores, external bridges.
 - `configs/` – environment-driven configuration helpers.
 - `clients/` / `tools/` – LLM clients and tool abstractions.

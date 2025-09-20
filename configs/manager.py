@@ -5,6 +5,11 @@ from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 def _get_env_value(prefix: str, key: str) -> Optional[str]:
     return os.getenv(f"{prefix}{key}")

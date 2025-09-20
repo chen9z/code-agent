@@ -9,6 +9,17 @@ class BaseLLMClient:
     def get_response(self, model: str, messages: List[Dict[str, str]], stream: bool = False) -> Generator[str, None, None]:
         raise NotImplementedError
 
+    def create_with_tools(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        tool_choice: str | Dict[str, Any] | None = None,
+        parallel_tool_calls: bool = True,
+    ) -> Dict[str, Any]:
+        raise NotImplementedError
+
 
 class StubLLMClient(BaseLLMClient):
     """Offline-friendly stub for environments without API credentials."""
@@ -25,6 +36,33 @@ class StubLLMClient(BaseLLMClient):
                 yield answer[i : i + 64]
         else:
             yield answer
+
+    def create_with_tools(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        tool_choice: str | Dict[str, Any] | None = None,
+        parallel_tool_calls: bool = True,
+    ) -> Dict[str, Any]:
+        """Return a placeholder response mimicking OpenAI's response envelope."""
+
+        content = (
+            "[stub-llm] Tool use requested but no API key set. "
+            "Responding directly without invoking tools."
+        )
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": content,
+                        "tool_calls": [],
+                    }
+                }
+            ]
+        }
 
 
 class OpenAICompatLLMClient(BaseLLMClient):
@@ -43,6 +81,23 @@ class OpenAICompatLLMClient(BaseLLMClient):
         else:
             r = self.client.chat.completions.create(model=model, messages=messages)
             yield r.choices[0].message.content
+
+    def create_with_tools(
+        self,
+        *,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        tool_choice: str | Dict[str, Any] | None = None,
+        parallel_tool_calls: bool = True,
+    ) -> Any:
+        return self.client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice or "auto",
+            parallel_tool_calls=parallel_tool_calls,
+        )
 
 
 def get_default_llm_client() -> BaseLLMClient:

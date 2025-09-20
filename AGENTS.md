@@ -1,8 +1,8 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `core/`: Runtime primitives and shared node scaffolding; import flows via `core.base` to keep dependencies predictable.
-- `agents/`: Ready-to-run agent flows such as `agents/code_rag.py`; every new flow must be registered with `agents.register_agent` and documented in-module.
+- Runtime primitives now live in the project root `__init__.py`; import flows directly from `__init__` to keep dependencies predictable.
+- Top-level agent modules (e.g., `code_rag.py`, `tool_agent.py`) provide ready-to-run flows; document the entrypoints within each module.
 - `integrations/`: Connectors for repos, embeddings, and other backends (e.g., `integrations/repository.py`); rely on dependency injection from flows.
 - `configs/`: Environment-driven settings managed through `configs/manager.py`; read via the provided helpers instead of `os.environ` directly.
 - Supporting directories: `clients/` & `tools/` host LLM adapters and reusable tool abstractions, `nodes/` contains reusable flow nodes, while `tests/` mirrors this tree for pytest coverage.
@@ -33,5 +33,5 @@
 - Keep local vector artifacts under `storage/` (gitignored) and exclude large binaries from commits.
 
 ## Agent-Specific Instructions
-- Compose new agents by wiring reusable nodes within `core.Flow`; extend existing patterns in `agents/code_rag.py` for reference.
-- Register each agent with `register_agent("your_agent", factory)` to expose it through the CLI and document entrypoints in the agent module docstring.
+- Compose new agents by wiring reusable nodes within `Flow`; extend existing patterns in `code_rag.py` for reference.
+- Document each agent’s entrypoints in its module docstring and provide factory helpers for reuse.
