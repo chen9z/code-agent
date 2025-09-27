@@ -17,22 +17,36 @@ _BASE_SYSTEM_PROMPT = (
     "natural language answer."
 )
 
-_PLANNER_INSTRUCTIONS = (
-    "When you respond you must output valid JSON with the schema:\n"
-    "{\n"
-    "  'thoughts': str,\n"
-    "  'tool_calls': [\n"
-    "    { 'id': str, 'key': str, 'arguments': dict, 'mode': 'parallel'|'sequential' }\n"
-    "  ],\n"
-    "  'final_response': str | null\n"
-    "}\n"
-    "Return an empty array for tool_calls if no tools are needed."
-)
+# JSON-plan fallback removed; we rely on native tool-calling.
 
 _SUMMARY_INSTRUCTIONS = (
     "Provide the final answer to the user using the available context. Reference tool "
     "results when they exist and be explicit about any limitations."
 )
+
+# Guidance used only when the client supports native tool calls.
+_PLANNER_TOOLCALL_INSTRUCTIONS = (
+    "Plan tool usage using the tool-calling interface. Call tools when they help, "
+    "and if no tool is needed, reply normally. Do not output JSON schemas. "
+    "When calls depend on prior results, issue them one at a time; when they are "
+    "independent, you may include multiple tool calls in the same assistant message."
+)
+
+
+def _stringify_payload(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return repr(value)
+
+
+def _preview_payload(value: Any, limit: int) -> str:
+    text = _stringify_payload(value)
+    if limit <= 3 or len(text) <= limit:
+        return text[:limit]
+    return f"{text[: limit - 3]}..."
 
 
 class ConversationContextNode(Node):
@@ -52,7 +66,12 @@ class ConversationContextNode(Node):
         user_input = self.params.get("user_input") or shared.get("user_input")
         if user_input:
             history.append({"role": "user", "content": str(user_input)})
-        shared["history"] = history
+        # Drop any additional 'system' messages beyond the first to reduce prompt injection surface.
+        if history:
+            filtered = [history[0]] + [m for m in history[1:] if m.get("role") != "system"]
+        else:
+            filtered = history
+        shared["history"] = filtered
         return {"has_user_input": bool(user_input)}
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> str:
@@ -77,28 +96,18 @@ class ToolPlanningNode(Node):
         history = prep_res["history"]
         descriptors = prep_res["descriptors"]
         serialized_tools = json.dumps(descriptors, ensure_ascii=False, indent=2)
-        planning_prompt = (
-            _PLANNER_INSTRUCTIONS
-            + "\nAvailable tools:\n"
-            + serialized_tools
-        )
+        planning_prompt = _PLANNER_TOOLCALL_INSTRUCTIONS + "\nAvailable tools:\n" + serialized_tools
         messages = history + [{"role": "system", "content": planning_prompt}]
         tools = self.registry.to_openai_tools()
 
-        if hasattr(self.llm, "create_with_tools"):
-            response = self.llm.create_with_tools(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                parallel_tool_calls=True,
-            )
-            plan = self._parse_tool_response(response)
-            plan["raw_text"] = self._extract_raw_response(response)
-        else:  # pragma: no cover - fallback path when client lacks tool support
-            chunks = list(self.llm.get_response(model=self.model, messages=messages, stream=False))
-            response_text = "".join(chunks).strip()
-            plan = self._parse_plan_text(response_text)
-            plan["raw_text"] = response_text
+        response = self.llm.create_with_tools(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            parallel_tool_calls=True,
+        )
+        plan = self._parse_tool_response(response)
+        plan["raw_text"] = self._extract_raw_response(response)
         return plan
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]) -> str:
@@ -127,7 +136,6 @@ class ToolPlanningNode(Node):
         content_text = self._message_content_to_str(self._get_attr(message, "content"))
 
         if tool_calls:
-            mode = "parallel" if len(tool_calls) > 1 else "sequential"
             normalized_calls: List[Dict[str, Any]] = []
             for idx, call in enumerate(tool_calls):
                 function = self._get_attr(call, "function", {})
@@ -142,7 +150,6 @@ class ToolPlanningNode(Node):
                         "id": self._get_attr(call, "id", f"call-{idx}"),
                         "key": str(name) if name else "",
                         "arguments": arguments,
-                        "mode": mode,
                     }
                 )
             return {
@@ -157,51 +164,7 @@ class ToolPlanningNode(Node):
             "thoughts": content_text,
         }
 
-    def _parse_plan_text(self, text: str) -> Dict[str, Any]:
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return {"tool_calls": [], "final_response": text, "thoughts": None}
-
-        if not isinstance(data, dict):
-            return {"tool_calls": [], "final_response": str(data), "thoughts": None}
-
-        raw_calls = data.get("tool_calls") or []
-        normalized_calls: List[Dict[str, Any]] = []
-        if isinstance(raw_calls, list):
-            for idx, call in enumerate(raw_calls):
-                if not isinstance(call, dict):
-                    continue
-                key = call.get("key") or call.get("tool")
-                if not key:
-                    continue
-                arguments = call.get("arguments") or call.get("args") or {}
-                if not isinstance(arguments, dict):
-                    continue
-                mode = call.get("mode") or ("parallel" if call.get("parallel") else "sequential")
-                normalized_calls.append(
-                    {
-                        "id": call.get("id") or f"call-{idx}",
-                        "key": str(key),
-                        "arguments": arguments,
-                        "mode": str(mode),
-                    }
-                )
-        final_response = data.get("final_response")
-        if isinstance(final_response, dict):
-            final_response = json.dumps(final_response, ensure_ascii=False)
-        elif final_response is not None:
-            final_response = str(final_response)
-        thoughts = data.get("thoughts")
-        if isinstance(thoughts, (dict, list)):
-            thoughts = json.dumps(thoughts, ensure_ascii=False)
-        elif thoughts is not None:
-            thoughts = str(thoughts)
-        return {
-            "tool_calls": normalized_calls,
-            "final_response": final_response,
-            "thoughts": thoughts,
-        }
+    # JSON-plan fallback removed
 
     @staticmethod
     def _extract_message(response: Any) -> Any:
@@ -280,7 +243,7 @@ class SummaryNode(Node):
         }
 
     def exec(self, prep_res: Dict[str, Any]) -> str:
-        history = prep_res["history"]
+        history = self._trim_history(prep_res["history"])
         tool_results = prep_res["tool_results"]
         plan = prep_res["tool_plan"]
 
@@ -290,7 +253,7 @@ class SummaryNode(Node):
             key = result.get("key")
             if status == "success":
                 results_summary_lines.append(
-                    f"Tool {key} succeeded with output: {json.dumps(result.get('output'), ensure_ascii=False)[:400]}"
+                    f"Tool {key} succeeded with output: {_preview_payload(result.get('output'), 400)}"
                 )
             else:
                 results_summary_lines.append(
@@ -308,7 +271,7 @@ class SummaryNode(Node):
         if plan_final:
             summary_prompt += f"\n\nPlanner suggestion:\n{plan_final}"
 
-        messages = [{"role": "system", "content": _BASE_SYSTEM_PROMPT}, {"role": "user", "content": summary_prompt}]
+        messages = self._build_messages(history, summary_prompt)
         chunks = list(self.llm.get_response(model=self.model, messages=messages, stream=False))
         return "".join(chunks).strip()
 
@@ -324,21 +287,46 @@ class SummaryNode(Node):
                 return str(message.get("content", ""))
         return "(no direct user input captured)"
 
+    @staticmethod
+    def _trim_history(history: List[Dict[str, Any]], *, max_chars: int = 6000, max_messages: int = 12) -> List[Dict[str, Any]]:
+        trimmed: List[Dict[str, Any]] = []
+        remaining_chars = max_chars
+        for message in reversed(history):
+            content = message.get("content", "")
+            content_str = _stringify_payload(content)
+            remaining_chars -= len(content_str)
+            trimmed.append(message)
+            if len(trimmed) >= max_messages or remaining_chars <= 0:
+                break
+        trimmed.reverse()
+        return trimmed
+
+    def _build_messages(self, history: List[Dict[str, Any]], summary_prompt: str) -> List[Dict[str, Any]]:
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": _BASE_SYSTEM_PROMPT}]
+        for message in history:
+            if message.get("role") == "system":
+                continue
+            messages.append(message)
+        messages.append({"role": "user", "content": summary_prompt})
+        return messages
+
 
 class ToolAgentFlow(Flow):
     """End-to-end agent flow orchestrating tool planning, execution, and summarisation."""
 
-    def __init__(self, registry: Optional[ToolRegistry] = None, llm_client=None) -> None:
-        cfg = get_config()
-        model = cfg.llm.model
+    def __init__(self, registry: Optional[ToolRegistry] = None, llm_client=None, model: Optional[str] = None) -> None:
+        if model is None:
+            cfg = get_config()
+            model = cfg.llm.model
         self.registry = registry or create_default_registry()
         self.llm = llm_client or get_default_llm_client()
+        self.model = model
 
         super().__init__()
         self.context_node = ConversationContextNode()
-        self.planning_node = ToolPlanningNode(self.registry, model=model, llm_client=self.llm)
+        self.planning_node = ToolPlanningNode(self.registry, model=self.model, llm_client=self.llm)
         self.execution_node = ToolExecutionBatchNode(self.registry)
-        self.summary_node = SummaryNode(model=model, llm_client=self.llm)
+        self.summary_node = SummaryNode(model=self.model, llm_client=self.llm)
 
         self.start(self.context_node)
         self.context_node.next(self.planning_node, "plan")
@@ -365,8 +353,8 @@ class ToolAgentFlow(Flow):
         }
 
 
-def create_tool_agent_flow(registry: Optional[ToolRegistry] = None, llm_client=None) -> ToolAgentFlow:
-    return ToolAgentFlow(registry=registry, llm_client=llm_client)
+def create_tool_agent_flow(registry: Optional[ToolRegistry] = None, llm_client=None, model: Optional[str] = None) -> ToolAgentFlow:
+    return ToolAgentFlow(registry=registry, llm_client=llm_client, model=model)
 
 
 FlowFactory = Callable[[], ToolAgentFlow]
@@ -377,10 +365,11 @@ def create_code_agent_flow(
     registry: Optional[ToolRegistry] = None,
     llm_client: Any = None,
     max_parallel_workers: int = 4,
+    model: Optional[str] = None,
 ) -> ToolAgentFlow:
     """Return a `ToolAgentFlow` instance with all default tools registered."""
 
-    flow = create_tool_agent_flow(registry=registry, llm_client=llm_client)
+    flow = create_tool_agent_flow(registry=registry, llm_client=llm_client, model=model)
     if max_parallel_workers < 1:
         raise ValueError("max_parallel_workers must be >= 1")
     if hasattr(flow, "execution_node") and hasattr(flow.execution_node, "max_parallel_workers"):
@@ -402,13 +391,16 @@ class CodeAgentSession:
         self.registry = registry or create_default_registry()
         self.llm_client = llm_client
         self.max_parallel_workers = max_parallel_workers
-        self._flow_factory: FlowFactory = flow_factory or (
-            lambda: create_code_agent_flow(
+        if flow_factory is not None:
+            self._flow_factory = flow_factory
+        else:
+            default_model = get_config().llm.model
+            self._flow_factory = lambda: create_code_agent_flow(
                 registry=self.registry,
                 llm_client=self.llm_client,
                 max_parallel_workers=self.max_parallel_workers,
+                model=default_model,
             )
-        )
         self.history: List[Dict[str, Any]] = []
 
     def run_turn(self, user_input: str) -> Dict[str, Any]:
@@ -438,7 +430,16 @@ class CodeAgentSession:
 
     @staticmethod
     def _normalize_message(raw: Mapping[str, Any]) -> Dict[str, Any]:
-        return {"role": str(raw.get("role")), "content": str(raw.get("content", ""))}
+        normalized = dict(raw)
+        normalized["role"] = str(normalized.get("role"))
+        content = normalized.get("content", "")
+        if isinstance(content, str):
+            normalized["content"] = content
+        elif content is None:
+            normalized["content"] = ""
+        else:
+            normalized["content"] = content
+        return normalized
 
 
 class _RunLoopNode(Node):
@@ -500,13 +501,12 @@ def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], Non
         output_callback(f"[planner] {thoughts}")
     for call in plan.get("tool_calls") or []:
         key = call.get("key")
-        mode = (call.get("mode") or "sequential").lower()
-        output_callback(f"[plan] {mode}:{key}")
+        output_callback(f"[plan] {key}")
     for tool_result in result.get("tool_results") or []:
         key = tool_result.get("key")
         status = tool_result.get("status")
         if status == "success":
-            preview = json.dumps(tool_result.get("output"), ensure_ascii=False)[:160]
+            preview = _preview_payload(tool_result.get("output"), 160)
             output_callback(f"[tool] {key}: success {preview}")
         else:
             output_callback(f"[tool] {key}: error {tool_result.get('error')}")

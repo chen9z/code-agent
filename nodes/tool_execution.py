@@ -35,16 +35,11 @@ class ToolExecutionBatchNode(Node):
         return tool_calls
 
     def exec(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        batches = self._build_batches(tool_calls)
-        results: List[Dict[str, Any]] = []
-        for mode, calls in batches:
-            if not calls:
-                continue
-            if mode == "parallel":
-                results.extend(self._run_parallel(calls))
-            else:
-                results.extend(self._run_sequential(calls))
-        return results
+        calls = [self._to_tool_call(raw, idx) for idx, raw in enumerate(tool_calls or [])]
+        if not calls:
+            return []
+        # Always execute in parallel for simplicity and throughput.
+        return self._run_parallel(calls)
 
     def post(self, shared: Dict[str, Any], prep_res: List[Dict[str, Any]], exec_res: List[Dict[str, Any]]) -> str:
         existing = shared.setdefault("tool_results", [])
@@ -57,27 +52,13 @@ class ToolExecutionBatchNode(Node):
                 "role": "tool",
                 "tool_call_id": result.get("id"),
                 "name": result.get("key"),
-                "content": json.dumps(payload, ensure_ascii=False),
+                # Keep history compact to protect context window; store a safe preview only.
+                "content": _preview_payload(payload, 2000),
             }
             history.append(message)
         return "summarize"
 
-    def _build_batches(self, raw_calls: Iterable[Dict[str, Any]]) -> List[Tuple[str, List[ToolCall]]]:
-        batches: List[Tuple[str, List[ToolCall]]] = []
-        current_parallel: List[ToolCall] = []
-        for index, raw in enumerate(raw_calls):
-            call = self._to_tool_call(raw, index)
-            normalized_mode = call.mode.lower()
-            if normalized_mode == "parallel":
-                current_parallel.append(call)
-                continue
-            if current_parallel:
-                batches.append(("parallel", current_parallel))
-                current_parallel = []
-            batches.append(("sequential", [call]))
-        if current_parallel:
-            batches.append(("parallel", current_parallel))
-        return batches
+    # Mode batching removed: we always parallelize within a single planning step.
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
@@ -99,12 +80,14 @@ class ToolExecutionBatchNode(Node):
         return results
 
     def _run_parallel(self, calls: List[ToolCall]) -> List[Dict[str, Any]]:
-        results: List[Dict[str, Any]] = []
+        # Execute concurrently but preserve original call order in the returned list.
+        ordered: List[Optional[Dict[str, Any]]] = [None] * len(calls)
         with ThreadPoolExecutor(max_workers=min(self.max_parallel_workers, len(calls))) as executor:
-            future_map = {executor.submit(self._execute_call, call): call for call in calls}
+            future_map = {executor.submit(self._execute_call, call): idx for idx, call in enumerate(calls)}
             for future in as_completed(future_map):
-                results.append(future.result())
-        return results
+                idx = future_map[future]
+                ordered[idx] = future.result()
+        return [res for res in ordered if res is not None]
 
     def _execute_call(self, call: ToolCall) -> Dict[str, Any]:
         try:
@@ -123,3 +106,19 @@ class ToolExecutionBatchNode(Node):
                 "status": "error",
                 "error": str(exc),
             }
+
+
+def _stringify_payload(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return repr(value)
+
+
+def _preview_payload(value: Any, limit: int) -> str:
+    text = _stringify_payload(value)
+    if limit <= 3 or len(text) <= limit:
+        return text[:limit]
+    return f"{text[: limit - 3]}..."
