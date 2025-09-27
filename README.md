@@ -64,6 +64,8 @@ uv run python main.py agent
 
 Type your prompts when the CLI shows `You: ` and enter `exit` (or `quit`) to finish. The agent streams planning thoughts, tool activity, and final answers inline.
 
+Notes (concise): the agent uses native tool-calling; if multiple tools are planned in a turn they execute in parallel, and outputs are shown in the original plan order.
+
 ## Development
 
 - Run tests: `uv run pytest`
