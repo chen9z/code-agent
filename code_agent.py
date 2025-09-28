@@ -24,15 +24,6 @@ _SUMMARY_INSTRUCTIONS = (
     "results when they exist and be explicit about any limitations."
 )
 
-# Guidance used only when the client supports native tool calls.
-_PLANNER_TOOLCALL_INSTRUCTIONS = (
-    "Plan tool usage using the tool-calling interface. Call tools when they help, "
-    "and if no tool is needed, reply normally. Do not output JSON schemas. "
-    "When calls depend on prior results, issue them one at a time; when they are "
-    "independent, you may include multiple tool calls in the same assistant message."
-)
-
-
 def _stringify_payload(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -47,6 +38,12 @@ def _preview_payload(value: Any, limit: int) -> str:
     if limit <= 3 or len(text) <= limit:
         return text[:limit]
     return f"{text[: limit - 3]}..."
+
+
+def _emit(shared: Dict[str, Any], message: str) -> None:
+    callback = shared.get("output_callback")
+    if callable(callback):
+        callback(message)
 
 
 class ConversationContextNode(Node):
@@ -75,6 +72,9 @@ class ConversationContextNode(Node):
         return {"has_user_input": bool(user_input)}
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> str:
+        user_input = shared.get("user_input")
+        if user_input:
+            _emit(shared, f"[user] {user_input}")
         return "plan"
 
 
@@ -96,7 +96,7 @@ class ToolPlanningNode(Node):
         history = prep_res["history"]
         descriptors = prep_res["descriptors"]
         serialized_tools = json.dumps(descriptors, ensure_ascii=False, indent=2)
-        planning_prompt = _PLANNER_TOOLCALL_INSTRUCTIONS + "\nAvailable tools:\n" + serialized_tools
+        planning_prompt = "Available tools:\n" + serialized_tools
         messages = history + [{"role": "system", "content": planning_prompt}]
         tools = self.registry.to_openai_tools()
 
@@ -118,14 +118,35 @@ class ToolPlanningNode(Node):
             "raw_text": exec_res.get("raw_text"),
         }
         history = shared.setdefault("history", [])
-        history.append(
-            {
-                "role": "assistant",
-                "content": exec_res.get("thoughts")
-                or f"Tool plan: {json.dumps(exec_res.get('tool_calls', []), ensure_ascii=False)}",
-            }
-        )
-        return "execute" if exec_res.get("tool_calls") else "summarize"
+        assistant_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": exec_res.get("thoughts")
+            or f"Tool plan: {json.dumps(exec_res.get('tool_calls', []), ensure_ascii=False)}",
+        }
+
+        tool_calls = exec_res.get("tool_calls") or []
+        if tool_calls:
+            assistant_message["tool_calls"] = [
+                {
+                    "id": call.get("id"),
+                    "type": "function",
+                    "function": {
+                        "name": call.get("key", ""),
+                        "arguments": json.dumps(call.get("arguments", {}), ensure_ascii=False),
+                    },
+                }
+                for call in tool_calls
+                if call.get("key")
+            ]
+        history.append(assistant_message)
+        thoughts = assistant_message.get("content")
+        if thoughts:
+            _emit(shared, f"[assistant:planner] {thoughts}")
+        for call in assistant_message.get("tool_calls") or []:
+            name = call.get("function", {}).get("name")
+            args = call.get("function", {}).get("arguments")
+            _emit(shared, f"  -> 调用工具 {call.get('id')}: {name} {args}")
+        return "execute" if tool_calls else "summarize"
 
     def _parse_tool_response(self, response: Any) -> Dict[str, Any]:
         message = self._extract_message(response)
@@ -278,6 +299,8 @@ class SummaryNode(Node):
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: str) -> str:
         shared["final_response"] = exec_res
         shared.setdefault("history", []).append({"role": "assistant", "content": exec_res})
+        if exec_res:
+            _emit(shared, f"[assistant] {exec_res}")
         return "complete"
 
     @staticmethod
@@ -299,7 +322,61 @@ class SummaryNode(Node):
             if len(trimmed) >= max_messages or remaining_chars <= 0:
                 break
         trimmed.reverse()
-        return trimmed
+        return SummaryNode._ensure_history_coherence(history, trimmed)
+
+    @staticmethod
+    def _ensure_history_coherence(
+        full_history: List[Dict[str, Any]], trimmed: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        coherent = list(trimmed)
+
+        # Always ensure the latest user message is present.
+        latest_user = None
+        for message in reversed(full_history):
+            if message.get("role") == "user":
+                latest_user = message
+                break
+        if latest_user and latest_user not in coherent:
+            coherent.insert(0, latest_user)
+
+        # Ensure each tool message is preceded by the assistant tool-call declaration.
+        idx = 0
+        while idx < len(coherent):
+            message = coherent[idx]
+            if message.get("role") == "tool":
+                if not SummaryNode._has_preceding_tool_parent(coherent, idx, message.get("tool_call_id")):
+                    parent = SummaryNode._find_tool_parent(full_history, message.get("tool_call_id"))
+                    if parent and parent not in coherent:
+                        coherent.insert(idx, parent)
+                        idx += 1
+                        continue
+            idx += 1
+
+        return coherent
+
+    @staticmethod
+    def _has_preceding_tool_parent(messages: List[Dict[str, Any]], idx: int, tool_call_id: Any) -> bool:
+        if idx <= 0:
+            return False
+        parent = messages[idx - 1]
+        if parent.get("role") != "assistant":
+            return False
+        for call in parent.get("tool_calls") or []:
+            if call.get("id") == tool_call_id:
+                return True
+        return False
+
+    @staticmethod
+    def _find_tool_parent(full_history: List[Dict[str, Any]], tool_call_id: Any) -> Optional[Dict[str, Any]]:
+        if not tool_call_id:
+            return None
+        for message in reversed(full_history):
+            if message.get("role") != "assistant":
+                continue
+            for call in message.get("tool_calls") or []:
+                if call.get("id") == tool_call_id:
+                    return message
+        return None
 
     def _build_messages(self, history: List[Dict[str, Any]], summary_prompt: str) -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = [{"role": "system", "content": _BASE_SYSTEM_PROMPT}]
@@ -314,13 +391,21 @@ class SummaryNode(Node):
 class ToolAgentFlow(Flow):
     """End-to-end agent flow orchestrating tool planning, execution, and summarisation."""
 
-    def __init__(self, registry: Optional[ToolRegistry] = None, llm_client=None, model: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        registry: Optional[ToolRegistry] = None,
+        llm_client=None,
+        model: Optional[str] = None,
+        *,
+        max_iterations: int = 25,
+    ) -> None:
         if model is None:
             cfg = get_config()
             model = cfg.llm.model
         self.registry = registry or create_default_registry()
         self.llm = llm_client or get_default_llm_client()
         self.model = model
+        self.max_iterations = max_iterations if max_iterations >= 1 else 1
 
         super().__init__()
         self.context_node = ConversationContextNode()
@@ -328,10 +413,13 @@ class ToolAgentFlow(Flow):
         self.execution_node = ToolExecutionBatchNode(self.registry)
         self.summary_node = SummaryNode(model=self.model, llm_client=self.llm)
 
+        self.execution_node.max_iterations = self.max_iterations
+
         self.start(self.context_node)
         self.context_node.next(self.planning_node, "plan")
         self.planning_node.next(self.execution_node, "execute")
         self.planning_node.next(self.summary_node, "summarize")
+        self.execution_node.next(self.planning_node, "plan")
         self.execution_node.next(self.summary_node, "summarize")
 
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
@@ -342,6 +430,7 @@ class ToolAgentFlow(Flow):
         if not user_input:
             raise ValueError("user_input is required for the tool agent flow")
         shared["user_input"] = user_input
+        shared["tool_iterations_used"] = 0
         return {}
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> Dict[str, Any]:
@@ -353,8 +442,19 @@ class ToolAgentFlow(Flow):
         }
 
 
-def create_tool_agent_flow(registry: Optional[ToolRegistry] = None, llm_client=None, model: Optional[str] = None) -> ToolAgentFlow:
-    return ToolAgentFlow(registry=registry, llm_client=llm_client, model=model)
+def create_tool_agent_flow(
+    registry: Optional[ToolRegistry] = None,
+    llm_client=None,
+    model: Optional[str] = None,
+    *,
+    max_iterations: int = 25,
+) -> ToolAgentFlow:
+    return ToolAgentFlow(
+        registry=registry,
+        llm_client=llm_client,
+        model=model,
+        max_iterations=max_iterations,
+    )
 
 
 FlowFactory = Callable[[], ToolAgentFlow]
@@ -366,10 +466,16 @@ def create_code_agent_flow(
     llm_client: Any = None,
     max_parallel_workers: int = 4,
     model: Optional[str] = None,
+    max_iterations: int = 25,
 ) -> ToolAgentFlow:
     """Return a `ToolAgentFlow` instance with all default tools registered."""
 
-    flow = create_tool_agent_flow(registry=registry, llm_client=llm_client, model=model)
+    flow = create_tool_agent_flow(
+        registry=registry,
+        llm_client=llm_client,
+        model=model,
+        max_iterations=max_iterations,
+    )
     if max_parallel_workers < 1:
         raise ValueError("max_parallel_workers must be >= 1")
     if hasattr(flow, "execution_node") and hasattr(flow.execution_node, "max_parallel_workers"):
@@ -386,11 +492,13 @@ class CodeAgentSession:
         registry: Optional[ToolRegistry] = None,
         llm_client: Any = None,
         max_parallel_workers: int = 4,
+        max_iterations: int = 25,
         flow_factory: Optional[FlowFactory] = None,
     ) -> None:
         self.registry = registry or create_default_registry()
         self.llm_client = llm_client
         self.max_parallel_workers = max_parallel_workers
+        self.max_iterations = max_iterations if max_iterations >= 1 else 1
         if flow_factory is not None:
             self._flow_factory = flow_factory
         else:
@@ -399,6 +507,7 @@ class CodeAgentSession:
                 registry=self.registry,
                 llm_client=self.llm_client,
                 max_parallel_workers=self.max_parallel_workers,
+                max_iterations=self.max_iterations,
                 model=default_model,
             )
         self.history: List[Dict[str, Any]] = []

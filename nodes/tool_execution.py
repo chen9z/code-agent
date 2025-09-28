@@ -56,7 +56,20 @@ class ToolExecutionBatchNode(Node):
                 "content": _preview_payload(payload, 2000),
             }
             history.append(message)
-        return "summarize"
+            key = result.get("key")
+            status = result.get("status")
+            if status == "success":
+                snippet = _preview_payload(result.get("output"), 200)
+                _emit(shared, f"[tool] {key} 成功: {snippet}")
+            else:
+                _emit(shared, f"[tool] {key} 失败: {result.get('error')}")
+
+        used = shared.get("tool_iterations_used", 0) + 1
+        shared["tool_iterations_used"] = used
+        max_iterations = getattr(self, "max_iterations", 4)
+        if used >= max_iterations:
+            return "summarize"
+        return "plan"
 
     # Mode batching removed: we always parallelize within a single planning step.
 
@@ -122,3 +135,9 @@ def _preview_payload(value: Any, limit: int) -> str:
     if limit <= 3 or len(text) <= limit:
         return text[:limit]
     return f"{text[: limit - 3]}..."
+
+
+def _emit(shared: Dict[str, Any], message: str) -> None:
+    callback = shared.get("output_callback")
+    if callable(callback):
+        callback(message)
