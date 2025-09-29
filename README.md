@@ -57,9 +57,9 @@ res = run_rag_workflow(action="query", project_name="project", question="How doe
 Launch the code agent from the terminal and interact conversationally:
 
 ```bash
-uv run python main.py          # starts the agent
-# or explicitly
-uv run python main.py agent
+uv run python main.py                  # starts the agent in the current directory
+uv run python main.py -w /path/to/repo  # target a different workspace
+uv run python main.py -p "List TODOs"   # run a single prompt then exit
 ```
 
 Type your prompts when the CLI shows `You: ` and enter `exit` (or `quit`) to finish. The agent streams planning thoughts, tool activity, and final answers inline.

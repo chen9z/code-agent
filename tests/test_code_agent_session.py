@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import pytest
 
@@ -47,8 +47,13 @@ class _StubSession(CodeAgentSession):
         self.outputs: List[str] = list(scripted)
         super().__init__(flow_factory=lambda: _DummyFlow())
 
-    def run_turn(self, message: str) -> Dict[str, Any]:
-        result = super().run_turn(message)
+    def run_turn(
+        self,
+        message: str,
+        *,
+        output_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        result = super().run_turn(message, output_callback=output_callback)
         result.setdefault("tool_plan", {"thoughts": "stub", "tool_calls": []})
         result.setdefault("tool_results", [])
         return result

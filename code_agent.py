@@ -430,6 +430,9 @@ class ToolAgentFlow(Flow):
         if not user_input:
             raise ValueError("user_input is required for the tool agent flow")
         shared["user_input"] = user_input
+        output_callback = self.params.get("output_callback") or shared.get("output_callback")
+        if output_callback is not None:
+            shared["output_callback"] = output_callback
         shared["tool_iterations_used"] = 0
         return {}
 
@@ -512,13 +515,20 @@ class CodeAgentSession:
             )
         self.history: List[Dict[str, Any]] = []
 
-    def run_turn(self, user_input: str) -> Dict[str, Any]:
+    def run_turn(
+        self,
+        user_input: str,
+        *,
+        output_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
         flow = self._flow_factory()
         params: Dict[str, Any] = {"user_input": user_input.strip()}
         if self.history:
             params["history"] = list(self.history)
+        if output_callback is not None:
+            params["output_callback"] = output_callback
         flow.set_params(params)
         result = flow._run({})
         updated = result.get("history")
@@ -572,7 +582,7 @@ class _RunLoopNode(Node):
                 continue
             if message.lower() in {"exit", "quit"}:
                 break
-            result = self.session.run_turn(message)
+            result = self.session.run_turn(message, output_callback=output)
             _emit_result(result, output)
         return 0
 
