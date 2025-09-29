@@ -1,0 +1,42 @@
+{
+  "scenarios": [
+    {
+      "name": "spring_ai_embedding_models",
+      "workspace": "/Users/looper/workspace/spring-ai",
+      "prompt": "找出项目使用的所有的 Embedding 模型",
+      "max_iterations": 25,
+      "validators": [
+        {
+          "type": "regex_set",
+          "name": "embedding_model_set",
+          "pattern": "\\b([A-Za-z]+EmbeddingModel)\\b",
+          "expected": [
+            "AzureOpenAiEmbeddingModel",
+            "BedrockCohereEmbeddingModel",
+            "BedrockTitanEmbeddingModel",
+            "MiniMaxEmbeddingModel",
+            "MistralAiEmbeddingModel",
+            "OCIEmbeddingModel",
+            "OllamaEmbeddingModel",
+            "OpenAiEmbeddingModel",
+            "PostgresMlEmbeddingModel",
+            "TransformersEmbeddingModel",
+            "VertexAiMultimodalEmbeddingModel",
+            "VertexAiTextEmbeddingModel",
+            "ZhiPuAiEmbeddingModel"
+          ],
+          "ignore": [
+            "AbstractEmbeddingModel",
+            "DocumentEmbeddingModel",
+            "TitanEmbeddingModel"
+          ]
+        },
+        {
+          "type": "contains",
+          "name": "mentions_summary",
+          "values": ["Embedding 模型"]
+        }
+      ]
+    }
+  ]
+}

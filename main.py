@@ -43,8 +43,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     original_cwd = Path.cwd()
     try:
         os.chdir(workspace)
+        session = CodeAgentSession(max_iterations=100)
         if prompt:
-            session = CodeAgentSession()
             # Run a single turn via the CLI loop to reuse logging behaviour.
             inputs = iter([prompt, "exit"])
             return run_code_agent_cli(
@@ -52,7 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 input_iter=inputs,
                 output_callback=_stream_print,
             )
-        return run_code_agent_cli(output_callback=_stream_print)
+        return run_code_agent_cli(session=session, output_callback=_stream_print)
     finally:
         os.chdir(original_cwd)
 

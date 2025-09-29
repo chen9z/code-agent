@@ -71,5 +71,7 @@ Notes (concise): the agent uses native tool-calling; if multiple tools are plann
 - Run tests: `uv run pytest`
 - Focused flow test: `uv run pytest tests/test_rag.py::test_rag_flow -q`
 - Agent CLI smoke test: `uv run python main.py`
+- Benchmark scenarios: `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json --transcript-dir benchmarks/logs --output benchmarks/results/latest.json`
 
 Refer to `AGENTS.md` for contributor guidance and coding conventions.
+See `docs/code_agent_benchmark.md` for benchmark configuration details.

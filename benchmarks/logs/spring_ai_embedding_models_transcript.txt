@@ -1,0 +1,185 @@
+[user] 找出项目使用的所有的 Embedding 模型
+[assistant:planner] I'll help you find all the Embedding models used in the project. Let me start by exploring the project structure and searching for embedding-related code.
+  -> 调用工具 call_00_PvF3PI1TFuEJSLwWAbmKm7zm: ls {"path": "/"}
+[tool] ls 成功: {"path": "/", "entries": [".nofollow/", ".resolve/", ".vol/", ".VolumeIcon.icns", "Applications/", "bin/", "cores/", "data/", "dev/", "etc/", "home/", "Library/", "opt/", "private/", "sbin/", "Syst...
+[assistant:planner] Let me check the current working directory to understand where the project is located:
+  -> 调用工具 call_00_0rJqsyb54vtZL6QeFnApVV73: bash {"command": "pwd", "description": "Check current working directory"}
+[tool] bash 成功: {"stdout": "/Users/looper/workspace/spring-ai\n", "stderr": "", "exit_code": 0, "timed_out": false, "command": "pwd", "description": "Check current working directory"}
+[assistant:planner] Now I can see we're in a Spring AI project. Let me explore the project structure:
+  -> 调用工具 call_00_s6ewVAqi1ya0R113TbS620re: ls {"path": "/Users/looper/workspace/spring-ai"}
+[tool] ls 成功: {"path": "/Users/looper/workspace/spring-ai", "entries": [".git/", ".github/", ".idea/", ".mvn/", "advisors/", "auto-configurations/", "document-readers/", "mcp/", "memory/", "models/", "spring-ai-...
+[assistant:planner] Great! This is a Spring AI project. Let me search for embedding-related code across the project:
+  -> 调用工具 call_00_b8ZN9Zd0s0I926P9gCjbRJWC: grep {"query": "embedding", "include_pattern": "**/*.java", "explanation": "Search for embedding-related code in Java files"}
+[tool] grep 成功: {"query": "embedding", "matches": [{"path": "/Users/looper/workspace/spring-ai/spring-ai-spring-cloud-bindings/src/main/java/org/springframework/ai/bindings/TanzuBindingsPropertiesProcessor.java", ...
+[assistant:planner] Let me search more specifically for embedding models and their implementations:
+  -> 调用工具 call_00_z7Hd2dcezh4hhZ0GSRyOZPBg: grep {"query": "EmbeddingModel", "include_pattern": "**/*.java", "explanation": "Search for EmbeddingModel interface and implementations"}
+[tool] grep 成功: {"query": "EmbeddingModel", "matches": [{"path": "/Users/looper/workspace/spring-ai/models/spring-ai-bedrock/src/main/java/org/springframework/ai/bedrock/titan/api/TitanEmbeddingBedrockApi.java", "...
+[assistant:planner] Let me search for all classes that implement or extend embedding models:
+  -> 调用工具 call_00_7LoEIaKj6dpz4B8Sz9Tg3qBY: grep {"query": "extends.*Embedding|implements.*Embedding", "include_pattern": "**/*.java", "explanation": "Search for classes that extend or implement embedding-related classes"}
+[tool] grep 成功: {"query": "extends.*Embedding|implements.*Embedding", "matches": [{"path": "/Users/looper/workspace/spring-ai/spring-ai-model/src/main/java/org/springframework/ai/embedding/observation/EmbeddingMod...
+[assistant:planner] Let me search more specifically for concrete embedding model implementations:
+  -> 调用工具 call_00_ymzp0KmeMUvDDpK1ZITlxIP2: grep {"query": "class.*EmbeddingModel|EmbeddingModel.*class", "include_pattern": "**/*.java", "explanation": "Search for concrete embedding model class definitions"}
+[tool] grep 成功: {"query": "class.*EmbeddingModel|EmbeddingModel.*class", "matches": [{"path": "/Users/looper/workspace/spring-ai/models/spring-ai-bedrock/src/main/java/org/springframework/ai/bedrock/titan/BedrockT...
+[assistant:planner] Let me search for more embedding model implementations across different providers:
+  -> 调用工具 call_00_CcrERJrgZFUjuyaFNvWt2wPC: grep {"query": "extends AbstractEmbeddingModel", "include_pattern": "**/*.java", "explanation": "Search for all classes that extend AbstractEmbeddingModel"}
+[tool] grep 成功: {"query": "extends AbstractEmbeddingModel", "matches": [{"path": "/Users/looper/workspace/spring-ai/models/spring-ai-bedrock/src/main/java/org/springframework/ai/bedrock/titan/BedrockTitanEmbedding...
+[assistant:planner] Now let me search for other embedding model implementations that might not extend AbstractEmbeddingModel:
+  -> 调用工具 call_00_Nnmvhq5HLNxjFsIVfja4JBxE: grep {"query": "implements EmbeddingModel", "include_pattern": "**/*.java", "explanation": "Search for classes that directly implement EmbeddingModel interface"}
+[tool] grep 成功: {"query": "implements EmbeddingModel", "matches": [{"path": "/Users/looper/workspace/spring-ai/models/spring-ai-vertex-ai-embedding/src/main/java/org/springframework/ai/vertexai/embedding/text/Vert...
+[assistant:planner] Let me search for more embedding model implementations by looking at the models directory structure:
+  -> 调用工具 call_00_LlaAG2AWRTyVzUpyuQmT8pBH: ls {"path": "/Users/looper/workspace/spring-ai/models"}
+[tool] ls 成功: {"path": "/Users/looper/workspace/spring-ai/models", "entries": ["spring-ai-anthropic/", "spring-ai-azure-openai/", "spring-ai-bedrock/", "spring-ai-bedrock-converse/", "spring-ai-deepseek/", "spri...
+[assistant:planner] Now let me search for embedding models in each of these directories:
+  -> 调用工具 call_00_KIQycszohWBbhgh6zgsPU5K1: grep {"query": "EmbeddingModel", "include_pattern": "models/**/*.java", "explanation": "Search for EmbeddingModel references in all model modules"}
+[tool] grep 成功: {"query": "EmbeddingModel", "matches": [{"path": "/Users/looper/workspace/spring-ai/models/spring-ai-postgresml/src/main/java/org/springframework/ai/postgresml/PostgresMlEmbeddingModel.java", "line...
+[assistant:planner] Let me search more specifically for concrete embedding model classes:
+  -> 调用工具 call_00_NhZSdNPA7XetaFNvzgOizQrI: bash {"command": "find /Users/looper/workspace/spring-ai/models -name \"*EmbeddingModel.java\" -type f", "description": "Find all EmbeddingModel Java files in models directory"}
+[tool] bash 成功: {"stdout": "/Users/looper/workspace/spring-ai/models/spring-ai-transformers/src/main/java/org/springframework/ai/transformers/TransformersEmbeddingModel.java\n/Users/looper/workspace/spring-ai/mode...
+[assistant:planner] Perfect! Now let me also check for any other embedding-related files and look at the core embedding model interface:
+  -> 调用工具 call_00_L4OVOWkjzIbyNFArf2uOtOUx: read {"file_path": "/Users/looper/workspace/spring-ai/spring-ai-model/src/main/java/org/springframework/ai/embedding/EmbeddingModel.java"}
+[tool] read 成功: {"file_path": "/Users/looper/workspace/spring-ai/spring-ai-model/src/main/java/org/springframework/ai/embedding/EmbeddingModel.java", "offset": 1, "limit": 2000, "count": 122, "result": "     1\t/*...
+[assistant:planner] Now let me check if there are any other embedding-related implementations in the auto-configurations:
+  -> 调用工具 call_00_4mLIuWjDfsuHHO4Ox6vdXX1D: grep {"query": "EmbeddingModel", "include_pattern": "auto-configurations/**/*.java", "explanation": "Search for EmbeddingModel references in auto-configurations"}
+[tool] grep 成功: {"query": "EmbeddingModel", "matches": [{"path": "/Users/looper/workspace/spring-ai/auto-configurations/models/spring-ai-autoconfigure-model-zhipuai/src/main/java/org/springframework/ai/model/zhipu...
+[assistant:planner] Let me also check for any additional embedding models that might be in other directories:
+  -> 调用工具 call_00_1Tkh75UBRt4ZbGahlDBZFRp1: bash {"command": "find /Users/looper/workspace/spring-ai -name \"*EmbeddingModel.java\" -type f | grep -v test | sort", "description": "Find all non-test EmbeddingModel Java files in the project"}
+[tool] bash 成功: {"stdout": "/Users/looper/workspace/spring-ai/models/spring-ai-azure-openai/src/main/java/org/springframework/ai/azure/openai/AzureOpenAiEmbeddingModel.java\n/Users/looper/workspace/spring-ai/model...
+[assistant:planner] Let me also check if there are any other embedding-related implementations in the huggingface module:
+  -> 调用工具 call_00_Nr7cU6wMzFeX9Ldq7vo8PtsC: ls {"path": "/Users/looper/workspace/spring-ai/models/spring-ai-huggingface"}
+[tool] ls 成功: {"path": "/Users/looper/workspace/spring-ai/models/spring-ai-huggingface", "entries": ["src/", "target/", "pom.xml", "README.md"], "directories": ["src/", "target/"], "files": ["pom.xml", "README.m...
+[assistant:planner] Tool plan: [{"id": "call_00_NLiwTxc7CIVlWatq0qZ9Aw34", "key": "bash", "arguments": {"command": "find /Users/looper/workspace/spring-ai/models/spring-ai-huggingface -name \"*.java\" -type f | xargs grep -l \"EmbeddingModel\" 2>/dev/null || echo \"No embedding models found in huggingface\"", "description": "Check if huggingface module contains embedding models"}}]
+  -> 调用工具 call_00_NLiwTxc7CIVlWatq0qZ9Aw34: bash {"command": "find /Users/looper/workspace/spring-ai/models/spring-ai-huggingface -name \"*.java\" -type f | xargs grep -l \"EmbeddingModel\" 2>/dev/null || echo \"No embedding models found in huggingface\"", "description": "Check if huggingface module contains embedding models"}
+[tool] bash 成功: {"stdout": "No embedding models found in huggingface\n", "stderr": "", "exit_code": 0, "timed_out": false, "command": "find /Users/looper/workspace/spring-ai/models/spring-ai-huggingface -name \"*....
+[assistant:planner] Let me also check the deepseek module:
+  -> 调用工具 call_00_4YbQz3hn3eg5JvWDQvy0eDuS: bash {"command": "find /Users/looper/workspace/spring-ai/models/spring-ai-deepseek -name \"*.java\" -type f | xargs grep -l \"EmbeddingModel\" 2>/dev/null || echo \"No embedding models found in deepseek\"", "description": "Check if deepseek module contains embedding models"}
+[tool] bash 成功: {"stdout": "No embedding models found in deepseek\n", "stderr": "", "exit_code": 0, "timed_out": false, "command": "find /Users/looper/workspace/spring-ai/models/spring-ai-deepseek -name \"*.java\"...
+[assistant:planner] Let me check the qianfan module:
+  -> 调用工具 call_00_rDmsxArOiNYt3J3klFIBnCFC: bash {"command": "find /Users/looper/workspace/spring-ai/models/spring-ai-qianfan -name \"*.java\" -type f | xargs grep -l \"EmbeddingModel\" 2>/dev/null || echo \"No embedding models found in qianfan\"", "description": "Check if qianfan module contains embedding models"}
+[tool] bash 成功: {"stdout": "", "stderr": "", "exit_code": 0, "timed_out": false, "command": "find /Users/looper/workspace/spring-ai/models/spring-ai-qianfan -name \"*.java\" -type f | xargs grep -l \"EmbeddingMode...
+[assistant:planner] Let me check the watsonx-ai module:
+  -> 调用工具 call_00_7uc82yZZZzgRAgBOFoP98V6Y: bash {"command": "find /Users/looper/workspace/spring-ai/models/spring-ai-watsonx-ai -name \"*.java\" -type f | xargs grep -l \"EmbeddingModel\" 2>/dev/null || echo \"No embedding models found in watsonx-ai\"", "description": "Check if watsonx-ai module contains embedding models"}
+[tool] bash 成功: {"stdout": "", "stderr": "", "exit_code": 0, "timed_out": false, "command": "find /Users/looper/workspace/spring-ai/models/spring-ai-watsonx-ai -name \"*.java\" -type f | xargs grep -l \"EmbeddingM...
+[assistant:planner] Now let me compile the complete list of embedding models found. Let me also check if there are any additional embedding-related implementations in other directories:
+  -> 调用工具 call_00_swgsIzqJ4GJUlVcgX5XfQ6i0: bash {"command": "find /Users/looper/workspace/spring-ai -name \"*Embedding*.java\" -type f | grep -v test | grep -v target | sort", "description": "Find all non-test Embedding-related Java files in the project"}
+[tool] bash 成功: {"stdout": "/Users/looper/workspace/spring-ai/auto-configurations/models/embedding/observation/spring-ai-autoconfigure-model-embedding-observation/src/main/java/org/springframework/ai/model/embeddi...
+[assistant:planner] Based on my comprehensive search through the Spring AI project, I have identified all the Embedding models used in the project. Here's the complete list:
+
+## Spring AI 项目中使用的所有 Embedding 模型
+
+### 核心接口
+- **EmbeddingModel** - 核心嵌入模型接口
+- **AbstractEmbeddingModel** - 抽象基类
+- **DocumentEmbeddingModel** - 文档嵌入模型接口
+
+### 具体实现模型
+
+1. **Azure OpenAI**
+   - `AzureOpenAiEmbeddingModel` - Azure OpenAI 嵌入模型
+
+2. **AWS Bedrock**
+   - `BedrockCohereEmbeddingModel` - AWS Bedrock Cohere 嵌入模型
+   - `BedrockTitanEmbeddingModel` - AWS Bedrock Titan 嵌入模型
+
+3. **MiniMax**
+   - `MiniMaxEmbeddingModel` - MiniMax 嵌入模型
+
+4. **Mistral AI**
+   - `MistralAiEmbeddingModel` - Mistral AI 嵌入模型
+
+5. **OCI Generative AI**
+   - `OCIEmbeddingModel` - Oracle Cloud Infrastructure 生成式 AI 嵌入模型
+
+6. **Ollama**
+   - `OllamaEmbeddingModel` - Ollama 本地嵌入模型
+
+7. **OpenAI**
+   - `OpenAiEmbeddingModel` - OpenAI 嵌入模型
+
+8. **PostgresML**
+   - `PostgresMlEmbeddingModel` - PostgresML 数据库内嵌嵌入模型
+
+9. **Transformers**
+   - `TransformersEmbeddingModel` - Hugging Face Transformers 嵌入模型
+
+10. **Vertex AI**
+    - `VertexAiTextEmbeddingModel` - Google Vertex AI 文本嵌入模型
+    - `VertexAiMultimodalEmbeddingModel` - Google Vertex AI 多模态嵌入模型
+
+11. **ZhiPu AI**
+    - `ZhiPuAiEmbeddingModel` - 智谱AI 嵌入模型
+
+### 支持的嵌入模型提供商
+- OpenAI (包括 Azure OpenAI)
+- AWS Bedrock (Cohere, Titan)
+- Google Vertex AI (文本和多模态)
+- Mistral AI
+- Ollama
+- Oracle Cloud Infrastructure (OCI)
+- 智谱AI (ZhiPu AI)
+- MiniMax
+- PostgresML
+- Hugging Face Transformers
+
+这些模型覆盖了主要的云提供商和本地部署选项，支持文本嵌入和多模态嵌入功能。
+[assistant] Based on my comprehensive analysis of the Spring AI project, I have identified all the Embedding models used in the project. Here are the findings:
+
+## Spring AI 项目中使用的所有 Embedding 模型
+
+### 核心接口和抽象类
+- **`EmbeddingModel`** - 核心嵌入模型接口（位于 `/Users/looper/workspace/spring-ai/spring-ai-model/src/main/java/org/springframework/ai/embedding/EmbeddingModel.java`）
+- **`AbstractEmbeddingModel`** - 抽象基类
+- **`DocumentEmbeddingModel`** - 文档嵌入模型接口
+
+### 具体实现模型
+
+1. **Azure OpenAI**
+   - `AzureOpenAiEmbeddingModel` - Azure OpenAI 嵌入模型
+
+2. **AWS Bedrock**
+   - `BedrockCohereEmbeddingModel` - AWS Bedrock Cohere 嵌入模型
+   - `BedrockTitanEmbeddingModel` - AWS Bedrock Titan 嵌入模型
+
+3. **MiniMax**
+   - `MiniMaxEmbeddingModel` - MiniMax 嵌入模型
+
+4. **Mistral AI**
+   - `MistralAiEmbeddingModel` - Mistral AI 嵌入模型
+
+5. **OCI Generative AI**
+   - `OCIEmbeddingModel` - Oracle Cloud Infrastructure 生成式 AI 嵌入模型
+
+6. **Ollama**
+   - `OllamaEmbeddingModel` - Ollama 本地嵌入模型
+
+7. **OpenAI**
+   - `OpenAiEmbeddingModel` - OpenAI 嵌入模型
+
+8. **PostgresML**
+   - `PostgresMlEmbeddingModel` - PostgresML 数据库内嵌嵌入模型
+
+9. **Transformers**
+   - `TransformersEmbeddingModel` - Hugging Face Transformers 嵌入模型
+
+10. **Vertex AI**
+    - `VertexAiTextEmbeddingModel` - Google Vertex AI 文本嵌入模型
+    - `VertexAiMultimodalEmbeddingModel` - Google Vertex AI 多模态嵌入模型
+
+11. **ZhiPu AI**
+    - `ZhiPuAiEmbeddingModel` - 智谱AI 嵌入模型
+
+### 支持的嵌入模型提供商
+- OpenAI (包括 Azure OpenAI)
+- AWS Bedrock (Cohere, Titan)
+- Google Vertex AI (文本和多模态)
+- Mistral AI
+- Ollama
+- Oracle Cloud Infrastructure (OCI)
+- 智谱AI (ZhiPu AI)
+- MiniMax
+- PostgresML
+- Hugging Face Transformers
+
+### 限制说明
+- 搜索确认以下模块不包含 Embedding 模型：HuggingFace、DeepSeek、Qianfan、WatsonX-AI
+- 这些模型覆盖了主要的云提供商和本地部署选项，支持文本嵌入和多模态嵌入功能
+- 所有模型都实现了统一的 `EmbeddingModel` 接口，确保一致的 API 使用体验

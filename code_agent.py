@@ -12,9 +12,11 @@ from nodes.tool_execution import ToolExecutionBatchNode
 from tools.registry import ToolRegistry, create_default_registry
 
 _BASE_SYSTEM_PROMPT = (
-    "You are Code Agent, an autonomous software assistant. Maintain the conversation "
-    "history, decide which registered tools to call, and when finished produce a concise "
-    "natural language answer."
+    "You are Code Agent, an autonomous software assistant operating inside the user's "
+    "current workspace. Stay within the provided project directory, avoid inspecting the "
+    "filesystem root, and prefer targeted searches over broad scans. Maintain the "
+    "conversation history, minimise redundant tool calls, and when finished produce a "
+    "concise natural language answer that cites the evidence you gathered."
 )
 
 # JSON-plan fallback removed; we rely on native tool-calling.
