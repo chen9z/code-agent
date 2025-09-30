@@ -80,13 +80,13 @@ def test_sequential_execution_updates_shared(registry: ToolRegistry):
     assert action == "summarize"
     assert len(shared["tool_results"]) == 2
     assert shared["tool_results"][0]["status"] == "success"
-    assert shared["tool_results"][0]["output"]["echo"] == {"value": 1}
-    assert shared["tool_results"][1]["output"]["echo"] == {"value": 2}
+    assert shared["tool_results"][0]["result"]["echo"] == {"value": 1}
+    assert shared["tool_results"][1]["result"]["echo"] == {"value": 2}
     history = shared["history"]
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
-    assert json.loads(history[-2]["content"]) == {"echo": {"value": 1}}
-    assert json.loads(history[-1]["content"]) == {"echo": {"value": 2}}
+    assert history[-2]["content"] == ""
+    assert history[-1]["content"] == ""
 
 
 def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
@@ -105,12 +105,11 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
     assert action == "summarize"
     results = shared["tool_results"]
     assert len(results) == 2
-    statuses = {result["output"]["echo"]["value"] for result in results}
+    statuses = {result["result"]["echo"]["value"] for result in results}
     assert statuses == {"a", "b"}
     history = shared["history"]
     assert all(entry["role"] == "tool" for entry in history[-2:])
-    contents = {json.loads(entry["content"])["echo"]["value"] for entry in history[-2:]}
-    assert contents == {"a", "b"}
+    assert all(entry["content"] == "" for entry in history[-2:])
 
 
 def test_history_preserves_falsy_output(registry: ToolRegistry):
@@ -126,7 +125,7 @@ def test_history_preserves_falsy_output(registry: ToolRegistry):
     node._run(shared)
 
     history = shared["history"]
-    assert json.loads(history[-1]["content"]) == []
+    assert history[-1]["content"] == ""
 
 
 def test_missing_tool_returns_error(registry: ToolRegistry):

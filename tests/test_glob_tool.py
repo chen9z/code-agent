@@ -1,5 +1,3 @@
-import os
-import time
 from pathlib import Path
 
 import pytest
@@ -7,7 +5,7 @@ import pytest
 from tools.glob import GlobTool
 
 
-def test_glob_matches_sorted_by_mtime(tmp_path):
+def test_glob_matches_mimic_find_output(tmp_path):
     tool = GlobTool()
 
     first = tmp_path / "first.txt"
@@ -19,24 +17,19 @@ def test_glob_matches_sorted_by_mtime(tmp_path):
     third = tmp_path / "third.txt"
     third.write_text("third")
 
-    now = time.time()
-    os.utime(first, (now - 30, now - 30))
-    os.utime(second, (now - 10, now - 10))
-    os.utime(third, (now - 5, now - 5))
-
     result = tool.execute(pattern="**/*.txt", path=str(tmp_path))
 
     assert result["matches"] == [
-        "third.txt",
-        "nested/second.txt",
         "first.txt",
+        "nested/second.txt",
+        "third.txt",
     ]
     assert result["search_path"] == str(tmp_path.resolve())
     assert result["count"] == 3
     assert result["result"].splitlines() == [
-        str(tmp_path / "third.txt"),
-        str(tmp_path / "nested" / "second.txt"),
         str(tmp_path / "first.txt"),
+        str(tmp_path / "nested" / "second.txt"),
+        str(tmp_path / "third.txt"),
     ]
 
 

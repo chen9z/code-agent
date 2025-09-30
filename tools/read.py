@@ -9,6 +9,11 @@ MAX_LINE_LENGTH = 2000
 DEFAULT_LIMIT = 2000
 
 
+def format_line_with_arrow(line_number: int, content: str) -> str:
+    """Return a formatted line using a fixed-width number and arrow delimiter."""
+    return f"{line_number:6}→{content}"
+
+
 # Tracks files that have been read along with their modification timestamps.
 READ_REGISTRY: Dict[str, float] = {}
 
@@ -114,7 +119,7 @@ class ReadTool(BaseTool):
                         stripped = stripped[:MAX_LINE_LENGTH] + "… (truncated)"
                         truncated = True
 
-                    formatted_lines.append(f"{line_number:6}\t{stripped}")
+                    formatted_lines.append(format_line_with_arrow(line_number, stripped))
                     lines_read += 1
 
             register_read_path(resolved_path)

@@ -46,18 +46,18 @@ class GlobTool(BaseTool):
                 raise NotADirectoryError(f"Search path is not a directory: {search_dir}")
 
             resolved_dir = search_dir.resolve()
-            matches_with_mtime: List[tuple[Path, float]] = []
+            matched_paths: List[Path] = []
             for match in resolved_dir.glob(pattern):
                 try:
-                    stat = match.stat()
+                    match.stat()
                 except FileNotFoundError:
                     # File could disappear between glob and stat; skip it
                     continue
-                matches_with_mtime.append((match, stat.st_mtime))
+                matched_paths.append(match)
 
-            matches_with_mtime.sort(key=lambda item: item[1], reverse=True)
-            matches = [str(p.relative_to(resolved_dir)) for p, _ in matches_with_mtime]
-            joined = "\n".join(str(p) for p, _ in matches_with_mtime)
+            matched_paths.sort(key=lambda p: str(p))
+            matches = [str(p.relative_to(resolved_dir)) for p in matched_paths]
+            joined = "\n".join(str(p) for p in matched_paths)
 
             return {
                 "matches": matches,

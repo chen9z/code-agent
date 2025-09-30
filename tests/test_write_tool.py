@@ -7,7 +7,7 @@ def test_write_creates_new_file(tmp_path):
 
     result = WriteTool().execute(file_path=str(target.resolve()), content="hello")
 
-    assert result["result"] == "ok"
+    assert result["result"].startswith("File created successfully at:")
     assert result["bytes_written"] == len("hello".encode("utf-8"))
     assert target.read_text() == "hello"
 
@@ -35,7 +35,7 @@ def test_write_succeeds_after_read(tmp_path):
 
     result = WriteTool().execute(file_path=str(target.resolve()), content="updated")
 
-    assert result["result"] == "ok"
+    assert result["result"].startswith("File created successfully at:")
     assert target.read_text() == "updated"
 
 

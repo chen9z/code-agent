@@ -49,13 +49,13 @@ def test_tool_agent_flow_executes_tools(tmp_path):
 
     plan_message = {
         "role": "assistant",
-        "content": "Listing files and reading contents.",
+        "content": "Listing files via bash and reading contents.",
         "tool_calls": [
             {
-                "id": "call_ls",
+                "id": "call_bash",
                 "function": {
-                    "name": "ls",
-                    "arguments": json.dumps({"path": str(workspace)}),
+                    "name": "bash",
+                    "arguments": json.dumps({"command": f"ls {workspace}"}),
                 },
             },
             {
@@ -80,7 +80,7 @@ def test_tool_agent_flow_executes_tools(tmp_path):
         summary_response="The directory contains notes.txt with greeting content.",
     )
 
-    registry = create_default_registry(include=["ls", "glob", "read"])
+    registry = create_default_registry(include=["bash", "glob", "read"])
     flow = create_tool_agent_flow(registry=registry, llm_client=stub, max_iterations=1)
     result = flow.run({"user_input": f"Please review {workspace}"})
 

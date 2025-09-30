@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.grep_search import GrepSearchTool, MAX_MATCHES
+from tools.grep import GrepSearchTool, MAX_MATCHES
 
 
 def write_file(path: Path, content: str) -> None:
@@ -22,6 +22,11 @@ def test_grep_search_basic(tmp_path, monkeypatch):
     assert result["matches"][0]["line"] == 1
     assert result["matches"][0]["match"] == "foo"
     assert result["truncated"] is False
+    assert result["result"].splitlines() == [
+        str(tmp_path / "a.py"),
+        "       1→def foo():",
+        "             ^^^",
+    ]
 
 
 def test_grep_search_case_insensitive(tmp_path, monkeypatch):
@@ -32,6 +37,7 @@ def test_grep_search_case_insensitive(tmp_path, monkeypatch):
     result = GrepSearchTool().execute(query="alpha", case_sensitive=False)
 
     assert result["count"] == 1
+    assert "Alpha" in result["result"]
 
 
 def test_grep_search_include_exclude(tmp_path, monkeypatch):
@@ -48,6 +54,7 @@ def test_grep_search_include_exclude(tmp_path, monkeypatch):
 
     assert result["count"] == 1
     assert result["matches"][0]["path"].endswith("keep/file.txt")
+    assert result["result"].splitlines()[0] == str(tmp_path / "keep" / "file.txt")
 
 
 def test_grep_search_truncates_results(tmp_path, monkeypatch):
@@ -60,6 +67,7 @@ def test_grep_search_truncates_results(tmp_path, monkeypatch):
 
     assert result["count"] == MAX_MATCHES
     assert result["truncated"] is True
+    assert "match" in result["result"]
 
 
 def test_grep_search_invalid_regex(tmp_path, monkeypatch):
@@ -81,3 +89,4 @@ def test_grep_search_no_matches(tmp_path, monkeypatch):
     assert result["count"] == 0
     assert result["matches"] == []
     assert result["truncated"] is False
+    assert result["result"] == "[no matches]"

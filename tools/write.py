@@ -73,11 +73,12 @@ Usage:
             clear_read_record(resolved)
 
             bytes_written = len(content.encode("utf-8"))
+            success_message = f"File created successfully at: {resolved}"
 
             return {
                 "file_path": str(resolved),
                 "bytes_written": bytes_written,
-                "result": "ok",
+                "result": success_message,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
             return {

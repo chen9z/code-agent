@@ -169,7 +169,7 @@ def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
             continue
         if normalized == "args":
             line = Text(f"args: {value_text}", style="dim")
-        elif normalized == "output":
+        elif normalized in {"output", "result"}:
             line = Text(value_text, style="white")
         elif normalized == "error":
             line = Text(value_text, style="red")
@@ -444,15 +444,15 @@ class SummaryNode(Node):
 
         results_summary_lines: List[str] = []
         for result in tool_results:
-            status = result.get("status")
             key = result.get("key")
-            if status == "success":
+            error_payload = result.get("error")
+            if error_payload:
                 results_summary_lines.append(
-                    f"Tool {key} succeeded with output: {_preview_payload(result.get('output'), 400)}"
+                    f"Tool {key} failed with error: {error_payload}"
                 )
             else:
                 results_summary_lines.append(
-                    f"Tool {key} failed with error: {result.get('error')}"
+                    f"Tool {key} succeeded with result: {_preview_payload(result.get('result'), 400)}"
                 )
         if not results_summary_lines:
             results_summary_lines.append("No tool results were generated.")
@@ -962,20 +962,10 @@ def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], Non
         output_callback(f"[plan] {message}")
     for tool_result in result.get("tool_results") or []:
         key = tool_result.get("label") or tool_result.get("key")
-        status = tool_result.get("status")
         arguments_preview = _preview_payload(tool_result.get("arguments") or {}, 180)
-        if status == "success":
-            preview = _preview_payload(tool_result.get("output"), 160)
-            if preview in {"{}", "null"}:
-                preview = ""
-            message = f"{key} | status: success"
-            if arguments_preview and arguments_preview not in {"{}", "null"}:
-                message += f" | args: {arguments_preview}"
-            if preview:
-                message += f" | output: {preview}"
-            output_callback(f"[tool] {message}")
-        else:
-            error_preview = _preview_payload(tool_result.get("error"), 160)
+        error_payload = tool_result.get("error")
+        if error_payload:
+            error_preview = _preview_payload(error_payload, 160)
             if error_preview in {"{}", "null"}:
                 error_preview = ""
             message = f"{key} | status: error"
@@ -983,6 +973,16 @@ def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], Non
                 message += f" | args: {arguments_preview}"
             if error_preview:
                 message += f" | error: {error_preview}"
+            output_callback(f"[tool] {message}")
+        else:
+            preview = _preview_payload(tool_result.get("result"), 160)
+            if preview in {"{}", "null"}:
+                preview = ""
+            message = f"{key} | status: success"
+            if arguments_preview and arguments_preview not in {"{}", "null"}:
+                message += f" | args: {arguments_preview}"
+            if preview:
+                message += f" | result: {preview}"
             output_callback(f"[tool] {message}")
     final = result.get("final_response")
     if final:

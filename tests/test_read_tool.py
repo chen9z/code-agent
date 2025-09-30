@@ -21,9 +21,9 @@ def test_read_tool_basic(tmp_path):
     assert result["count"] == 3
     assert result["result"] == "\n".join(
         [
-            "     1\talpha",
-            "     2\tbeta",
-            "     3\tgamma",
+            "     1→alpha",
+            "     2→beta",
+            "     3→gamma",
         ]
     )
     assert result["has_more"] is False
@@ -38,8 +38,8 @@ def test_read_tool_offset_and_limit(tmp_path):
 
     assert result["count"] == 2
     assert result["result"].splitlines() == [
-        "     2\tline2",
-        "     3\tline3",
+        "     2→line2",
+        "     3→line3",
     ]
     assert result["has_more"] is True
 
@@ -53,8 +53,8 @@ def test_read_tool_default_limit_enforced(tmp_path):
 
     assert result["count"] == 2000
     assert result["has_more"] is True
-    assert result["result"].splitlines()[0] == "     1\tline 1"
-    assert result["result"].splitlines()[-1] == "  2000\tline 2000"
+    assert result["result"].splitlines()[0] == "     1→line 1"
+    assert result["result"].splitlines()[-1] == "  2000→line 2000"
 
 
 def test_read_tool_truncates_long_lines(tmp_path):

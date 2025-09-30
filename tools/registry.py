@@ -91,8 +91,7 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
     from tools.bash import BashTool
     from tools.edit import EditTool
     from tools.glob import GlobTool
-    from tools.grep_search import GrepSearchTool
-    from tools.ls import LSTool
+    from tools.grep import GrepSearchTool
     from tools.multi_edit import MultiEditTool
     from tools.read import ReadTool
     from tools.write import WriteTool
@@ -102,7 +101,6 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
         "edit": EditTool,
         "glob": GlobTool,
         "grep": GrepSearchTool,
-        "ls": LSTool,
         "multi_edit": MultiEditTool,
         "read": ReadTool,
         "write": WriteTool,
@@ -115,5 +113,3 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
             continue
         registry.register(tool_cls(), key=key)
     return registry
-
-

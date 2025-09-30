@@ -47,33 +47,39 @@ class ToolExecutionBatchNode(Node):
 
         history = shared.setdefault("history", [])
         for result in exec_res:
-            payload = result.get("output") if result.get("status") == "success" else result.get("error")
+            key = result.get("key")
+            is_bash_tool = isinstance(key, str) and key.lower() == "bash"
+            error_payload = result.get("error")
+            has_error = bool(error_payload)
+            if has_error:
+                content_preview = error_payload or ""
+            else:
+                payload = result.get("result")
+                content_preview = _preview_payload(payload, 2000) if is_bash_tool else ""
             message = {
                 "role": "tool",
                 "tool_call_id": result.get("id"),
                 "name": result.get("key"),
                 # Keep history compact to protect context window; store a safe preview only.
-                "content": _preview_payload(payload, 2000),
+                "content": content_preview,
             }
             history.append(message)
-            key = result.get("key")
-            status = result.get("status")
             arguments_preview = _preview_payload(result.get("arguments") or {}, 180)
             if arguments_preview in {"{}", "null"}:
                 arguments_preview = ""
             label = result.get("label") or (key.upper() if isinstance(key, str) else str(key))
-            if status == "success":
-                snippet = _preview_payload(result.get("output"), 200)
+            if not has_error:
+                snippet = _preview_payload(result.get("result"), 200)
                 if snippet in {"{}", "null"}:
                     snippet = ""
                 message = f"{label} | status: success"
                 if arguments_preview:
                     message += f" | args: {arguments_preview}"
                 if snippet:
-                    message += f" | output: {snippet}"
+                    message += f" | result: {snippet}"
                 _emit(shared, f"[tool] {message}")
             else:
-                error_preview = _preview_payload(result.get("error"), 200)
+                error_preview = _preview_payload(error_payload, 200)
                 if error_preview in {"{}", "null"}:
                     error_preview = ""
                 message = f"{label} | status: error"
@@ -124,12 +130,24 @@ class ToolExecutionBatchNode(Node):
     def _execute_call(self, call: ToolCall) -> Dict[str, Any]:
         try:
             spec: ToolSpec = self.registry.get(call.key)
+        except Exception as exc:  # pragma: no cover - exercised via tests
+            return {
+                "id": call.call_id,
+                "key": call.key,
+                "status": "error",
+                "error": str(exc),
+                "result": None,
+                "label": str(call.key),
+                "arguments": call.arguments,
+            }
+
+        try:
             output = spec.tool.execute(**call.arguments)
             return {
                 "id": call.call_id,
                 "key": call.key,
                 "status": "success",
-                "output": output,
+                "result": output,
                 "label": spec.name,
                 "arguments": call.arguments,
             }
@@ -139,6 +157,7 @@ class ToolExecutionBatchNode(Node):
                 "key": call.key,
                 "status": "error",
                 "error": str(exc),
+                "result": None,
                 "label": spec.name,
                 "arguments": call.arguments,
             }
