@@ -173,6 +173,9 @@ def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
         if not value_text:
             continue
         if normalized == "status":
+            value_str = str(value_text)
+            if value_str.lower() != "success":
+                lines.append(Text(f"status: {value_str}", style="bold red"))
             continue
         if normalized == "args":
             line = Text(f"args: {value_text}", style="dim")
