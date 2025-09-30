@@ -58,15 +58,34 @@ class ToolExecutionBatchNode(Node):
             history.append(message)
             key = result.get("key")
             status = result.get("status")
+            arguments_preview = _preview_payload(result.get("arguments") or {}, 180)
+            if arguments_preview in {"{}", "null"}:
+                arguments_preview = ""
+            label = result.get("label") or (key.upper() if isinstance(key, str) else str(key))
             if status == "success":
                 snippet = _preview_payload(result.get("output"), 200)
-                _emit(shared, f"[tool] {key} 成功: {snippet}")
+                if snippet in {"{}", "null"}:
+                    snippet = ""
+                message = f"{label} | status: success"
+                if arguments_preview:
+                    message += f" | args: {arguments_preview}"
+                if snippet:
+                    message += f" | output: {snippet}"
+                _emit(shared, f"[tool] {message}")
             else:
-                _emit(shared, f"[tool] {key} 失败: {result.get('error')}")
+                error_preview = _preview_payload(result.get("error"), 200)
+                if error_preview in {"{}", "null"}:
+                    error_preview = ""
+                message = f"{label} | status: error"
+                if arguments_preview:
+                    message += f" | args: {arguments_preview}"
+                if error_preview:
+                    message += f" | error: {error_preview}"
+                _emit(shared, f"[tool] {message}")
 
         used = shared.get("tool_iterations_used", 0) + 1
         shared["tool_iterations_used"] = used
-        max_iterations = getattr(self, "max_iterations", 4)
+        max_iterations = getattr(self, "max_iterations", 1)
         if used >= max_iterations:
             return "summarize"
         return "plan"
@@ -111,6 +130,8 @@ class ToolExecutionBatchNode(Node):
                 "key": call.key,
                 "status": "success",
                 "output": output,
+                "label": spec.name,
+                "arguments": call.arguments,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
             return {
@@ -118,6 +139,8 @@ class ToolExecutionBatchNode(Node):
                 "key": call.key,
                 "status": "error",
                 "error": str(exc),
+                "label": spec.name,
+                "arguments": call.arguments,
             }
 
 
@@ -138,6 +161,13 @@ def _preview_payload(value: Any, limit: int) -> str:
 
 
 def _emit(shared: Dict[str, Any], message: str) -> None:
+    cancel_event = shared.get("cancel_event") if isinstance(shared, dict) else None
+    if cancel_event is not None:
+        checker = getattr(cancel_event, "is_set", None)
+        if callable(checker) and checker():
+            return
+        if not callable(checker) and cancel_event:
+            return
     callback = shared.get("output_callback")
     if callable(callback):
         callback(message)

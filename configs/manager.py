@@ -40,7 +40,7 @@ class LLMConfig:
     model: str = "deepseek-chat"
     api_base: Optional[str] = None
     api_key: Optional[str] = None
-    temperature: float = 0.0
+    temperature: float = 0.1
     max_tokens: int = 2000
 
     @classmethod

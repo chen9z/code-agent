@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import argparse
 import json
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
+import os
+import select
+import sys
+import threading
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence
 
-from __init__ import Flow, Node
+from rich.console import Console
+from rich.text import Text
+
+from __init__ import Flow, FlowCancelledError, Node
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 from nodes.tool_execution import ToolExecutionBatchNode
@@ -26,6 +35,150 @@ _SUMMARY_INSTRUCTIONS = (
     "results when they exist and be explicit about any limitations."
 )
 
+
+_RICH_STYLE_MAP = {
+    "assistant": "white",
+    "assistant:planner": "white",
+    "planner": "white",
+    "plan": "green",
+    "tool": "green",
+    "user": "bold white",
+    "system": "magenta",
+    "warning": "yellow",
+}
+
+
+def create_rich_output(console: Optional[Console] = None) -> Callable[[Any], None]:
+    """Return a callback that renders agent events using a Rich console."""
+
+    active_console = console or Console()
+
+    def emit(message: Any) -> None:
+        if message is None:
+            return
+        if isinstance(message, Mapping):
+            text = _stringify_payload(message)
+        else:
+            text = message if isinstance(message, str) else _stringify_payload(message)
+        tag, body = _split_message_tag(text)
+        if tag is None:
+            active_console.print(Text(str(text)))
+            active_console.print()
+            return
+
+        normalized_tag = tag.lower()
+        if normalized_tag == "user":
+            line = Text.assemble(
+                Text("> ", style="bold white"),
+                Text(body, style="bold white"),
+            )
+            active_console.print(line)
+            active_console.print()
+            return
+
+        if normalized_tag == "system":
+            style = _RICH_STYLE_MAP.get(normalized_tag, "magenta")
+            active_console.print(Text(body, style=style))
+            active_console.print()
+            return
+
+        if normalized_tag in {"assistant", "assistant:planner", "planner"}:
+            _render_bullet(active_console, body, [], "white", "white")
+            return
+
+        if normalized_tag == "plan":
+            return
+
+        if normalized_tag == "tool":
+            header, metadata = _parse_structured_body(body)
+            status = _extract_metadata_value(metadata, "status") or "success"
+            bullet_style = "green" if status.lower() == "success" else "red"
+            header_style = "bold green" if status.lower() == "success" else "bold red"
+            _render_bullet(active_console, header, metadata, bullet_style, header_style)
+            return
+
+        style = _RICH_STYLE_MAP.get(normalized_tag, "white")
+        _render_bullet(active_console, body, [], style, style)
+
+    return emit
+
+
+def _split_message_tag(message: str) -> tuple[Optional[str], str]:
+    stripped = message.strip()
+    if not stripped.startswith("["):
+        return None, message
+    closing = stripped.find("]")
+    if closing <= 1:
+        return None, message
+    suffix = stripped[closing + 1 :]
+    if not suffix.startswith(" "):
+        return None, message
+    tag = stripped[1:closing]
+    body = stripped[closing + 2 :]
+    return tag, body
+
+
+def _parse_structured_body(body: str) -> tuple[str, List[tuple[str, str]]]:
+    parts = [segment.strip() for segment in body.split("|") if segment.strip()]
+    if not parts:
+        return body, []
+    header = parts[0]
+    metadata: List[tuple[str, str]] = []
+    for segment in parts[1:]:
+        if ":" not in segment:
+            continue
+        key, value = segment.split(":", 1)
+        metadata.append((key.strip(), value.strip()))
+    return header, metadata
+
+
+def _extract_metadata_value(metadata: List[tuple[str, str]], key: str) -> Optional[str]:
+    for meta_key, value in metadata:
+        if meta_key.lower() == key.lower():
+            return value
+    return None
+
+
+def _render_bullet(
+    console: Console,
+    header: str,
+    metadata: List[tuple[str, str]],
+    bullet_style: str,
+    header_style: str,
+) -> None:
+    bullet = Text("● ", style=bullet_style)
+    header_text = Text(header, style=header_style)
+    console.print(Text.assemble(bullet, header_text))
+
+    meta_lines = _format_metadata(metadata)
+    for idx, line in enumerate(meta_lines):
+        prefix = Text("└ " if idx == 0 else "  ", style="dim")
+        console.print(Text.assemble(prefix, line))
+
+    console.print()
+
+
+def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
+    lines: List[Text] = []
+    for key, value in metadata:
+        normalized = key.lower()
+        value_text = value
+        if not value_text:
+            continue
+        if normalized == "status":
+            continue
+        if normalized == "args":
+            line = Text(f"args: {value_text}", style="dim")
+        elif normalized == "output":
+            line = Text(value_text, style="white")
+        elif normalized == "error":
+            line = Text(value_text, style="red")
+        else:
+            line = Text(f"{key}: {value_text}", style="dim")
+        lines.append(line)
+    return lines
+
+
 def _stringify_payload(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -43,6 +196,13 @@ def _preview_payload(value: Any, limit: int) -> str:
 
 
 def _emit(shared: Dict[str, Any], message: str) -> None:
+    cancel_event = shared.get("cancel_event") if isinstance(shared, dict) else None
+    if cancel_event is not None:
+        checker = getattr(cancel_event, "is_set", None)
+        if callable(checker) and checker():
+            return
+        if not callable(checker) and cancel_event:
+            return
     callback = shared.get("output_callback")
     if callable(callback):
         callback(message)
@@ -146,8 +306,20 @@ class ToolPlanningNode(Node):
             _emit(shared, f"[assistant:planner] {thoughts}")
         for call in assistant_message.get("tool_calls") or []:
             name = call.get("function", {}).get("name")
-            args = call.get("function", {}).get("arguments")
-            _emit(shared, f"  -> 调用工具 {call.get('id')}: {name} {args}")
+            raw_args = call.get("function", {}).get("arguments")
+            parsed_args: Any = {}
+            if isinstance(raw_args, str) and raw_args:
+                try:
+                    parsed_args = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    parsed_args = raw_args
+            else:
+                parsed_args = raw_args or {}
+            args_preview = _preview_payload(parsed_args, 180)
+            message_body = name or "tool"
+            if args_preview and args_preview not in {"{}", "null"}:
+                message_body += f" | args: {args_preview}"
+            _emit(shared, f"[plan] {message_body}")
         return "execute" if tool_calls else "summarize"
 
     def _parse_tool_response(self, response: Any) -> Dict[str, Any]:
@@ -522,17 +694,30 @@ class CodeAgentSession:
         user_input: str,
         *,
         output_callback: Optional[Callable[[str], None]] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
+        token = cancel_event or threading.Event()
+        token_setter = getattr(token, "is_set", None)
+        if callable(token_setter) and token_setter():
+            return {"cancelled": True, "history": list(self.history)}
+        if not callable(token_setter) and token:
+            return {"cancelled": True, "history": list(self.history)}
         flow = self._flow_factory()
-        params: Dict[str, Any] = {"user_input": user_input.strip()}
+        params: Dict[str, Any] = {"user_input": user_input.strip(), "cancel_event": token}
         if self.history:
             params["history"] = list(self.history)
         if output_callback is not None:
             params["output_callback"] = output_callback
         flow.set_params(params)
-        result = flow._run({})
+        shared: Dict[str, Any] = {"cancel_event": token}
+        if output_callback is not None:
+            shared["output_callback"] = output_callback
+        try:
+            result = flow._run(shared)
+        except FlowCancelledError:
+            return {"cancelled": True, "history": list(self.history)}
         updated = result.get("history")
         if isinstance(updated, list):
             self.history = [self._normalize_message(msg) for msg in updated if self._is_valid_message(msg)]
@@ -569,28 +754,146 @@ class _RunLoopNode(Node):
         self.session = session
 
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
+        console = self.params.get("console")
+        output_callback = self.params.get("output_callback")
+        if output_callback is None:
+            output_callback = create_rich_output(console)
         return {
             "input_iter": self.params.get("input_iter"),
-            "output_callback": self.params.get("output_callback") or print,
+            "output_callback": output_callback,
+            "console": console,
         }
 
     def exec(self, prep_res: Dict[str, Any]) -> int:
-        iterator = prep_res["input_iter"] if prep_res["input_iter"] is not None else _stdin_iterator()
+        custom_iter = prep_res.get("input_iter")
+        interactive = custom_iter is None
+        console: Optional[Console] = prep_res.get("console")
+        iterator: Iterator[str] = (
+            custom_iter if custom_iter is not None else _stdin_iterator(console)
+        )
         output = prep_res["output_callback"]
-        output("Entering Code Agent. Type 'exit' to quit.")
+        if interactive:
+            output("[system] Entering Code Agent. Type 'exit' to quit. Press ESC to cancel the current request.")
+        else:
+            output("[system] Entering Code Agent. Type 'exit' to quit.")
         for raw in iterator:
             message = raw.strip()
             if not message:
                 continue
             if message.lower() in {"exit", "quit"}:
                 break
-            result = self.session.run_turn(message, output_callback=output)
+            result = (
+                self._run_with_cancellation(message, output)
+                if interactive
+                else self.session.run_turn(message, output_callback=output)
+            )
+            if result.get("cancelled"):
+                output("[system] 当前请求已取消。")
+                continue
             _emit_result(result, output)
         return 0
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: int) -> int:
         shared["exit_code"] = exec_res
         return "complete"
+
+    def _run_with_cancellation(self, message: str, output: Callable[[str], None]) -> Dict[str, Any]:
+        cancel_event = threading.Event()
+        done_event = threading.Event()
+        result_box: Dict[str, Any] = {}
+        error_box: Dict[str, BaseException] = {}
+
+        def worker() -> None:
+            try:
+                result_box.update(
+                    self.session.run_turn(
+                        message,
+                        output_callback=output,
+                        cancel_event=cancel_event,
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - defensive
+                error_box["error"] = exc
+            finally:
+                done_event.set()
+
+        runner = threading.Thread(target=worker, daemon=True)
+        runner.start()
+        try:
+            self._monitor_escape(cancel_event, done_event, output)
+        finally:
+            done_event.wait()
+            runner.join()
+        if error_box:
+            raise error_box["error"]
+        if cancel_event.is_set() and not result_box.get("cancelled"):
+            result_box["cancelled"] = True
+        return result_box
+
+    def _monitor_escape(
+        self,
+        cancel_event: threading.Event,
+        done_event: threading.Event,
+        output: Callable[[str], None],
+    ) -> None:
+        if cancel_event.is_set():
+            return
+        if done_event.wait(timeout=0):
+            return
+        if not sys.stdin.isatty():
+            done_event.wait()
+            return
+        if os.name == "nt":  # pragma: no cover - Windows-only branch
+            self._monitor_escape_windows(cancel_event, done_event, output)
+        else:
+            self._monitor_escape_posix(cancel_event, done_event, output)
+
+    def _monitor_escape_posix(
+        self,
+        cancel_event: threading.Event,
+        done_event: threading.Event,
+        output: Callable[[str], None],
+    ) -> None:
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old_attrs = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            while not done_event.is_set():
+                read_list, _, _ = select.select([fd], [], [], 0.05)
+                if not read_list:
+                    continue
+                char = os.read(fd, 1)
+                if not char:
+                    continue
+                if char == b"\x1b":
+                    cancel_event.set()
+                    output("[system] 捕获 ESC，正在取消本次请求…")
+                    break
+            done_event.wait()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+
+    def _monitor_escape_windows(
+        self,
+        cancel_event: threading.Event,
+        done_event: threading.Event,
+        output: Callable[[str], None],
+    ) -> None:
+        import msvcrt
+
+        while not done_event.is_set():
+            if msvcrt.kbhit():
+                char = msvcrt.getch()
+                if char == b"\x1b":
+                    cancel_event.set()
+                    output("[system] 捕获 ESC，正在取消本次请求…")
+                    break
+            if done_event.wait(0.05):
+                break
+        done_event.wait()
 
 
 class CodeAgentCLIFlow(Flow):
@@ -608,11 +911,41 @@ def run_code_agent_cli(
     *,
     session: Optional[CodeAgentSession] = None,
     input_iter: Optional[Iterable[str]] = None,
-    output_callback: Callable[[str], None] = print,
+    output_callback: Optional[Callable[[str], None]] = None,
+    console: Optional[Console] = None,
 ) -> int:
+    active_console = console or Console()
+    emitter = output_callback or create_rich_output(active_console)
     flow = CodeAgentCLIFlow(session=session)
-    flow.set_params({"input_iter": input_iter, "output_callback": output_callback})
+    flow.set_params(
+        {
+            "input_iter": input_iter,
+            "output_callback": emitter,
+            "console": active_console,
+        }
+    )
     return flow._run({})
+
+
+def run_code_agent_once(
+    prompt: str,
+    *,
+    session: Optional[CodeAgentSession] = None,
+    output_callback: Optional[Callable[[str], None]] = None,
+    console: Optional[Console] = None,
+) -> Dict[str, Any]:
+    """Execute a single Code Agent turn and emit the summarised result."""
+
+    active_session = session or CodeAgentSession()
+    if output_callback is None:
+        active_console = console or Console()
+        emitter = create_rich_output(active_console)
+    else:
+        emitter = output_callback
+    result = active_session.run_turn(prompt, output_callback=emitter)
+    if not result.get("cancelled"):
+        _emit_result(result, emitter)
+    return result
 
 
 def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], None]) -> None:
@@ -621,24 +954,107 @@ def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], Non
     if thoughts:
         output_callback(f"[planner] {thoughts}")
     for call in plan.get("tool_calls") or []:
-        key = call.get("key")
-        output_callback(f"[plan] {key}")
+        key = call.get("key") or call.get("name") or "tool"
+        args_preview = _preview_payload(call.get("arguments") or {}, 180)
+        message = key
+        if args_preview and args_preview not in {"{}", "null"}:
+            message += f" | args: {args_preview}"
+        output_callback(f"[plan] {message}")
     for tool_result in result.get("tool_results") or []:
-        key = tool_result.get("key")
+        key = tool_result.get("label") or tool_result.get("key")
         status = tool_result.get("status")
+        arguments_preview = _preview_payload(tool_result.get("arguments") or {}, 180)
         if status == "success":
             preview = _preview_payload(tool_result.get("output"), 160)
-            output_callback(f"[tool] {key}: success {preview}")
+            if preview in {"{}", "null"}:
+                preview = ""
+            message = f"{key} | status: success"
+            if arguments_preview and arguments_preview not in {"{}", "null"}:
+                message += f" | args: {arguments_preview}"
+            if preview:
+                message += f" | output: {preview}"
+            output_callback(f"[tool] {message}")
         else:
-            output_callback(f"[tool] {key}: error {tool_result.get('error')}")
+            error_preview = _preview_payload(tool_result.get("error"), 160)
+            if error_preview in {"{}", "null"}:
+                error_preview = ""
+            message = f"{key} | status: error"
+            if arguments_preview and arguments_preview not in {"{}", "null"}:
+                message += f" | args: {arguments_preview}"
+            if error_preview:
+                message += f" | error: {error_preview}"
+            output_callback(f"[tool] {message}")
     final = result.get("final_response")
     if final:
         output_callback(f"[assistant] {final}")
 
 
-def _stdin_iterator() -> Iterable[str]:
+def _stdin_iterator(console: Optional[Console] = None) -> Iterable[str]:
+    prompt = "You: "
+    if console is not None:
+        reader: Callable[[], str] = lambda: console.input(prompt)
+    else:
+        reader = lambda: input(prompt)
     while True:
         try:
-            yield input("You: ")
+            yield reader()
         except EOFError:
             break
+
+
+def _create_cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Code Agent module CLI")
+    parser.add_argument(
+        "-w",
+        "--workspace",
+        default=".",
+        help="Workspace path to operate within during the session.",
+    )
+    parser.add_argument(
+        "-p",
+        "--prompt",
+        nargs="+",
+        help="Prompt to execute once before exiting the CLI.",
+    )
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """CLI entrypoint for running the code agent directly."""
+
+    parser = _create_cli_parser()
+    args = parser.parse_args(argv)
+
+    workspace = Path(args.workspace).expanduser().resolve()
+    if not workspace.exists():
+        raise FileNotFoundError(f"Workspace does not exist: {workspace}")
+    if not workspace.is_dir():
+        raise NotADirectoryError(f"Workspace is not a directory: {workspace}")
+
+    prompt_text = " ".join(args.prompt).strip() if args.prompt else ""
+    console = Console()
+    emitter = create_rich_output(console)
+
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        session = CodeAgentSession(max_iterations=100)
+        if prompt_text:
+            run_code_agent_once(
+                prompt_text,
+                session=session,
+                output_callback=emitter,
+                console=console,
+            )
+            return 0
+        return run_code_agent_cli(
+            session=session,
+            output_callback=emitter,
+            console=console,
+        )
+    finally:
+        os.chdir(original_cwd)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

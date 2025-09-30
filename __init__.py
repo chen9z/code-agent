@@ -9,6 +9,26 @@ import warnings
 from typing import Any, Dict, Iterable, Optional
 
 
+class FlowCancelledError(RuntimeError):
+    """Raised when a flow run is cancelled via an external signal."""
+
+
+def _event_is_set(shared: Dict[str, Any], params: Optional[Dict[str, Any]]) -> bool:
+    """Helper to check for a `threading.Event` stored under ``cancel_event``."""
+
+    event = None
+    if shared is not None:
+        event = shared.get("cancel_event")
+    if event is None and params:
+        event = params.get("cancel_event")
+    if event is None:
+        return False
+    is_set = getattr(event, "is_set", None)
+    if callable(is_set):
+        return is_set()
+    return bool(event)
+
+
 class BaseNode:
     """Minimal synchronous node with lifecycle hooks."""
 
@@ -116,9 +136,17 @@ class Flow(BaseNode):
         current = copy.copy(self.start_node)
         merged_params = params or {**self.params}
         last_action = None
+        if shared is not None and "cancel_event" not in shared:
+            event = merged_params.get("cancel_event")
+            if event is not None:
+                shared["cancel_event"] = event
         while current:
+            if _event_is_set(shared, merged_params):
+                raise FlowCancelledError()
             current.set_params(merged_params)
             last_action = current._run(shared)
+            if _event_is_set(shared, merged_params):
+                raise FlowCancelledError()
             current = copy.copy(self.get_next_node(current, last_action))
         return last_action
 
@@ -229,4 +257,3 @@ class AsyncParallelBatchFlow(AsyncFlow, BatchFlow):
         coros = [self._orch_async(shared, {**self.params, **batch}) for batch in prep_results]
         await asyncio.gather(*coros)
         return await self.post_async(shared, prep_results, None)
-

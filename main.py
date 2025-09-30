@@ -8,12 +8,14 @@ import os
 from pathlib import Path
 from typing import Sequence
 
-from code_agent import CodeAgentSession, run_code_agent_cli
+from rich.console import Console
 
-
-def _stream_print(*args, **kwargs) -> None:
-    kwargs.setdefault("flush", True)
-    print(*args, **kwargs)
+from code_agent import (
+    CodeAgentSession,
+    create_rich_output,
+    run_code_agent_cli,
+    run_code_agent_once,
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -41,18 +43,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     prompt = " ".join(args.prompt).strip() if args.prompt else ""
 
     original_cwd = Path.cwd()
+    console = Console()
+    emitter = create_rich_output(console)
     try:
         os.chdir(workspace)
         session = CodeAgentSession(max_iterations=100)
         if prompt:
-            # Run a single turn via the CLI loop to reuse logging behaviour.
-            inputs = iter([prompt, "exit"])
-            return run_code_agent_cli(
+            run_code_agent_once(
+                prompt,
                 session=session,
-                input_iter=inputs,
-                output_callback=_stream_print,
+                output_callback=emitter,
+                console=console,
             )
-        return run_code_agent_cli(session=session, output_callback=_stream_print)
+            return 0
+        return run_code_agent_cli(
+            session=session,
+            output_callback=emitter,
+            console=console,
+        )
     finally:
         os.chdir(original_cwd)
 

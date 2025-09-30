@@ -283,6 +283,12 @@ class BashOutputTool(BaseTool):
         if shell is None:
             return {"error": f"No background shell found for id {bash_id}", "bash_id": bash_id}
 
+        if filter is not None:
+            try:
+                re.compile(filter)
+            except re.error as exc:
+                return {"error": f"Invalid filter regex: {exc}", "bash_id": bash_id}
+
         try:
             shell.refresh()
             stdout, new_stdout_buffer = shell.consume(shell.stdout_buffer, filter)

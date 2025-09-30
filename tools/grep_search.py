@@ -15,7 +15,7 @@ class GrepSearchTool(BaseTool):
 
     @property
     def name(self) -> str:
-        return "grep_search"
+        return "Grep"
 
     @property
     def description(self) -> str:
