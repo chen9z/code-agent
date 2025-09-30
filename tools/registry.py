@@ -94,6 +94,7 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
     from tools.grep import GrepSearchTool
     from tools.multi_edit import MultiEditTool
     from tools.read import ReadTool
+    from tools.todo_write import TodoWriteTool
     from tools.write import WriteTool
 
     tool_classes = {
@@ -103,6 +104,7 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
         "grep": GrepSearchTool,
         "multi_edit": MultiEditTool,
         "read": ReadTool,
+        "todo_write": TodoWriteTool,
         "write": WriteTool,
     }
 
