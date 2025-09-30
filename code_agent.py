@@ -18,23 +18,13 @@ from __init__ import Flow, FlowCancelledError, Node
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 from nodes.tool_execution import ToolExecutionBatchNode
+from core.prompt import (
+    SECURITY_SYSTEM_PROMPT,
+    _BASE_SYSTEM_PROMPT,
+    _SUMMARY_INSTRUCTIONS,
+    compose_system_prompt,
+)
 from tools.registry import ToolRegistry, create_default_registry
-
-_BASE_SYSTEM_PROMPT = (
-    "You are Code Agent, an autonomous software assistant operating inside the user's "
-    "current workspace. Stay within the provided project directory, avoid inspecting the "
-    "filesystem root, and prefer targeted searches over broad scans. Maintain the "
-    "conversation history, minimise redundant tool calls, and when finished produce a "
-    "concise natural language answer that cites the evidence you gathered."
-)
-
-# JSON-plan fallback removed; we rely on native tool-calling.
-
-_SUMMARY_INSTRUCTIONS = (
-    "Provide the final answer to the user using the available context. Reference tool "
-    "results when they exist and be explicit about any limitations."
-)
-
 
 _RICH_STYLE_MAP = {
     "assistant": "white",
@@ -46,6 +36,23 @@ _RICH_STYLE_MAP = {
     "system": "magenta",
     "warning": "yellow",
 }
+
+
+def build_code_agent_system_prompt(
+    *,
+    base_prompt: str = _BASE_SYSTEM_PROMPT,
+    extra_sections: Optional[Sequence[str]] = None,
+    environment: Optional[Mapping[str, Any]] = None,
+    include_security_prompt: bool = True,
+) -> str:
+    """Compose the system prompt using the shared helper."""
+
+    sections: List[str] = []
+    if include_security_prompt:
+        sections.append(SECURITY_SYSTEM_PROMPT)
+    if extra_sections:
+        sections.extend(extra_sections)
+    return compose_system_prompt(base_prompt, extra_sections=sections, environment=environment)
 
 
 def create_rich_output(console: Optional[Console] = None) -> Callable[[Any], None]:
@@ -425,10 +432,11 @@ class ToolPlanningNode(Node):
 class SummaryNode(Node):
     """Creates the final natural language response using the LLM."""
 
-    def __init__(self, model: str, llm_client=None) -> None:
+    def __init__(self, model: str, llm_client=None, system_prompt: str = _BASE_SYSTEM_PROMPT) -> None:
         super().__init__()
         self.model = model
         self.llm = llm_client or get_default_llm_client()
+        self.system_prompt = system_prompt
 
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -553,7 +561,7 @@ class SummaryNode(Node):
         return None
 
     def _build_messages(self, history: List[Dict[str, Any]], summary_prompt: str) -> List[Dict[str, Any]]:
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": _BASE_SYSTEM_PROMPT}]
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
         for message in history:
             if message.get("role") == "system":
                 continue
@@ -572,6 +580,7 @@ class ToolAgentFlow(Flow):
         model: Optional[str] = None,
         *,
         max_iterations: int = 25,
+        system_prompt: Optional[str] = None,
     ) -> None:
         if model is None:
             cfg = get_config()
@@ -582,10 +591,11 @@ class ToolAgentFlow(Flow):
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
 
         super().__init__()
-        self.context_node = ConversationContextNode()
+        resolved_prompt = system_prompt or _BASE_SYSTEM_PROMPT
+        self.context_node = ConversationContextNode(system_prompt=resolved_prompt)
         self.planning_node = ToolPlanningNode(self.registry, model=self.model, llm_client=self.llm)
         self.execution_node = ToolExecutionBatchNode(self.registry)
-        self.summary_node = SummaryNode(model=self.model, llm_client=self.llm)
+        self.summary_node = SummaryNode(model=self.model, llm_client=self.llm, system_prompt=resolved_prompt)
 
         self.execution_node.max_iterations = self.max_iterations
 
@@ -625,12 +635,14 @@ def create_tool_agent_flow(
     model: Optional[str] = None,
     *,
     max_iterations: int = 25,
+    system_prompt: Optional[str] = None,
 ) -> ToolAgentFlow:
     return ToolAgentFlow(
         registry=registry,
         llm_client=llm_client,
         model=model,
         max_iterations=max_iterations,
+        system_prompt=system_prompt,
     )
 
 
@@ -644,14 +656,26 @@ def create_code_agent_flow(
     max_parallel_workers: int = 4,
     model: Optional[str] = None,
     max_iterations: int = 25,
+    system_prompt: Optional[str] = None,
+    extra_system_sections: Optional[Sequence[str]] = None,
+    environment: Optional[Mapping[str, Any]] = None,
 ) -> ToolAgentFlow:
     """Return a `ToolAgentFlow` instance with all default tools registered."""
+
+    resolved_prompt = system_prompt
+    if resolved_prompt is None:
+        resolved_prompt = build_code_agent_system_prompt(
+            base_prompt=_BASE_SYSTEM_PROMPT,
+            extra_sections=extra_system_sections,
+            environment=environment,
+        )
 
     flow = create_tool_agent_flow(
         registry=registry,
         llm_client=llm_client,
         model=model,
         max_iterations=max_iterations,
+        system_prompt=resolved_prompt,
     )
     if max_parallel_workers < 1:
         raise ValueError("max_parallel_workers must be >= 1")
@@ -671,11 +695,17 @@ class CodeAgentSession:
         max_parallel_workers: int = 4,
         max_iterations: int = 25,
         flow_factory: Optional[FlowFactory] = None,
+        system_prompt: Optional[str] = None,
+        extra_system_sections: Optional[Sequence[str]] = None,
+        environment: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.registry = registry or create_default_registry()
         self.llm_client = llm_client
         self.max_parallel_workers = max_parallel_workers
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
+        self.system_prompt = system_prompt
+        self.extra_system_sections = extra_system_sections
+        self.environment = environment
         if flow_factory is not None:
             self._flow_factory = flow_factory
         else:
@@ -686,6 +716,9 @@ class CodeAgentSession:
                 max_parallel_workers=self.max_parallel_workers,
                 max_iterations=self.max_iterations,
                 model=default_model,
+                system_prompt=self.system_prompt,
+                extra_system_sections=self.extra_system_sections,
+                environment=self.environment,
             )
         self.history: List[Dict[str, Any]] = []
 
