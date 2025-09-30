@@ -182,7 +182,7 @@ def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
         elif normalized in {"output", "result"}:
             line = Text(value_text, style="white")
         elif normalized == "error":
-            line = Text(value_text, style="red")
+            line = Text(f"error: {value_text}", style="bold red")
         else:
             line = Text(f"{key}: {value_text}", style="dim")
         lines.append(line)
@@ -985,44 +985,23 @@ def run_code_agent_once(
 
 
 def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], None]) -> None:
-    plan = result.get("tool_plan") or {}
-    thoughts = plan.get("thoughts")
-    if thoughts:
-        output_callback(f"[planner] {thoughts}")
-    for call in plan.get("tool_calls") or []:
-        key = call.get("key") or call.get("name") or "tool"
-        args_preview = _preview_payload(call.get("arguments") or {}, 180)
-        message = key
-        if args_preview and args_preview not in {"{}", "null"}:
-            message += f" | args: {args_preview}"
-        output_callback(f"[plan] {message}")
-    for tool_result in result.get("tool_results") or []:
-        key = tool_result.get("label") or tool_result.get("key")
-        arguments_preview = _preview_payload(tool_result.get("arguments") or {}, 180)
-        error_payload = tool_result.get("error")
-        if error_payload:
-            error_preview = _preview_payload(error_payload, 160)
-            if error_preview in {"{}", "null"}:
-                error_preview = ""
-            message = f"{key} | status: error"
-            if arguments_preview and arguments_preview not in {"{}", "null"}:
-                message += f" | args: {arguments_preview}"
-            if error_preview:
-                message += f" | error: {error_preview}"
-            output_callback(f"[tool] {message}")
-        else:
-            preview = _preview_payload(tool_result.get("result"), 160)
-            if preview in {"{}", "null"}:
-                preview = ""
-            message = f"{key} | status: success"
-            if arguments_preview and arguments_preview not in {"{}", "null"}:
-                message += f" | args: {arguments_preview}"
-            if preview:
-                message += f" | result: {preview}"
-            output_callback(f"[tool] {message}")
     final = result.get("final_response")
-    if final:
-        output_callback(f"[assistant] {final}")
+    if not final:
+        return
+
+    history = result.get("history")
+    already_emitted = False
+    if isinstance(history, list):
+        for message in reversed(history):
+            if message.get("role") != "assistant":
+                continue
+            content = _stringify_payload(message.get("content", ""))
+            if content == _stringify_payload(final):
+                already_emitted = True
+            break
+
+    if not already_emitted:
+        output_callback(f"[assistant] {_stringify_payload(final)}")
 
 
 def _stdin_iterator(console: Optional[Console] = None) -> Iterable[str]:
