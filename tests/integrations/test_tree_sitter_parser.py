@@ -46,3 +46,24 @@ value = area(3.0)
     assert any(entry["name"] == "area" for entry in exported)
     assert all("relative_path" in entry for entry in exported)
     assert any("metadata" in entry and "code_snippet" in entry["metadata"] for entry in exported)
+
+
+def test_tree_sitter_parser_logs_on_parse_failure(tmp_path, monkeypatch, caplog):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    source = project_root / "broken.py"
+    source.write_text("def broken(:\n    pass\n")
+
+    cache_dir = tmp_path / "cache"
+
+    class BoomParser:
+        def parse(self, _bytes):
+            raise RuntimeError("boom")
+
+    with TreeSitterProjectParser(cache_dir=cache_dir) as parser:
+        monkeypatch.setattr(parser, "_get_parser", lambda _lang: BoomParser())
+        caplog.set_level("WARNING")
+        symbols = parser.parse_file(source, project_root=project_root)
+
+    assert symbols == []
+    assert any("Failed to parse" in record.message for record in caplog.records)

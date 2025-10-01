@@ -89,6 +89,7 @@ class ToolRegistry:
 def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegistry:
     """Construct a registry with the built-in tool implementations."""
     from tools.bash import BashTool
+    from tools.codebase_search import CodebaseSearchTool
     from tools.edit import EditTool
     from tools.glob import GlobTool
     from tools.grep import GrepSearchTool
@@ -99,6 +100,7 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
 
     tool_classes = {
         "bash": BashTool,
+        "codebase_search": CodebaseSearchTool,
         "edit": EditTool,
         "glob": GlobTool,
         "grep": GrepSearchTool,

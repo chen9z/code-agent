@@ -77,15 +77,24 @@ class RAGSearchNode(Node):
         project_name = self.params.get("project_name") or shared.get("project_name")
         query = self.params.get("query") or shared.get("query")
         limit = self.params.get("limit", 5)
+        target_dirs = self.params.get("target_directories") or shared.get("target_directories")
         if not project_name:
             raise ValueError("project_name parameter is required")
         if not query:
             raise ValueError("query parameter is required")
-        return {"project_name": project_name, "query": query, "limit": limit}
+        return {
+            "project_name": project_name,
+            "query": query,
+            "limit": limit,
+            "target_directories": target_dirs,
+        }
 
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         results = self.repository.search(
-            prep_res["project_name"], prep_res["query"], prep_res["limit"]
+            prep_res["project_name"],
+            prep_res["query"],
+            prep_res["limit"],
+            target_directories=prep_res.get("target_directories"),
         )
         matches: List[Dict[str, Any]] = []
         for doc in results:
@@ -106,6 +115,7 @@ class RAGSearchNode(Node):
             "matches": matches,
             "total_results": len(matches),
             "action": "search",
+            "target_directories": prep_res.get("target_directories") or [],
         }
 
     def exec_fallback(self, prep_res: Dict[str, Any], exc: Exception) -> Dict[str, Any]:
@@ -137,15 +147,24 @@ class RAGQueryNode(Node):
             or shared.get("query")
         )
         limit = self.params.get("limit", 5)
+        target_dirs = self.params.get("target_directories") or shared.get("target_directories")
         if not project_name:
             raise ValueError("project_name parameter is required")
         if not question:
             raise ValueError("question parameter is required")
-        return {"project_name": project_name, "question": question, "limit": limit}
+        return {
+            "project_name": project_name,
+            "question": question,
+            "limit": limit,
+            "target_directories": target_dirs,
+        }
 
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         results = self.repository.search(
-            prep_res["project_name"], prep_res["question"], prep_res["limit"]
+            prep_res["project_name"],
+            prep_res["question"],
+            prep_res["limit"],
+            target_directories=prep_res.get("target_directories"),
         )
         if not results:
             return {
@@ -190,6 +209,7 @@ class RAGQueryNode(Node):
                 {"file": doc.path, "score": getattr(doc, "score", 0.0)} for doc in results
             ],
             "action": "query",
+            "target_directories": prep_res.get("target_directories") or [],
         }
 
     def exec_fallback(self, prep_res: Dict[str, Any], exc: Exception) -> Dict[str, Any]:

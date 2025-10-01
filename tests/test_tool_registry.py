@@ -42,6 +42,7 @@ def test_default_registry_contains_expected_tools():
     assert "read" in keys
     assert "write" in keys
     assert "todo_write" in keys
+    assert "codebase_search" in keys
     assert keys == sorted(keys)
 
 

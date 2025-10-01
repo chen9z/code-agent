@@ -29,6 +29,9 @@ class _DummyFlow:
         history = list(self.params.get("history") or [])
         history.append({"role": "user", "content": self.params["user_input"]})
         history.append({"role": "assistant", "content": "ack"})
+        callback = self.params.get("output_callback")
+        if callable(callback):
+            callback("[assistant] ack")
         return {"history": history, "final_response": "ack", "tool_results": []}
 
 

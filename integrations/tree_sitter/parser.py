@@ -7,6 +7,7 @@ implementation (https://github.com/ryanhoangt/locify) under the MIT License.
 """
 
 import json
+import logging
 import hashlib
 import uuid
 from collections import defaultdict
@@ -24,6 +25,9 @@ from integrations.tree_sitter.language_loader import (
     is_language_supported,
     load_language,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class TagKind(str, Enum):
@@ -215,7 +219,12 @@ class TreeSitterProjectParser:
         code_bytes = code.encode("utf-8")
         try:
             parsed_tree = parser.parse(code_bytes)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse %s with tree-sitter, possibly due to a syntax error. Details: %s",
+                path,
+                exc,
+            )
             return []
 
         query = Query(language, query_path.read_text())
