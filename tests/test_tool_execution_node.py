@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from nodes.tool_execution import ToolExecutionBatchNode
+from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -79,9 +79,13 @@ def test_sequential_execution_updates_shared(registry: ToolRegistry):
 
     assert action == "summarize"
     assert len(shared["tool_results"]) == 2
-    assert shared["tool_results"][0]["status"] == "success"
-    assert shared["tool_results"][0]["result"]["echo"] == {"value": 1}
-    assert shared["tool_results"][1]["result"]["echo"] == {"value": 2}
+    first, second = shared["tool_results"]
+    assert isinstance(first, ToolOutput)
+    assert isinstance(second, ToolOutput)
+    assert first.status == "success"
+    assert second.status == "success"
+    assert first.result and first.result.data["echo"] == {"value": 1}
+    assert second.result and second.result.data["echo"] == {"value": 2}
     history = shared["history"]
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
@@ -105,7 +109,7 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
     assert action == "summarize"
     results = shared["tool_results"]
     assert len(results) == 2
-    statuses = {result["result"]["echo"]["value"] for result in results}
+    statuses = {result.result.data["echo"]["value"] for result in results if result.result}
     assert statuses == {"a", "b"}
     history = shared["history"]
     assert all(entry["role"] == "tool" for entry in history[-2:])
@@ -136,5 +140,6 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
 
     assert action == "summarize"
     result = shared["tool_results"][0]
-    assert result["status"] == "error"
-    assert "missing" in result["error"].lower()
+    assert isinstance(result, ToolOutput)
+    assert result.status == "error"
+    assert result.error and "missing" in result.error.lower()

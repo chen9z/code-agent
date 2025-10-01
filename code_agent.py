@@ -17,7 +17,7 @@ from rich.text import Text
 from __init__ import Flow, FlowCancelledError, Node
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
-from nodes.tool_execution import ToolExecutionBatchNode
+from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from core.prompt import (
     SECURITY_SYSTEM_PROMPT,
     _BASE_SYSTEM_PROMPT,
@@ -455,15 +455,29 @@ class SummaryNode(Node):
 
         results_summary_lines: List[str] = []
         for result in tool_results:
-            key = result.get("key")
-            error_payload = result.get("error")
+            if isinstance(result, ToolOutput):
+                key = result.key
+                if result.error:
+                    results_summary_lines.append(
+                        f"Tool {key} failed with error: {result.error}"
+                    )
+                else:
+                    payload = result.result.data if result.result else None
+                    results_summary_lines.append(
+                        f"Tool {key} succeeded with result: {_preview_payload(payload, 400)}"
+                    )
+                continue
+
+            key = result.get("key") if isinstance(result, dict) else None
+            error_payload = result.get("error") if isinstance(result, dict) else None
             if error_payload:
                 results_summary_lines.append(
                     f"Tool {key} failed with error: {error_payload}"
                 )
             else:
+                payload = result.get("result") if isinstance(result, dict) else result
                 results_summary_lines.append(
-                    f"Tool {key} succeeded with result: {_preview_payload(result.get('result'), 400)}"
+                    f"Tool {key} succeeded with result: {_preview_payload(payload, 400)}"
                 )
         if not results_summary_lines:
             results_summary_lines.append("No tool results were generated.")

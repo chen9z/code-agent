@@ -27,4 +27,4 @@
 - `BaseNode`/`Node`：通过 `prep -> exec -> post` 钩子串联；`Node` 增加重试与 `exec_fallback`，适合处理瞬时失败；`BatchNode` 在 `_exec` 层批处理条目。
 - `Flow`：以 `start()` 注册起点，通过 `node >> next` 和 `node - "action" >> branch` 管理分支；`params` 在循环中注入到每个节点。
 - `Async*`：异步节点/Flow 复用同一决策逻辑，重写 `*_async` 钩子即可并行化开销节点。
-- `ToolExecutionBatchNode`：`tool_plan.tool_calls` 驱动执行；`mode`/`parallel` 控制批次；`post` 将结果写入 `shared["tool_results"]` 与历史，为后续总结节点提供输入；`max_parallel_workers` 可调节并发限额。
+- `ToolExecutionBatchNode`：`tool_plan.tool_calls` 驱动执行；`mode`/`parallel` 控制批次；`post` 将结果写入 `shared["tool_results"]` 与历史，为后续总结节点提供输入；`max_parallel_workers` 可调节并发限额；工具返回统一封装为 `ToolOutput` 对象（`inputs`/`result`/`error`）。

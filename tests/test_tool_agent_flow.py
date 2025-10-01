@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from code_agent import create_tool_agent_flow
+from nodes.tool_execution import ToolOutput
 from tools.registry import create_default_registry
 
 
@@ -86,7 +87,8 @@ def test_tool_agent_flow_executes_tools(tmp_path):
 
     assert result["final_response"] == "The directory contains notes.txt with greeting content."
     assert len(result["tool_results"]) == 3
-    assert all(entry["status"] == "success" for entry in result["tool_results"])
+    assert all(isinstance(entry, ToolOutput) for entry in result["tool_results"])
+    assert all(entry.status == "success" for entry in result["tool_results"])
     assert result["tool_plan"]["tool_calls"]
     assert len(stub.calls) >= 2
     planning_messages = stub.calls[0]["messages"]

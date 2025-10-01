@@ -71,13 +71,18 @@ def save_transcript(transcript: Sequence[str], output_dir: Optional[Path], scena
     return str(log_path)
 
 
-def extract_tool_keys(tool_results: Optional[Sequence[Mapping[str, Any]]]) -> List[str]:
+def extract_tool_keys(tool_results: Optional[Sequence[Any]]) -> List[str]:
     if not tool_results:
         return []
     keys = []
     for entry in tool_results:
-        key = entry.get("key")
-        if isinstance(key, str):
+        if hasattr(entry, "key"):
+            key = getattr(entry, "key")
+        elif isinstance(entry, Mapping):
+            key = entry.get("key")
+        else:
+            key = None
+        if isinstance(key, str) and key:
             keys.append(key)
     return keys
 

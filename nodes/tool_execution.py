@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 from __init__ import Node
 from tools.registry import ToolRegistry, ToolSpec
@@ -16,6 +16,75 @@ class ToolCall:
     call_id: str
     mode: str = "sequential"
 
+
+@dataclass
+class ToolInvocationInputs:
+    """Canonical inputs used when invoking a tool."""
+
+    key: str
+    arguments: Dict[str, Any]
+    call_id: str
+    label: str
+
+
+@dataclass
+class ToolResultPayload:
+    """Normalized result payload captured from a tool invocation."""
+
+    status: str
+    content: str
+    data: Any
+
+
+@dataclass
+class ToolOutput:
+    """Standardized record for tool execution outcomes."""
+
+    inputs: ToolInvocationInputs
+    result: Optional[ToolResultPayload]
+    error: Optional[str]
+
+    @property
+    def key(self) -> str:
+        return self.inputs.key
+
+    @property
+    def id(self) -> str:
+        return self.inputs.call_id
+
+    @property
+    def status(self) -> str:
+        if self.result and self.result.status:
+            return self.result.status
+        if self.error:
+            return "error"
+        return "unknown"
+
+    @property
+    def arguments(self) -> Dict[str, Any]:
+        return self.inputs.arguments
+
+    @property
+    def result_text(self) -> str:
+        return self.result.content if self.result else ""
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "inputs": {
+                "key": self.inputs.key,
+                "arguments": self.inputs.arguments,
+                "call_id": self.inputs.call_id,
+                "label": self.inputs.label,
+            },
+            "result": {
+                "status": self.result.status,
+                "content": self.result.content,
+                "data": self.result.data,
+            }
+            if self.result
+            else None,
+            "error": self.error,
+        }
 
 class ToolExecutionBatchNode(Node):
     """Executes a batch of tool calls sequentially or in parallel based on plan metadata."""
@@ -34,52 +103,59 @@ class ToolExecutionBatchNode(Node):
             raise ValueError("tool_plan.tool_calls must be a list")
         return tool_calls
 
-    def exec(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def exec(self, tool_calls: List[Dict[str, Any]]) -> List[ToolOutput]:
         calls = [self._to_tool_call(raw, idx) for idx, raw in enumerate(tool_calls or [])]
         if not calls:
             return []
         # Always execute in parallel for simplicity and throughput.
         return self._run_parallel(calls)
 
-    def post(self, shared: Dict[str, Any], prep_res: List[Dict[str, Any]], exec_res: List[Dict[str, Any]]) -> str:
+    def post(
+        self,
+        shared: Dict[str, Any],
+        prep_res: List[Dict[str, Any]],
+        exec_res: List[ToolOutput],
+    ) -> str:
         existing = shared.setdefault("tool_results", [])
         existing.extend(exec_res)
 
         history = shared.setdefault("history", [])
         for result in exec_res:
-            key = result.get("key")
+            key = result.key
             is_bash_tool = isinstance(key, str) and key.lower() == "bash"
-            error_payload = result.get("error")
+            error_payload = result.error
             has_error = bool(error_payload)
             if has_error:
                 content_preview = error_payload or ""
             else:
-                payload = result.get("result")
-                content_preview = _preview_payload(payload, 2000) if is_bash_tool else ""
+                payload_text = result.result.content if result.result else ""
+                content_preview = (
+                    _preview_payload(payload_text, 2000) if is_bash_tool else ""
+                )
             message = {
                 "role": "tool",
-                "tool_call_id": result.get("id"),
-                "name": result.get("key"),
+                "tool_call_id": result.id,
+                "name": key,
                 # Keep history compact to protect context window; store a safe preview only.
                 "content": content_preview,
             }
             history.append(message)
-            arguments_preview = _preview_payload(result.get("arguments") or {}, 180)
+            arguments_preview = _preview_payload(result.inputs.arguments or {}, 180)
             if arguments_preview in {"{}", "null"}:
                 arguments_preview = ""
-            label = result.get("label") or (key.upper() if isinstance(key, str) else str(key))
-            if not has_error:
-                snippet = _preview_payload(result.get("result"), 200)
+            label = result.inputs.label or (key.upper() if isinstance(key, str) else str(key))
+            if not has_error and result.result:
+                snippet = _preview_payload(result.result.data, 200)
                 if snippet in {"{}", "null"}:
                     snippet = ""
-                message = f"{label} | status: success"
+                message = f"{label} | status: {result.status}"
                 if arguments_preview:
                     message += f" | args: {arguments_preview}"
                 if snippet:
                     message += f" | result: {snippet}"
                 _emit(shared, f"[tool] {message}")
             else:
-                error_preview = _preview_payload(error_payload, 200)
+                error_preview = _preview_payload(error_payload or "", 200)
                 if error_preview in {"{}", "null"}:
                     error_preview = ""
                 message = f"{label} | status: error"
@@ -111,15 +187,15 @@ class ToolExecutionBatchNode(Node):
         mode = raw.get("mode") or ("parallel" if raw.get("parallel") else "sequential")
         return ToolCall(key=str(key), arguments=arguments, call_id=str(call_id), mode=str(mode))
 
-    def _run_sequential(self, calls: List[ToolCall]) -> List[Dict[str, Any]]:
-        results: List[Dict[str, Any]] = []
+    def _run_sequential(self, calls: List[ToolCall]) -> List[ToolOutput]:
+        results: List[ToolOutput] = []
         for call in calls:
             results.append(self._execute_call(call))
         return results
 
-    def _run_parallel(self, calls: List[ToolCall]) -> List[Dict[str, Any]]:
+    def _run_parallel(self, calls: List[ToolCall]) -> List[ToolOutput]:
         # Execute concurrently but preserve original call order in the returned list.
-        ordered: List[Optional[Dict[str, Any]]] = [None] * len(calls)
+        ordered: List[Optional[ToolOutput]] = [None] * len(calls)
         with ThreadPoolExecutor(max_workers=min(self.max_parallel_workers, len(calls))) as executor:
             future_map = {executor.submit(self._execute_call, call): idx for idx, call in enumerate(calls)}
             for future in as_completed(future_map):
@@ -127,40 +203,35 @@ class ToolExecutionBatchNode(Node):
                 ordered[idx] = future.result()
         return [res for res in ordered if res is not None]
 
-    def _execute_call(self, call: ToolCall) -> Dict[str, Any]:
+    def _execute_call(self, call: ToolCall) -> ToolOutput:
         try:
             spec: ToolSpec = self.registry.get(call.key)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return {
-                "id": call.call_id,
-                "key": call.key,
-                "status": "error",
-                "error": str(exc),
-                "result": None,
-                "label": str(call.key),
-                "arguments": call.arguments,
-            }
+            inputs = ToolInvocationInputs(
+                key=call.key,
+                arguments=call.arguments,
+                call_id=call.call_id,
+                label=str(call.key),
+            )
+            return ToolOutput(inputs=inputs, result=None, error=str(exc))
+
+        inputs = ToolInvocationInputs(
+            key=call.key,
+            arguments=call.arguments,
+            call_id=call.call_id,
+            label=spec.name,
+        )
 
         try:
             output = spec.tool.execute(**call.arguments)
-            return {
-                "id": call.call_id,
-                "key": call.key,
-                "status": "success",
-                "result": output,
-                "label": spec.name,
-                "arguments": call.arguments,
-            }
+            payload = ToolResultPayload(
+                status="success",
+                content=_stringify_payload(output),
+                data=output,
+            )
+            return ToolOutput(inputs=inputs, result=payload, error=None)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return {
-                "id": call.call_id,
-                "key": call.key,
-                "status": "error",
-                "error": str(exc),
-                "result": None,
-                "label": spec.name,
-                "arguments": call.arguments,
-            }
+            return ToolOutput(inputs=inputs, result=None, error=str(exc))
 
 
 def _stringify_payload(value: Any) -> str:

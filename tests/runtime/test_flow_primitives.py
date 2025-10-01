@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import pytest
 
 from __init__ import Flow, Node
-from nodes.tool_execution import ToolExecutionBatchNode
+from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -121,6 +121,7 @@ def test_tool_execution_node_supports_parallel_flag(echo_registry: ToolRegistry)
 
     assert action == "summarize"
     results = shared["tool_results"]
-    assert {result["result"]["echo"]["value"] for result in results} == {1, 2}
+    assert all(isinstance(result, ToolOutput) for result in results)
+    assert {result.result.data["echo"]["value"] for result in results if result.result} == {1, 2}
     assert len(shared["history"]) == 2
     assert {entry["tool_call_id"] for entry in shared["history"]} == {"call_0", "call_1"}
