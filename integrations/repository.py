@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from diskcache import Cache
-
 from integrations.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
 _PROJECT_ROOTS: Dict[str, Path] = {}
 
@@ -28,12 +26,10 @@ class RepositoryAdapter:
     def __init__(
         self,
         *,
-        cache: Optional[Cache] = None,
         embedding_client: Optional[EmbeddingClient] = None,
         batch_size: Optional[int] = None,
     ) -> None:
         self._indexer = SemanticCodeIndexer(
-            cache=cache,
             embedding_client=embedding_client,
             batch_size=batch_size,
         )

@@ -9,17 +9,17 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-from diskcache import Cache
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from configs.manager import get_config
 from integrations.splitter import chunk_code_file, iter_repository_files
 from integrations.tree_sitter.parser import TagKind, TreeSitterProjectParser
+from integrations.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
 
 
 def _shorten(text: str, limit: int) -> str:
@@ -171,10 +171,11 @@ class SemanticCodeIndexer:
     def __init__(
         self,
         *,
-        cache: Optional[Cache] = None,
         embedding_client: Optional[EmbeddingClient] = None,
         batch_size: Optional[int] = None,
         max_snippet_chars: int = 800,
+        vector_store: Optional[LocalQdrantStore] = None,
+        qdrant_config: Optional[QdrantConfig] = None,
     ) -> None:
         cfg = get_config()
         rag_cfg = getattr(cfg, "rag", None)
@@ -187,9 +188,10 @@ class SemanticCodeIndexer:
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
         api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "30"))
 
-        cache_dir = Path(os.getenv("CODEBASE_SEARCH_CACHE_DIR", "storage/codebase_search_cache"))
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache = cache or Cache(cache_dir)
+        store_path = os.getenv("CODEBASE_QDRANT_PATH", "storage/qdrant")
+        collection_name = os.getenv("CODEBASE_QDRANT_COLLECTION", "codebase_chunks")
+        config = qdrant_config or QdrantConfig(path=store_path, collection=collection_name)
+        self._store = vector_store or LocalQdrantStore(config)
         self._embedder = embedding_client or EmbeddingClient(
             endpoint=endpoint,
             model=model,
@@ -222,25 +224,51 @@ class SemanticCodeIndexer:
         refresh_index: bool = False,
     ) -> Tuple[List[SemanticSearchHit], CodebaseIndex]:
         index = self.ensure_index(project_root, refresh=refresh_index)
-        candidates = self._filter_entries(index.entries, target_directories)
-        if not candidates:
+        embeddings = self._embedder.embed_batch([query])
+        if not embeddings:
             return [], index
+        query_vector = tuple(float(v) for v in embeddings[0])
 
-        query_vector = tuple(float(v) for v in self._embedder.embed_batch([query])[0])
-        scored: List[SemanticSearchHit] = []
-        for entry in candidates:
-            if not entry.vector:
+        fetch_limit = max(limit, 1)
+        if target_directories:
+            fetch_limit = min(max(limit * 4, limit + 4), 50)
+
+        scored_points = self._store.search(
+            vector=query_vector,
+            project_key=index.project_key,
+            limit=fetch_limit,
+        )
+
+        pattern_matcher = self._compile_directory_matcher(target_directories)
+        hits: List[SemanticSearchHit] = []
+        for point in scored_points:
+            payload = point.payload or {}
+            relative_path = payload.get("relative_path")
+            if pattern_matcher and (not isinstance(relative_path, str) or not pattern_matcher(relative_path)):
                 continue
-            score = sum(q * v for q, v in zip(query_vector, entry.vector))
-            scored.append(SemanticSearchHit(score=score, chunk=entry))
-        scored.sort(key=lambda item: item.score, reverse=True)
-        if limit >= 0:
-            scored = scored[: max(1, limit)]
-        return scored, index
+            chunk = CodeChunkEmbedding(
+                relative_path=str(relative_path or ""),
+                absolute_path=str(payload.get("absolute_path") or ""),
+                start_line=int(payload.get("start_line") or 0),
+                end_line=int(payload.get("end_line") or 0),
+                language=payload.get("language"),
+                symbol=payload.get("symbol"),
+                content=str(payload.get("snippet") or ""),
+                vector=(),
+            )
+            hits.append(
+                SemanticSearchHit(
+                    score=float(point.score or 0.0),
+                    chunk=chunk,
+                )
+            )
+            if len(hits) >= limit:
+                break
+        return hits, index
 
     def close(self) -> None:
         try:
-            self._cache.close()
+            self._store.close()
         except Exception:
             pass
 
@@ -288,9 +316,7 @@ class SemanticCodeIndexer:
         start = time.perf_counter()
         project_key = _project_identifier(root)
         entries: List[CodeChunkEmbedding] = []
-        pending: List[PendingEmbeddingItem] = []
-        cache_hits = 0
-        cache_misses = 0
+        file_paths: set[str] = set()
 
         parser = TreeSitterProjectParser()
         try:
@@ -299,7 +325,7 @@ class SemanticCodeIndexer:
             parser.close()
 
         covered_paths: set[str] = set()
-
+        items: List[PendingEmbeddingItem] = []
         for symbol in symbols:
             if symbol.kind is not TagKind.DEF:
                 continue
@@ -326,18 +352,9 @@ class SemanticCodeIndexer:
                 snippet=snippet_text,
             )
             covered_paths.add(symbol.absolute_path)
-            cached_vector = self._cache.get(item.cache_key)
-            if cached_vector is not None:
-                cache_hits += 1
-                entries.append(self._entry_from_item(item, cached_vector))
-            else:
-                cache_misses += 1
-                pending.append(item)
-                if len(pending) >= self._batch_size:
-                    entries.extend(self._flush_pending(pending))
-
-        if pending:
-            entries.extend(self._flush_pending(pending))
+            file_paths.add(symbol.absolute_path)
+            entries.append(self._entry_from_item(item, None))
+            items.append(item)
 
         for file_path in iter_repository_files(root):
             absolute = str(file_path)
@@ -369,18 +386,58 @@ class SemanticCodeIndexer:
                     symbol=chunk.symbol,
                     snippet=snippet_text,
                 )
-                cached_vector = self._cache.get(item.cache_key)
-                if cached_vector is not None:
-                    cache_hits += 1
-                    entries.append(self._entry_from_item(item, cached_vector))
-                else:
-                    cache_misses += 1
-                    pending.append(item)
-                    if len(pending) >= self._batch_size:
-                        entries.extend(self._flush_pending(pending))
+                entries.append(self._entry_from_item(item, None))
+                items.append(item)
+                file_paths.add(item.absolute_path)
 
-        if pending:
-            entries.extend(self._flush_pending(pending))
+        existing_records = self._store.list_point_ids(project_key)
+        existing_ids = set(existing_records.keys())
+        desired_ids = {item.cache_key for item in items}
+        obsolete_keys = existing_ids - desired_ids
+        if obsolete_keys:
+            remove_ids = [
+                str(existing_records[key].id)
+                for key in obsolete_keys
+                if key in existing_records
+            ]
+            self._store.delete_points(remove_ids)
+
+        new_items: List[PendingEmbeddingItem] = [item for item in items if item.cache_key not in existing_ids]
+        cache_hits = len(items) - len(new_items)
+        cache_misses = len(new_items)
+
+        if new_items:
+            texts = [item.snippet for item in new_items]
+            embeddings = self._embedder.embed_batch(texts)
+            if len(embeddings) != len(new_items):
+                raise RuntimeError("Embedding service returned mismatched vector count")
+
+            points: List[QdrantPoint] = []
+            for item, vector in zip(new_items, embeddings):
+                payload = {
+                    "project_key": project_key,
+                    "project_name": root.name,
+                    "project_root": str(root),
+                    "relative_path": item.relative_path,
+                    "absolute_path": item.absolute_path,
+                    "start_line": item.start_line,
+                    "end_line": item.end_line,
+                    "language": item.language,
+                    "symbol": item.symbol,
+                    "snippet": _shorten(item.snippet, self._max_snippet_chars),
+                    "cache_key": item.cache_key,
+                }
+                points.append(
+                    QdrantPoint(
+                        id=self._make_point_id(item.cache_key),
+                        vector=vector,
+                        payload=payload,
+                    )
+                )
+            self._store.upsert_points(points, batch_size=self._batch_size)
+
+        chunk_count = len(items)
+        file_count = len(file_paths)
 
         build_time = time.perf_counter() - start
         return CodebaseIndex(
@@ -388,16 +445,16 @@ class SemanticCodeIndexer:
             project_key=project_key,
             project_name=root.name,
             entries=tuple(entries),
-            file_count=len({entry.absolute_path for entry in entries}),
-            chunk_count=len(entries),
+            file_count=file_count,
+            chunk_count=chunk_count,
             indexed_at=datetime.now(timezone.utc),
             build_time_seconds=build_time,
             cache_hits=cache_hits,
             cache_misses=cache_misses,
         )
 
-    def _entry_from_item(self, item: PendingEmbeddingItem, vector: Sequence[float]) -> CodeChunkEmbedding:
-        normalized = tuple(float(v) for v in vector)
+    def _entry_from_item(self, item: PendingEmbeddingItem, vector: Optional[Sequence[float]]) -> CodeChunkEmbedding:
+        normalized: Tuple[float, ...] = tuple(float(v) for v in vector) if vector is not None else ()
         return CodeChunkEmbedding(
             relative_path=item.relative_path,
             absolute_path=item.absolute_path,
@@ -408,23 +465,6 @@ class SemanticCodeIndexer:
             content=_shorten(item.snippet, self._max_snippet_chars),
             vector=normalized,
         )
-
-    def _flush_pending(self, pending: List[PendingEmbeddingItem]) -> List[CodeChunkEmbedding]:
-        items = list(pending)
-        pending.clear()
-        if not items:
-            return []
-        texts: List[str] = [item.snippet for item in items]
-        embeddings = self._embedder.embed_batch(texts)
-        if len(embeddings) != len(items):
-            raise RuntimeError("Embedding service returned mismatched vector count")
-
-        new_entries: List[CodeChunkEmbedding] = []
-        for item, vector in zip(items, embeddings):
-            normalized = tuple(float(v) for v in vector)
-            self._cache.set(item.cache_key, normalized)
-            new_entries.append(self._entry_from_item(item, normalized))
-        return new_entries
 
     def _make_cache_key(
         self,
@@ -438,11 +478,13 @@ class SemanticCodeIndexer:
         return f"{project_key}:{relative_path}:{start_line}:{end_line}:{digest}"
 
     @staticmethod
-    def _filter_entries(
-        entries: Sequence[CodeChunkEmbedding], target_directories: Optional[Sequence[str]]
-    ) -> List[CodeChunkEmbedding]:
+    def _make_point_id(cache_key: str) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, cache_key))
+
+    @staticmethod
+    def _compile_directory_matcher(target_directories: Optional[Sequence[str]]) -> Optional[Callable[[str], bool]]:
         if not target_directories:
-            return list(entries)
+            return None
 
         patterns: List[str] = []
         for raw in target_directories:
@@ -458,14 +500,12 @@ class SemanticCodeIndexer:
             patterns.append(pattern)
 
         if not patterns:
-            return list(entries)
+            return None
 
-        filtered: List[CodeChunkEmbedding] = []
-        for entry in entries:
-            rel_path = entry.relative_path
-            if any(fnmatch(rel_path, pat) for pat in patterns):
-                filtered.append(entry)
-        return filtered
+        def matcher(path: str) -> bool:
+            return any(fnmatch(path, pat) for pat in patterns)
+
+        return matcher
 
     def __del__(self) -> None:  # pragma: no cover - 清理路径
         self.close()

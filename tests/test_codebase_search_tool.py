@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Sequence
-
-from diskcache import Cache
+from uuid import uuid4
 
 from tools.codebase_search import CodebaseSearchTool
 
@@ -38,10 +37,11 @@ def test_codebase_search_ranks_matches(tmp_path, monkeypatch):
     write_file(tmp_path / "foo.py", "def foo():\n    return 1\n")
     write_file(tmp_path / "bar.py", "def bar():\n    return 2\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEBASE_QDRANT_PATH", str(tmp_path / "qdrant"))
+    monkeypatch.setenv("CODEBASE_QDRANT_COLLECTION", f"test_chunks_{uuid4().hex}")
 
     client = DummyEmbeddingClient()
-    cache = Cache(tmp_path / "cache")
-    tool = CodebaseSearchTool(embedding_client=client, cache=cache, batch_size=4)
+    tool = CodebaseSearchTool(embedding_client=client, batch_size=4)
 
     result = tool.execute(query="Find foo helper")
 
@@ -53,16 +53,15 @@ def test_codebase_search_ranks_matches(tmp_path, monkeypatch):
     assert "foo" in result["results"][0]["snippet"].lower()
     assert len(client.calls) == 2  # one for indexing, one for query
 
-    cache.close()
-
 
 def test_codebase_search_uses_cached_embeddings(tmp_path, monkeypatch):
     write_file(tmp_path / "foo.py", "def foo():\n    return 1\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEBASE_QDRANT_PATH", str(tmp_path / "qdrant"))
+    monkeypatch.setenv("CODEBASE_QDRANT_COLLECTION", f"test_chunks_{uuid4().hex}")
 
     client = DummyEmbeddingClient()
-    cache = Cache(tmp_path / "cache")
-    tool = CodebaseSearchTool(embedding_client=client, cache=cache, batch_size=4)
+    tool = CodebaseSearchTool(embedding_client=client, batch_size=4)
 
     _ = tool.execute(query="Find foo helper")
     first_calls = len(client.calls)
@@ -71,17 +70,16 @@ def test_codebase_search_uses_cached_embeddings(tmp_path, monkeypatch):
 
     assert len(client.calls) == first_calls + 1  # only the query embeds again
 
-    cache.close()
-
 
 def test_codebase_search_refresh_index(tmp_path, monkeypatch):
     target = tmp_path / "lib.py"
     write_file(target, "def foo():\n    return 1\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEBASE_QDRANT_PATH", str(tmp_path / "qdrant"))
+    monkeypatch.setenv("CODEBASE_QDRANT_COLLECTION", f"test_chunks_{uuid4().hex}")
 
     client = DummyEmbeddingClient()
-    cache = Cache(tmp_path / "cache")
-    tool = CodebaseSearchTool(embedding_client=client, cache=cache, batch_size=4)
+    tool = CodebaseSearchTool(embedding_client=client, batch_size=4)
 
     initial = tool.execute(query="Where is foo?")
     assert initial["results"][0]["path"].endswith("lib.py")
@@ -95,17 +93,16 @@ def test_codebase_search_refresh_index(tmp_path, monkeypatch):
     assert refreshed["results"][0]["path"].endswith("lib.py")
     assert "bar" in refreshed["results"][0]["snippet"].lower()
 
-    cache.close()
-
 
 def test_codebase_search_target_directories_filters_results(tmp_path, monkeypatch):
     write_file(tmp_path / "foo" / "alpha.py", "def foo_helper():\n    return 1\n")
     write_file(tmp_path / "bar" / "beta.py", "def bar_helper():\n    return 2\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEBASE_QDRANT_PATH", str(tmp_path / "qdrant"))
+    monkeypatch.setenv("CODEBASE_QDRANT_COLLECTION", f"test_chunks_{uuid4().hex}")
 
     client = DummyEmbeddingClient()
-    cache = Cache(tmp_path / "cache")
-    tool = CodebaseSearchTool(embedding_client=client, cache=cache, batch_size=4)
+    tool = CodebaseSearchTool(embedding_client=client, batch_size=4)
 
     result = tool.execute(query="helper", target_directories=["foo"])
 
@@ -115,18 +112,15 @@ def test_codebase_search_target_directories_filters_results(tmp_path, monkeypatc
     assert not any(path.endswith("bar/beta.py") for path in paths)
     assert result["target_directories"] == ["foo"]
 
-    cache.close()
-
 
 def test_codebase_search_rejects_empty_query(tmp_path, monkeypatch):
     write_file(tmp_path / "a.py", "def foo():\n    return 1\n")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEBASE_QDRANT_PATH", str(tmp_path / "qdrant"))
+    monkeypatch.setenv("CODEBASE_QDRANT_COLLECTION", f"test_chunks_{uuid4().hex}")
 
     client = DummyEmbeddingClient()
-    cache = Cache(tmp_path / "cache")
-    tool = CodebaseSearchTool(embedding_client=client, cache=cache)
+    tool = CodebaseSearchTool(embedding_client=client)
 
     result = tool.execute(query="   ")
     assert "error" in result
-
-    cache.close()

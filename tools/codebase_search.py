@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
-from diskcache import Cache
-
 from integrations.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
 from tools.base import BaseTool
 
@@ -17,18 +15,20 @@ class CodebaseSearchTool(BaseTool):
     def __init__(
         self,
         *,
-        cache: Optional[Cache] = None,
         embedding_client: Optional[EmbeddingClient] = None,
         batch_size: Optional[int] = None,
         max_snippet_chars: int = 800,
+        semantic_indexer: Optional[SemanticCodeIndexer] = None,
     ) -> None:
         super().__init__()
-        self._indexer = SemanticCodeIndexer(
-            cache=cache,
-            embedding_client=embedding_client,
-            batch_size=batch_size,
-            max_snippet_chars=max_snippet_chars,
-        )
+        if semantic_indexer is not None:
+            self._indexer = semantic_indexer
+        else:
+            self._indexer = SemanticCodeIndexer(
+                embedding_client=embedding_client,
+                batch_size=batch_size,
+                max_snippet_chars=max_snippet_chars,
+            )
 
     # Metadata ---------------------------------------------------------------------
     @property
