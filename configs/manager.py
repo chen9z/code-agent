@@ -35,6 +35,17 @@ def _to_float(value: Optional[str], default: float) -> float:
     return number
 
 
+def _to_bool(value: Optional[str], default: bool) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 @dataclass(slots=True)
 class LLMConfig:
     model: str = "deepseek-chat"
@@ -42,6 +53,8 @@ class LLMConfig:
     api_key: Optional[str] = None
     temperature: float = 0.1
     max_tokens: int = 2000
+    opik_project_name: Optional[str] = None
+    opik_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
@@ -52,7 +65,24 @@ class LLMConfig:
         api_key = _get_env_value(prefix, "API_KEY") or defaults.api_key
         temperature = _to_float(_get_env_value(prefix, "TEMPERATURE"), defaults.temperature)
         max_tokens = _to_int(_get_env_value(prefix, "MAX_TOKENS"), defaults.max_tokens)
-        return cls(model=model, api_base=api_base, api_key=api_key, temperature=temperature, max_tokens=max_tokens)
+        opik_project_name = (
+            _get_env_value(prefix, "OPIK_PROJECT_NAME")
+            or os.getenv("OPIK_PROJECT_NAME")
+            or defaults.opik_project_name
+        )
+        opik_enabled = _to_bool(
+            _get_env_value(prefix, "OPIK_ENABLED") or os.getenv("OPIK_ENABLED"),
+            defaults.opik_enabled,
+        )
+        return cls(
+            model=model,
+            api_base=api_base,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            opik_project_name=opik_project_name,
+            opik_enabled=opik_enabled,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

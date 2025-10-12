@@ -4,6 +4,11 @@ import os
 from typing import Generator, List, Dict, Any
 from configs.manager import get_config
 
+try:
+    from opik.integrations.openai import track_openai
+except ImportError:  # pragma: no cover - optional dependency guard
+    track_openai = None  # type: ignore[assignment]
+
 
 class BaseLLMClient:
     def get_response(
@@ -30,11 +35,32 @@ class BaseLLMClient:
 
 
 class OpenAICompatLLMClient(BaseLLMClient):
-    def __init__(self, api_key: str, base_url: str | None = None, *, temperature: float = 0.0):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        *,
+        temperature: float = 0.0,
+        opik_project_name: str | None = None,
+        opik_enabled: bool = True,
+    ):
         from openai import OpenAI
 
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        client = OpenAI(api_key=api_key, base_url=base_url)
+
+        if track_openai and opik_enabled:
+            opik_url_override = os.getenv("OPIK_URL_OVERRIDE")
+            opik_base_url = os.getenv("OPIK_BASE_URL")
+            if not opik_url_override and opik_base_url:
+                os.environ["OPIK_URL_OVERRIDE"] = opik_base_url
+            project_name = opik_project_name or os.getenv("OPIK_PROJECT_NAME")
+            if project_name:
+                os.environ["OPIK_PROJECT_NAME"] = project_name
+            client = track_openai(client, project_name=project_name)
+
+        self.client = client
         self.default_temperature = temperature
+        self.opik_enabled = bool(track_openai and opik_enabled)
 
     def get_response(
         self,
@@ -102,7 +128,13 @@ def get_default_llm_client() -> BaseLLMClient:
         raise RuntimeError(
             "LLM configuration missing: set configs.manager llm.api_key or OPENAI_API_KEY environment variable."
         )
-    return OpenAICompatLLMClient(api_key=api_key, base_url=base_url, temperature=llm_cfg.temperature or 0.0)
+    return OpenAICompatLLMClient(
+        api_key=api_key,
+        base_url=base_url,
+        temperature=llm_cfg.temperature or 0.0,
+        opik_project_name=llm_cfg.opik_project_name,
+        opik_enabled=llm_cfg.opik_enabled,
+    )
 
 
 if __name__ == "__main__":
