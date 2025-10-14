@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import select
@@ -266,11 +267,11 @@ class ToolPlanningNode(Node):
 
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         history = prep_res["history"]
-        descriptors = prep_res["descriptors"]
+        descriptors = [self._strip_explanation_from_descriptor(d) for d in prep_res["descriptors"]]
         serialized_tools = json.dumps(descriptors, ensure_ascii=False, indent=2)
         planning_prompt = "Available tools:\n" + serialized_tools
         messages = history + [{"role": "system", "content": planning_prompt}]
-        tools = self.registry.to_openai_tools()
+        tools = [self._strip_explanation_from_tool(tool) for tool in self.registry.to_openai_tools()]
 
         response = self.llm.create_with_tools(
             model=self.model,
@@ -430,6 +431,37 @@ class ToolPlanningNode(Node):
         if isinstance(obj, dict):
             return obj.get(attr, default)
         return getattr(obj, attr, default)
+
+    @staticmethod
+    def _strip_explanation_from_parameters(parameters: Any) -> Any:
+        if not isinstance(parameters, dict):
+            return parameters
+        sanitized = copy.deepcopy(parameters)
+        props = sanitized.get("properties")
+        if isinstance(props, dict) and "explanation" in props:
+            stripped_props = dict(props)
+            stripped_props.pop("explanation", None)
+            sanitized["properties"] = stripped_props
+        required = sanitized.get("required")
+        if isinstance(required, list) and "explanation" in required:
+            sanitized["required"] = [item for item in required if item != "explanation"]
+        return sanitized
+
+    @classmethod
+    def _strip_explanation_from_descriptor(cls, descriptor: Mapping[str, Any]) -> Mapping[str, Any]:
+        sanitized = dict(descriptor)
+        params = sanitized.get("parameters")
+        if params is not None:
+            sanitized["parameters"] = cls._strip_explanation_from_parameters(params)
+        return sanitized
+
+    @classmethod
+    def _strip_explanation_from_tool(cls, tool: Mapping[str, Any]) -> Dict[str, Any]:
+        sanitized = copy.deepcopy(tool)
+        function = sanitized.get("function")
+        if isinstance(function, dict) and "parameters" in function:
+            function["parameters"] = cls._strip_explanation_from_parameters(function["parameters"])
+        return sanitized
 
 
 class SummaryNode(Node):

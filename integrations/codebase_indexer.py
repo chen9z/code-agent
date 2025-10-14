@@ -9,6 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -29,20 +30,26 @@ def _shorten(text: str, limit: int) -> str:
 
 
 def _resolve_endpoint() -> str:
-    explicit = os.getenv("CODEBASE_EMBEDDING_ENDPOINT")
-    if explicit:
-        return explicit.rstrip("/")
+    """Resolve the embedding endpoint supporting legacy base URLs."""
 
-    base = (
-        os.getenv("CODEBASE_EMBEDDING_API_BASE")
-        or os.getenv("EMBEDDING_API_BASE")
-        or os.getenv("OPENAI_API_BASE")
-        or "http://127.0.0.1:8000/v1"
-    )
-    base = base.rstrip("/")
-    if base.endswith("/embeddings"):
+    # Allow callers to override the full endpoint explicitly.
+    direct = os.getenv("EMBEDDING_API_ENDPOINT")
+    if direct:
+        return direct.rstrip("/")
+
+    base = (os.getenv("EMBEDDING_API_BASE") or "http://127.0.0.1:8000").rstrip("/")
+    default_path = os.getenv("EMBEDDING_API_PATH", "/v1/embeddings")
+    if not default_path:
         return base
-    return f"{base}/embeddings"
+
+    parsed = urlparse(base)
+    path = parsed.path or ""
+    normalized_path = path.rstrip("/")
+    if normalized_path.endswith("embeddings"):
+        return base
+
+    suffix = "/" + default_path.lstrip("/")
+    return f"{base}{suffix}"
 
 
 def _project_identifier(root: Path) -> str:
@@ -188,9 +195,10 @@ class SemanticCodeIndexer:
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
         api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "30"))
 
-        store_path = os.getenv("CODEBASE_QDRANT_PATH", "storage/qdrant")
-        collection_name = os.getenv("CODEBASE_QDRANT_COLLECTION", "codebase_chunks")
-        config = qdrant_config or QdrantConfig(path=store_path, collection=collection_name)
+        store_path = os.getenv("CODEBASE_QDRANT_PATH", "storage")
+        store_root = Path(store_path).expanduser()
+        store_root.mkdir(parents=True, exist_ok=True)
+        config = qdrant_config or QdrantConfig(path=str(store_root))
         self._store = vector_store or LocalQdrantStore(config)
         self._embedder = embedding_client or EmbeddingClient(
             endpoint=endpoint,
@@ -208,8 +216,11 @@ class SemanticCodeIndexer:
         root = Path(project_root).expanduser().resolve()
         key = str(root)
         with self._lock:
-            if not refresh and key in self._indices:
-                return self._indices[key]
+            self._store.use_collection(root.name)
+            cached = self._indices.get(key)
+            collection_missing = not self._store.collection_exists(root.name)
+            if not refresh and cached is not None and not collection_missing:
+                return cached
             index = self._build_index(root)
             self._indices[key] = index
             return index
@@ -224,6 +235,7 @@ class SemanticCodeIndexer:
         refresh_index: bool = False,
     ) -> Tuple[List[SemanticSearchHit], CodebaseIndex]:
         index = self.ensure_index(project_root, refresh=refresh_index)
+        self._store.use_collection(index.project_name)
         embeddings = self._embedder.embed_batch([query])
         if not embeddings:
             return [], index
@@ -315,6 +327,7 @@ class SemanticCodeIndexer:
     def _build_index(self, root: Path) -> CodebaseIndex:
         start = time.perf_counter()
         project_key = _project_identifier(root)
+        self._store.use_collection(root.name)
         entries: List[CodeChunkEmbedding] = []
         file_paths: set[str] = set()
 
@@ -411,6 +424,8 @@ class SemanticCodeIndexer:
             embeddings = self._embedder.embed_batch(texts)
             if len(embeddings) != len(new_items):
                 raise RuntimeError("Embedding service returned mismatched vector count")
+            if embeddings:
+                self._store.use_collection(root.name, vector_size=len(embeddings[0]))
 
             points: List[QdrantPoint] = []
             for item, vector in zip(new_items, embeddings):
