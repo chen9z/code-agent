@@ -43,12 +43,32 @@ class LocalQdrantStore:
         if self._vector_size is not None:
             self._ensure_collection(self._vector_size)
 
+    def use_collection(self, collection_name: str, vector_size: Optional[int] = None) -> None:
+        """Switch active collection and optionally ensure it exists."""
+
+        self.config.collection = collection_name
+        if vector_size is not None:
+            self._ensure_collection(vector_size)
+
     @property
     def vector_size(self) -> Optional[int]:
         return self._vector_size
 
     def ensure_collection(self, vector_size: int) -> None:
         self._ensure_collection(vector_size)
+
+    def collection_exists(self, collection_name: str) -> bool:
+        """Return whether the given collection exists without mutating state."""
+
+        if self.config.collection == collection_name:
+            return self._collection_exists()
+
+        original_collection = self.config.collection
+        try:
+            self.config.collection = collection_name
+            return self._collection_exists()
+        finally:
+            self.config.collection = original_collection
 
     def describe_collection(self) -> Optional[Any]:
         try:

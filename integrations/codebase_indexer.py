@@ -3,19 +3,17 @@ from __future__ import annotations
 """Shared semantic code indexing and search utilities for tools and flows."""
 
 import hashlib
-import json
 import os
 import threading
 import time
-import urllib.error
-import urllib.request
-from urllib.parse import urlparse
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+from litellm import embedding as litellm_embedding
 
 from configs.manager import get_config
 from integrations.splitter import chunk_code_file, iter_repository_files
@@ -29,27 +27,13 @@ def _shorten(text: str, limit: int) -> str:
     return text[: limit - 1] + "…"
 
 
+DEFAULT_EMBEDDING_BASE = "http://127.0.0.1:8000/v1"
+
+
 def _resolve_endpoint() -> str:
-    """Resolve the embedding endpoint supporting legacy base URLs."""
+    """Resolve the embedding API base URL."""
 
-    # Allow callers to override the full endpoint explicitly.
-    direct = os.getenv("EMBEDDING_API_ENDPOINT")
-    if direct:
-        return direct.rstrip("/")
-
-    base = (os.getenv("EMBEDDING_API_BASE") or "http://127.0.0.1:8000").rstrip("/")
-    default_path = os.getenv("EMBEDDING_API_PATH", "/v1/embeddings")
-    if not default_path:
-        return base
-
-    parsed = urlparse(base)
-    path = parsed.path or ""
-    normalized_path = path.rstrip("/")
-    if normalized_path.endswith("embeddings"):
-        return base
-
-    suffix = "/" + default_path.lstrip("/")
-    return f"{base}{suffix}"
+    return (os.getenv("EMBEDDING_API_BASE") or DEFAULT_EMBEDDING_BASE).rstrip("/")
 
 
 def _project_identifier(root: Path) -> str:
@@ -79,13 +63,10 @@ class CodebaseIndex:
     chunk_count: int
     indexed_at: datetime
     build_time_seconds: float
-    cache_hits: int
-    cache_misses: int
 
 
 @dataclass(frozen=True)
 class PendingEmbeddingItem:
-    cache_key: str
     relative_path: str
     absolute_path: str
     start_line: int
@@ -96,7 +77,7 @@ class PendingEmbeddingItem:
 
 
 class EmbeddingClient:
-    """Thin wrapper over an OpenAI-compatible embedding HTTP endpoint."""
+    """Thin wrapper over a LiteLLM-compatible embedding endpoint."""
 
     def __init__(
         self,
@@ -107,7 +88,11 @@ class EmbeddingClient:
         batch_size: int = 16,
         timeout: float = 30.0,
     ) -> None:
-        self.endpoint = endpoint
+        normalized = endpoint.rstrip("/")
+        suffix = "/embeddings"
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+        self.api_base = normalized
         self.model = model
         self.api_key = (
             api_key
@@ -115,6 +100,12 @@ class EmbeddingClient:
             or os.getenv("OPENAI_API_KEY")
             or None
         )
+        provider = (
+            os.getenv("CODEBASE_EMBEDDING_PROVIDER")
+            or os.getenv("EMBEDDING_PROVIDER")
+            or "openai"
+        )
+        self.provider = provider
         self.batch_size = max(1, int(batch_size))
         self.timeout = float(timeout)
 
@@ -129,33 +120,29 @@ class EmbeddingClient:
         return results
 
     def _embed(self, inputs: Sequence[str]) -> List[List[float]]:
-        payload = json.dumps({"model": self.model, "input": list(inputs)}, ensure_ascii=False).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-
-        request = urllib.request.Request(self.endpoint, data=payload, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                raw = response.read()
-        except urllib.error.HTTPError as exc:  # pragma: no cover - 网络错误
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"Embedding request failed with status {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:  # pragma: no cover - 网络错误
-            raise RuntimeError(f"Embedding request failed: {exc.reason}") from exc
+            response = litellm_embedding(
+                model=self.model,
+                input=list(inputs),
+                api_base=self.api_base,
+                api_key=self.api_key,
+                timeout=self.timeout,
+                custom_llm_provider=self.provider,
+            )
+        except Exception as exc:  # pragma: no cover - 依赖网络
+            raise RuntimeError(f"Embedding request failed: {exc}") from exc
 
-        try:
-            parsed = json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError as exc:  # pragma: no cover - 非法响应
-            raise RuntimeError("Embedding response was not valid JSON") from exc
-
-        data = parsed.get("data")
+        data = getattr(response, "data", None)
+        if data is None and isinstance(response, dict):
+            data = response.get("data")
         if not isinstance(data, list) or len(data) != len(inputs):
             raise RuntimeError("Embedding response missing expected 'data' entries")
 
         vectors: List[List[float]] = []
         for entry in data:
-            embedding = entry.get("embedding") if isinstance(entry, dict) else None
+            embedding = getattr(entry, "embedding", None)
+            if embedding is None and isinstance(entry, dict):
+                embedding = entry.get("embedding")
             if not isinstance(embedding, list):
                 raise RuntimeError("Embedding response missing 'embedding' vector")
             try:
@@ -320,8 +307,6 @@ class SemanticCodeIndexer:
             "file_count": index.file_count,
             "indexed_at": index.indexed_at.isoformat().replace("+00:00", "Z"),
             "build_time_seconds": round(index.build_time_seconds, 3),
-            "cache_hits": index.cache_hits,
-            "cache_misses": index.cache_misses,
         }
 
     def _build_index(self, root: Path) -> CodebaseIndex:
@@ -349,13 +334,6 @@ class SemanticCodeIndexer:
             if not snippet_text.strip():
                 continue
             item = PendingEmbeddingItem(
-                cache_key=self._make_cache_key(
-                    project_key,
-                    symbol.relative_path,
-                    symbol.start_line,
-                    symbol.end_line,
-                    snippet_text,
-                ),
                 relative_path=symbol.relative_path,
                 absolute_path=symbol.absolute_path,
                 start_line=symbol.start_line,
@@ -384,13 +362,6 @@ class SemanticCodeIndexer:
                 if not snippet_text.strip():
                     continue
                 item = PendingEmbeddingItem(
-                    cache_key=self._make_cache_key(
-                        project_key,
-                        relative_path,
-                        chunk.start_line,
-                        chunk.end_line,
-                        snippet_text,
-                    ),
                     relative_path=relative_path,
                     absolute_path=absolute,
                     start_line=chunk.start_line,
@@ -404,31 +375,20 @@ class SemanticCodeIndexer:
                 file_paths.add(item.absolute_path)
 
         existing_records = self._store.list_point_ids(project_key)
-        existing_ids = set(existing_records.keys())
-        desired_ids = {item.cache_key for item in items}
-        obsolete_keys = existing_ids - desired_ids
-        if obsolete_keys:
-            remove_ids = [
-                str(existing_records[key].id)
-                for key in obsolete_keys
-                if key in existing_records
-            ]
+        if existing_records:
+            remove_ids = [str(record.id) for record in existing_records.values()]
             self._store.delete_points(remove_ids)
 
-        new_items: List[PendingEmbeddingItem] = [item for item in items if item.cache_key not in existing_ids]
-        cache_hits = len(items) - len(new_items)
-        cache_misses = len(new_items)
-
-        if new_items:
-            texts = [item.snippet for item in new_items]
+        if items:
+            texts = [item.snippet for item in items]
             embeddings = self._embedder.embed_batch(texts)
-            if len(embeddings) != len(new_items):
+            if len(embeddings) != len(items):
                 raise RuntimeError("Embedding service returned mismatched vector count")
             if embeddings:
                 self._store.use_collection(root.name, vector_size=len(embeddings[0]))
 
             points: List[QdrantPoint] = []
-            for item, vector in zip(new_items, embeddings):
+            for item, vector in zip(items, embeddings):
                 payload = {
                     "project_key": project_key,
                     "project_name": root.name,
@@ -440,11 +400,10 @@ class SemanticCodeIndexer:
                     "language": item.language,
                     "symbol": item.symbol,
                     "snippet": _shorten(item.snippet, self._max_snippet_chars),
-                    "cache_key": item.cache_key,
                 }
                 points.append(
                     QdrantPoint(
-                        id=self._make_point_id(item.cache_key),
+                        id=self._make_point_id(project_key, item),
                         vector=vector,
                         payload=payload,
                     )
@@ -464,8 +423,6 @@ class SemanticCodeIndexer:
             chunk_count=chunk_count,
             indexed_at=datetime.now(timezone.utc),
             build_time_seconds=build_time,
-            cache_hits=cache_hits,
-            cache_misses=cache_misses,
         )
 
     def _entry_from_item(self, item: PendingEmbeddingItem, vector: Optional[Sequence[float]]) -> CodeChunkEmbedding:
@@ -481,20 +438,11 @@ class SemanticCodeIndexer:
             vector=normalized,
         )
 
-    def _make_cache_key(
-        self,
-        project_key: str,
-        relative_path: str,
-        start_line: int,
-        end_line: int,
-        snippet: str,
-    ) -> str:
-        digest = hashlib.sha1(snippet.encode("utf-8", errors="ignore")).hexdigest()
-        return f"{project_key}:{relative_path}:{start_line}:{end_line}:{digest}"
-
     @staticmethod
-    def _make_point_id(cache_key: str) -> str:
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, cache_key))
+    def _make_point_id(project_key: str, item: PendingEmbeddingItem) -> str:
+        raw = f"{project_key}:{item.relative_path}:{item.start_line}:{item.end_line}"
+        digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, digest))
 
     @staticmethod
     def _compile_directory_matcher(target_directories: Optional[Sequence[str]]) -> Optional[Callable[[str], bool]]:
