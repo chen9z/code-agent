@@ -221,9 +221,6 @@ class SemanticCodeIndexer:
         query_vector = tuple(float(v) for v in embeddings[0])
 
         fetch_limit = max(limit, 1)
-        if target_directories:
-            fetch_limit = min(max(limit * 4, limit + 4), 50)
-
         scored_points = self._store.search(
             vector=query_vector,
             project_key=index.project_key,
@@ -390,6 +387,7 @@ class SemanticCodeIndexer:
             self._store.delete_points(remove_ids)
 
         if items:
+            print(items)
             texts = [item.snippet for item in items]
             embeddings = self._embedder.embed_batch(texts)
             if len(embeddings) != len(items):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from __init__ import Flow, FlowCancelledError, Node
@@ -588,14 +589,21 @@ class CodeAgentSession:
         system_prompt: Optional[str] = None,
         extra_system_sections: Optional[Sequence[str]] = None,
         environment: Optional[Mapping[str, Any]] = None,
+        workspace: Optional[str | Path] = None,
     ) -> None:
-        self.registry = registry or create_default_registry()
+        self.workspace = Path(workspace).expanduser().resolve() if workspace else None
+        self.registry = registry or create_default_registry(project_root=self.workspace)
         self.llm_client = llm_client
         self.max_parallel_workers = max_parallel_workers
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
         self.system_prompt = system_prompt
         self.extra_system_sections = extra_system_sections
-        self.environment = environment
+        if environment is not None:
+            self.environment = environment
+        elif self.workspace is not None:
+            self.environment = {"cwd": str(self.workspace)}
+        else:
+            self.environment = None
         if flow_factory is not None:
             self._flow_factory = flow_factory
         else:

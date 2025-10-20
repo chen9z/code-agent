@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from tools.base import BaseTool
@@ -86,7 +87,11 @@ class ToolRegistry:
         return raw.strip().lower().replace(" ", "_")
 
 
-def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegistry:
+def create_default_registry(
+    include: Optional[Iterable[str]] = None,
+    *,
+    project_root: Optional[str | Path] = None,
+) -> ToolRegistry:
     """Construct a registry with the built-in tool implementations."""
     from tools.bash import BashTool
     from tools.codebase_search import CodebaseSearchTool
@@ -115,5 +120,8 @@ def create_default_registry(include: Optional[Iterable[str]] = None) -> ToolRegi
     for key, tool_cls in tool_classes.items():
         if selected is not None and key not in selected:
             continue
-        registry.register(tool_cls(), key=key)
+        kwargs: Dict[str, Any] = {}
+        if key == "codebase_search":
+            kwargs["default_project_root"] = project_root
+        registry.register(tool_cls(**kwargs), key=key)
     return registry

@@ -18,8 +18,14 @@ class CodebaseSearchTool(BaseTool):
         embedding_client: Optional[EmbeddingClient] = None,
         batch_size: Optional[int] = None,
         semantic_indexer: Optional[SemanticCodeIndexer] = None,
+        default_project_root: Optional[str | Path] = None,
     ) -> None:
         super().__init__()
+        self._default_root = (
+            Path(default_project_root).expanduser().resolve()
+            if default_project_root
+            else None
+        )
         if semantic_indexer is not None:
             self._indexer = semantic_indexer
         else:
@@ -78,7 +84,15 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             return {"error": "limit must be an integer", "limit": limit}
         limit_val = max(1, min(limit_val, 20))
 
-        root = Path(project_root).expanduser().resolve() if project_root else Path.cwd()
+        candidate_root: Optional[str | Path]
+        if project_root:
+            candidate_root = project_root
+        elif self._default_root is not None:
+            candidate_root = self._default_root
+        else:
+            candidate_root = Path.cwd()
+
+        root = Path(candidate_root).expanduser().resolve()
         if not root.exists():
             return {"error": f"project_root does not exist: {root}"}
         if not root.is_dir():
