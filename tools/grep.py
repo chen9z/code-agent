@@ -127,12 +127,6 @@ Use the include or exclude patterns to filter the search scope by file type or s
                     "type": "string",
                     "description": "Glob pattern for files to exclude",
                 },
-                "explanation": {
-                    "type": "string",
-                    "description": (
-                        "One sentence explanation as to why this tool is being used, and how it contributes to the goal."
-                    ),
-                },
             },
             "required": ["query"],
         }
@@ -144,7 +138,6 @@ Use the include or exclude patterns to filter the search scope by file type or s
         case_sensitive: bool | None = None,
         include_pattern: str | None = None,
         exclude_pattern: str | None = None,
-        explanation: str | None = None,
     ) -> Dict[str, Any]:
         if not query:
             return {"error": "query must be a non-empty string", "query": query}
@@ -267,7 +260,6 @@ Use the include or exclude patterns to filter the search scope by file type or s
             "matches": matches,
             "count": len(matches),
             "truncated": truncated or snippet_truncated,
-            "explanation": explanation,
             "stderr": stderr_output.strip(),
             "result": formatted_output,
         }

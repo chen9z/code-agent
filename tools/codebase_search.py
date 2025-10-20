@@ -47,10 +47,6 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
     def parameters(self) -> Dict[str, Any]:
         return {
             "properties": {
-                "explanation": {
-                    "description": "One sentence explanation as to why this tool is being used, and how it contributes to the goal.",
-                    "type": "string",
-                },
                 "query": {
                     "description": "The search query to find relevant code. You should reuse the user's exact query/most recent message with their wording unless there is a clear reason not to.",
                     "type": "string",
@@ -74,7 +70,6 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
         project_root: Optional[str] = None,
         refresh_index: Optional[bool] = None,
         target_directories: Optional[Sequence[str]] = None,
-        explanation: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not query or not isinstance(query, str) or not query.strip():
             return {"error": "query must be a non-empty string", "query": query}
@@ -121,7 +116,6 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             "query": query,
             "project_root": str(root),
             "project_name": index.project_name,
-            "results": formatted["results"],
             "count": len(formatted["results"]),
             "result": formatted["summary"] or "[no semantic matches]",
             "index": self._indexer.index_metadata(index),

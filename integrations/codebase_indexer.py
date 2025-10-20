@@ -273,16 +273,34 @@ class SemanticCodeIndexer:
 
     def format_hits(self, hits: Sequence[SemanticSearchHit]) -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
-        lines: List[str] = []
-        for idx, hit in enumerate(hits, start=1):
+        summary_blocks: List[str] = []
+
+        hits_by_path: Dict[str, List[SemanticSearchHit]] = {}
+        for hit in hits:
+            hits_by_path.setdefault(hit.chunk.relative_path, []).append(hit)
+
+        for path, path_hits in hits_by_path.items():
+            path_hits.sort(key=lambda h: (h.chunk.start_line, h.chunk.end_line))
+            snippet_lines: List[str] = []
+            last_line: Optional[int] = None
+            for hit in path_hits:
+                entry = hit.chunk
+                start_line = entry.start_line
+                content_lines = entry.content.splitlines()
+                if last_line is not None and start_line > last_line + 1:
+                    snippet_lines.append("...")
+                for offset, raw_line in enumerate(content_lines):
+                    line_number = start_line + offset
+                    snippet_lines.append(f"{line_number}: {raw_line}")
+                if content_lines:
+                    last_line = start_line + len(content_lines) - 1
+                else:
+                    last_line = start_line
+            snippet = "\n".join(snippet_lines)
+            summary_blocks.append(f"path:{path}\n{snippet}")
+
+        for hit in hits:
             entry = hit.chunk
-            preview = entry.content.replace("\n", " ")
-            preview = _shorten(preview.strip(), 160) if preview else ""
-            lines.append(
-                f"{idx}. {entry.relative_path}:{entry.start_line}-{entry.end_line} (score {hit.score:.3f})"
-            )
-            if preview:
-                lines.append(f"   {preview}")
             results.append(
                 {
                     "path": entry.relative_path,
@@ -295,7 +313,7 @@ class SemanticCodeIndexer:
                     "snippet": entry.content,
                 }
             )
-        summary = "\n".join(lines)
+        summary = "\n\n".join(summary_blocks)
         return {"results": results, "summary": summary}
 
     @staticmethod
