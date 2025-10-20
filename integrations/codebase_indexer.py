@@ -21,12 +21,6 @@ from integrations.tree_sitter.parser import TagKind, TreeSitterProjectParser
 from integrations.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
 
 
-def _shorten(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
-
-
 DEFAULT_EMBEDDING_BASE = "http://127.0.0.1:8000/v1"
 
 
@@ -167,7 +161,6 @@ class SemanticCodeIndexer:
         *,
         embedding_client: Optional[EmbeddingClient] = None,
         batch_size: Optional[int] = None,
-        max_snippet_chars: int = 800,
         vector_store: Optional[LocalQdrantStore] = None,
         qdrant_config: Optional[QdrantConfig] = None,
     ) -> None:
@@ -197,7 +190,6 @@ class SemanticCodeIndexer:
         self._batch_size = max(1, batch)
         self._indices: Dict[str, CodebaseIndex] = {}
         self._lock = threading.Lock()
-        self._max_snippet_chars = max(120, int(max_snippet_chars))
 
     def ensure_index(self, project_root: Path | str, *, refresh: bool = False) -> CodebaseIndex:
         root = Path(project_root).expanduser().resolve()
@@ -417,7 +409,7 @@ class SemanticCodeIndexer:
                     "end_line": item.end_line,
                     "language": item.language,
                     "symbol": item.symbol,
-                    "snippet": _shorten(item.snippet, self._max_snippet_chars),
+                    "snippet": item.snippet,
                 }
                 points.append(
                     QdrantPoint(
@@ -452,7 +444,7 @@ class SemanticCodeIndexer:
             end_line=item.end_line,
             language=item.language,
             symbol=item.symbol,
-            content=_shorten(item.snippet, self._max_snippet_chars),
+            content=item.snippet,
             vector=normalized,
         )
 

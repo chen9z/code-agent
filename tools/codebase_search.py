@@ -17,7 +17,6 @@ class CodebaseSearchTool(BaseTool):
         *,
         embedding_client: Optional[EmbeddingClient] = None,
         batch_size: Optional[int] = None,
-        max_snippet_chars: int = 800,
         semantic_indexer: Optional[SemanticCodeIndexer] = None,
     ) -> None:
         super().__init__()
@@ -27,7 +26,6 @@ class CodebaseSearchTool(BaseTool):
             self._indexer = SemanticCodeIndexer(
                 embedding_client=embedding_client,
                 batch_size=batch_size,
-                max_snippet_chars=max_snippet_chars,
             )
 
     # Metadata ---------------------------------------------------------------------
