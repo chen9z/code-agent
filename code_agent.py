@@ -2,41 +2,32 @@
 
 from __future__ import annotations
 
-import argparse
 import copy
 import json
-import os
-import select
-import sys
 import threading
-from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence
-
-from rich.console import Console
-from rich.text import Text
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from __init__ import Flow, FlowCancelledError, Node
+from cli.code_agent_cli import (
+    CodeAgentCLIFlow,
+    run_cli_main as _run_cli_main,
+    run_code_agent_cli as _run_code_agent_cli,
+    run_code_agent_once as _run_code_agent_once,
+)
+from cli.rich_output import create_rich_output, preview_payload as _preview_payload, stringify_payload as _stringify_payload
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
-from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from core.prompt import (
     SECURITY_SYSTEM_PROMPT,
     _BASE_SYSTEM_PROMPT,
     _SUMMARY_INSTRUCTIONS,
     compose_system_prompt,
 )
+from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from tools.registry import ToolRegistry, create_default_registry
 
-_RICH_STYLE_MAP = {
-    "assistant": "white",
-    "assistant:planner": "white",
-    "planner": "white",
-    "plan": "green",
-    "tool": "green",
-    "user": "bold white",
-    "system": "magenta",
-    "warning": "yellow",
-}
+if TYPE_CHECKING:
+    from rich.console import Console
 
 
 def build_code_agent_system_prompt(
@@ -54,156 +45,6 @@ def build_code_agent_system_prompt(
     if extra_sections:
         sections.extend(extra_sections)
     return compose_system_prompt(base_prompt, extra_sections=sections, environment=environment)
-
-
-def create_rich_output(console: Optional[Console] = None) -> Callable[[Any], None]:
-    """Return a callback that renders agent events using a Rich console."""
-
-    active_console = console or Console()
-
-    def emit(message: Any) -> None:
-        if message is None:
-            return
-        if isinstance(message, Mapping):
-            text = _stringify_payload(message)
-        else:
-            text = message if isinstance(message, str) else _stringify_payload(message)
-        tag, body = _split_message_tag(text)
-        if tag is None:
-            active_console.print(Text(str(text)))
-            active_console.print()
-            return
-
-        normalized_tag = tag.lower()
-        if normalized_tag == "user":
-            line = Text.assemble(
-                Text("> ", style="bold white"),
-                Text(body, style="bold white"),
-            )
-            active_console.print(line)
-            active_console.print()
-            return
-
-        if normalized_tag == "system":
-            style = _RICH_STYLE_MAP.get(normalized_tag, "magenta")
-            active_console.print(Text(body, style=style))
-            active_console.print()
-            return
-
-        if normalized_tag in {"assistant", "assistant:planner", "planner"}:
-            _render_bullet(active_console, body, [], "white", "white")
-            return
-
-        if normalized_tag == "plan":
-            return
-
-        if normalized_tag == "tool":
-            header, metadata = _parse_structured_body(body)
-            status = _extract_metadata_value(metadata, "status") or "success"
-            bullet_style = "green" if status.lower() == "success" else "red"
-            header_style = "bold green" if status.lower() == "success" else "bold red"
-            _render_bullet(active_console, header, metadata, bullet_style, header_style)
-            return
-
-        style = _RICH_STYLE_MAP.get(normalized_tag, "white")
-        _render_bullet(active_console, body, [], style, style)
-
-    return emit
-
-
-def _split_message_tag(message: str) -> tuple[Optional[str], str]:
-    stripped = message.strip()
-    if not stripped.startswith("["):
-        return None, message
-    closing = stripped.find("]")
-    if closing <= 1:
-        return None, message
-    suffix = stripped[closing + 1 :]
-    if not suffix.startswith(" "):
-        return None, message
-    tag = stripped[1:closing]
-    body = stripped[closing + 2 :]
-    return tag, body
-
-
-def _parse_structured_body(body: str) -> tuple[str, List[tuple[str, str]]]:
-    parts = [segment.strip() for segment in body.split("|") if segment.strip()]
-    if not parts:
-        return body, []
-    header = parts[0]
-    metadata: List[tuple[str, str]] = []
-    for segment in parts[1:]:
-        if ":" not in segment:
-            continue
-        key, value = segment.split(":", 1)
-        metadata.append((key.strip(), value.strip()))
-    return header, metadata
-
-
-def _extract_metadata_value(metadata: List[tuple[str, str]], key: str) -> Optional[str]:
-    for meta_key, value in metadata:
-        if meta_key.lower() == key.lower():
-            return value
-    return None
-
-
-def _render_bullet(
-    console: Console,
-    header: str,
-    metadata: List[tuple[str, str]],
-    bullet_style: str,
-    header_style: str,
-) -> None:
-    bullet = Text("● ", style=bullet_style)
-    header_text = Text(header, style=header_style)
-    console.print(Text.assemble(bullet, header_text))
-
-    meta_lines = _format_metadata(metadata)
-    for idx, line in enumerate(meta_lines):
-        prefix = Text("└ " if idx == 0 else "  ", style="dim")
-        console.print(Text.assemble(prefix, line))
-
-    console.print()
-
-
-def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
-    lines: List[Text] = []
-    for key, value in metadata:
-        normalized = key.lower()
-        value_text = value
-        if not value_text:
-            continue
-        if normalized == "status":
-            value_str = str(value_text)
-            if value_str.lower() != "success":
-                lines.append(Text(f"status: {value_str}", style="bold red"))
-            continue
-        if normalized == "args":
-            line = Text(f"args: {value_text}", style="dim")
-        elif normalized in {"output", "result"}:
-            line = Text(value_text, style="white")
-        elif normalized == "error":
-            line = Text(f"error: {value_text}", style="bold red")
-        else:
-            line = Text(f"{key}: {value_text}", style="dim")
-        lines.append(line)
-    return lines
-
-
-def _stringify_payload(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except TypeError:
-        return repr(value)
-
-
-def _preview_payload(value: Any, limit: int) -> str:
-    text = _stringify_payload(value)
-    if limit <= 3 or len(text) <= limit:
-        return text[:limit]
-    return f"{text[: limit - 3]}..."
 
 
 def _emit(shared: Dict[str, Any], message: str) -> None:
@@ -830,291 +671,49 @@ class CodeAgentSession:
         return normalized
 
 
-class _RunLoopNode(Node):
-    def __init__(self, session: CodeAgentSession) -> None:
-        super().__init__()
-        self.session = session
-
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        console = self.params.get("console")
-        output_callback = self.params.get("output_callback")
-        if output_callback is None:
-            output_callback = create_rich_output(console)
-        return {
-            "input_iter": self.params.get("input_iter"),
-            "output_callback": output_callback,
-            "console": console,
-        }
-
-    def exec(self, prep_res: Dict[str, Any]) -> int:
-        custom_iter = prep_res.get("input_iter")
-        interactive = custom_iter is None
-        console: Optional[Console] = prep_res.get("console")
-        iterator: Iterator[str] = (
-            custom_iter if custom_iter is not None else _stdin_iterator(console)
-        )
-        output = prep_res["output_callback"]
-        if interactive:
-            output("[system] Entering Code Agent. Type 'exit' to quit. Press ESC to cancel the current request.")
-        else:
-            output("[system] Entering Code Agent. Type 'exit' to quit.")
-        for raw in iterator:
-            message = raw.strip()
-            if not message:
-                continue
-            if message.lower() in {"exit", "quit"}:
-                break
-            result = (
-                self._run_with_cancellation(message, output)
-                if interactive
-                else self.session.run_turn(message, output_callback=output)
-            )
-            if result.get("cancelled"):
-                output("[system] 当前请求已取消。")
-                continue
-            _emit_result(result, output)
-        return 0
-
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: int) -> int:
-        shared["exit_code"] = exec_res
-        return "complete"
-
-    def _run_with_cancellation(self, message: str, output: Callable[[str], None]) -> Dict[str, Any]:
-        cancel_event = threading.Event()
-        done_event = threading.Event()
-        result_box: Dict[str, Any] = {}
-        error_box: Dict[str, BaseException] = {}
-
-        def worker() -> None:
-            try:
-                result_box.update(
-                    self.session.run_turn(
-                        message,
-                        output_callback=output,
-                        cancel_event=cancel_event,
-                    )
-                )
-            except BaseException as exc:  # pragma: no cover - defensive
-                error_box["error"] = exc
-            finally:
-                done_event.set()
-
-        runner = threading.Thread(target=worker, daemon=True)
-        runner.start()
-        try:
-            self._monitor_escape(cancel_event, done_event, output)
-        finally:
-            done_event.wait()
-            runner.join()
-        if error_box:
-            raise error_box["error"]
-        if cancel_event.is_set() and not result_box.get("cancelled"):
-            result_box["cancelled"] = True
-        return result_box
-
-    def _monitor_escape(
-        self,
-        cancel_event: threading.Event,
-        done_event: threading.Event,
-        output: Callable[[str], None],
-    ) -> None:
-        if cancel_event.is_set():
-            return
-        if done_event.wait(timeout=0):
-            return
-        if not sys.stdin.isatty():
-            done_event.wait()
-            return
-        if os.name == "nt":  # pragma: no cover - Windows-only branch
-            self._monitor_escape_windows(cancel_event, done_event, output)
-        else:
-            self._monitor_escape_posix(cancel_event, done_event, output)
-
-    def _monitor_escape_posix(
-        self,
-        cancel_event: threading.Event,
-        done_event: threading.Event,
-        output: Callable[[str], None],
-    ) -> None:
-        import termios
-        import tty
-
-        fd = sys.stdin.fileno()
-        old_attrs = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
-            while not done_event.is_set():
-                read_list, _, _ = select.select([fd], [], [], 0.05)
-                if not read_list:
-                    continue
-                char = os.read(fd, 1)
-                if not char:
-                    continue
-                if char == b"\x1b":
-                    cancel_event.set()
-                    output("[system] 捕获 ESC，正在取消本次请求…")
-                    break
-            done_event.wait()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
-
-    def _monitor_escape_windows(
-        self,
-        cancel_event: threading.Event,
-        done_event: threading.Event,
-        output: Callable[[str], None],
-    ) -> None:
-        import msvcrt
-
-        while not done_event.is_set():
-            if msvcrt.kbhit():
-                char = msvcrt.getch()
-                if char == b"\x1b":
-                    cancel_event.set()
-                    output("[system] 捕获 ESC，正在取消本次请求…")
-                    break
-            if done_event.wait(0.05):
-                break
-        done_event.wait()
-
-
-class CodeAgentCLIFlow(Flow):
-    def __init__(self, session: Optional[CodeAgentSession] = None) -> None:
-        super().__init__()
-        self.session = session or CodeAgentSession()
-        self.loop_node = _RunLoopNode(self.session)
-        self.start(self.loop_node)
-
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> int:
-        return shared.get("exit_code", 0)
-
-
 def run_code_agent_cli(
     *,
-    session: Optional[CodeAgentSession] = None,
+    session: Optional["CodeAgentSession"] = None,
+    session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
     input_iter: Optional[Iterable[str]] = None,
     output_callback: Optional[Callable[[str], None]] = None,
-    console: Optional[Console] = None,
+    console: Optional["Console"] = None,
 ) -> int:
-    active_console = console or Console()
-    emitter = output_callback or create_rich_output(active_console)
-    flow = CodeAgentCLIFlow(session=session)
-    flow.set_params(
-        {
-            "input_iter": input_iter,
-            "output_callback": emitter,
-            "console": active_console,
-        }
+    factory = session_factory or (lambda: CodeAgentSession())
+    return _run_code_agent_cli(
+        session=session,
+        session_factory=factory,
+        input_iter=input_iter,
+        output_callback=output_callback,
+        console=console,
     )
-    return flow._run({})
 
 
 def run_code_agent_once(
     prompt: str,
     *,
-    session: Optional[CodeAgentSession] = None,
+    session: Optional["CodeAgentSession"] = None,
+    session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
     output_callback: Optional[Callable[[str], None]] = None,
-    console: Optional[Console] = None,
+    console: Optional["Console"] = None,
 ) -> Dict[str, Any]:
-    """Execute a single Code Agent turn and emit the summarised result."""
-
-    active_session = session or CodeAgentSession()
-    if output_callback is None:
-        active_console = console or Console()
-        emitter = create_rich_output(active_console)
-    else:
-        emitter = output_callback
-    result = active_session.run_turn(prompt, output_callback=emitter)
-    if not result.get("cancelled"):
-        _emit_result(result, emitter)
-    return result
-
-
-def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], None]) -> None:
-    final = result.get("final_response")
-    if not final:
-        return
-
-    history = result.get("history")
-    already_emitted = False
-    if isinstance(history, list):
-        for message in reversed(history):
-            if message.get("role") != "assistant":
-                continue
-            content = _stringify_payload(message.get("content", ""))
-            if content == _stringify_payload(final):
-                already_emitted = True
-            break
-
-    if not already_emitted:
-        output_callback(f"[assistant] {_stringify_payload(final)}")
-
-
-def _stdin_iterator(console: Optional[Console] = None) -> Iterable[str]:
-    prompt = "You: "
-    if console is not None:
-        reader: Callable[[], str] = lambda: console.input(prompt)
-    else:
-        reader = lambda: input(prompt)
-    while True:
-        try:
-            yield reader()
-        except EOFError:
-            break
-
-
-def _create_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Code Agent module CLI")
-    parser.add_argument(
-        "-w",
-        "--workspace",
-        default=".",
-        help="Workspace path to operate within during the session.",
+    factory = session_factory or (lambda: CodeAgentSession())
+    return _run_code_agent_once(
+        prompt,
+        session=session,
+        session_factory=factory,
+        output_callback=output_callback,
+        console=console,
     )
-    parser.add_argument(
-        "-p",
-        "--prompt",
-        nargs="+",
-        help="Prompt to execute once before exiting the CLI.",
-    )
-    return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """CLI entrypoint for running the code agent directly."""
 
-    parser = _create_cli_parser()
-    args = parser.parse_args(argv)
-
-    workspace = Path(args.workspace).expanduser().resolve()
-    if not workspace.exists():
-        raise FileNotFoundError(f"Workspace does not exist: {workspace}")
-    if not workspace.is_dir():
-        raise NotADirectoryError(f"Workspace is not a directory: {workspace}")
-
-    prompt_text = " ".join(args.prompt).strip() if args.prompt else ""
-    console = Console()
-    emitter = create_rich_output(console)
-
-    original_cwd = Path.cwd()
-    try:
-        os.chdir(workspace)
-        session = CodeAgentSession(max_iterations=100)
-        if prompt_text:
-            run_code_agent_once(
-                prompt_text,
-                session=session,
-                output_callback=emitter,
-                console=console,
-            )
-            return 0
-        return run_code_agent_cli(
-            session=session,
-            output_callback=emitter,
-            console=console,
-        )
-    finally:
-        os.chdir(original_cwd)
+    return _run_cli_main(
+        argv,
+        session_factory=lambda: CodeAgentSession(max_iterations=100),
+    )
 
 
 if __name__ == "__main__":
