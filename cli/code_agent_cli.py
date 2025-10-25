@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import select
 import sys
-import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, Protocol, Sequence
 
@@ -20,7 +18,6 @@ class AgentSessionProtocol(Protocol):
         user_input: str,
         *,
         output_callback: Optional[Callable[[str], None]] = None,
-        cancel_event: Optional[threading.Event] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -48,140 +45,25 @@ class _RunLoopNode(Node):
 
     def exec(self, prep_res: Dict[str, Any]) -> int:
         custom_iter = prep_res.get("input_iter")
-        interactive = custom_iter is None
         console: Optional[Console] = prep_res.get("console")
         iterator: Iterator[str] = (
             custom_iter if custom_iter is not None else _stdin_iterator(console)
         )
         output = prep_res["output_callback"]
-        if interactive:
-            output(
-                "[system] Entering Code Agent. Type 'exit' to quit. Press ESC to cancel the current request."
-            )
-        else:
-            output("[system] Entering Code Agent. Type 'exit' to quit.")
+        output("[system] Entering Code Agent. Type 'exit' to quit.")
         for raw in iterator:
             message = raw.strip()
             if not message:
                 continue
             if message.lower() in {"exit", "quit"}:
                 break
-            result = (
-                self._run_with_cancellation(message, output)
-                if interactive
-                else self.session.run_turn(message, output_callback=output)
-            )
-            if result.get("cancelled"):
-                output("[system] 当前请求已取消。")
-                continue
+            result = self.session.run_turn(message, output_callback=output)
             self.emit_result(result, output)
         return 0
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: int) -> int:
         shared["exit_code"] = exec_res
         return "complete"
-
-    def _run_with_cancellation(
-        self,
-        message: str,
-        output: Callable[[str], None],
-    ) -> Dict[str, Any]:
-        cancel_event = threading.Event()
-        done_event = threading.Event()
-        result_box: Dict[str, Any] = {}
-        error_box: Dict[str, BaseException] = {}
-
-        def worker() -> None:
-            try:
-                result_box.update(
-                    self.session.run_turn(
-                        message,
-                        output_callback=output,
-                        cancel_event=cancel_event,
-                    )
-                )
-            except BaseException as exc:  # pragma: no cover - defensive
-                error_box["error"] = exc
-            finally:
-                done_event.set()
-
-        runner = threading.Thread(target=worker, daemon=True)
-        runner.start()
-        try:
-            self._monitor_escape(cancel_event, done_event, output)
-        finally:
-            done_event.wait()
-            runner.join()
-        if error_box:
-            raise error_box["error"]
-        if cancel_event.is_set() and not result_box.get("cancelled"):
-            result_box["cancelled"] = True
-        return result_box
-
-    def _monitor_escape(
-        self,
-        cancel_event: threading.Event,
-        done_event: threading.Event,
-        output: Callable[[str], None],
-    ) -> None:
-        if cancel_event.is_set():
-            return
-        if done_event.wait(timeout=0):
-            return
-        if not sys.stdin.isatty():
-            done_event.wait()
-            return
-        if os.name == "nt":  # pragma: no cover - Windows-only branch
-            self._monitor_escape_windows(cancel_event, done_event, output)
-        else:
-            self._monitor_escape_posix(cancel_event, done_event, output)
-
-    def _monitor_escape_posix(
-        self,
-        cancel_event: threading.Event,
-        done_event: threading.Event,
-        output: Callable[[str], None],
-    ) -> None:
-        import termios
-        import tty
-
-        fd = sys.stdin.fileno()
-        old_attrs = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
-            while not done_event.is_set():
-                read_list, _, _ = select.select([fd], [], [], 0.05)
-                if not read_list:
-                    continue
-                char = os.read(fd, 1)
-                if not char:
-                    continue
-                if char == b"\x1b":
-                    cancel_event.set()
-                    output("[system] 捕获 ESC，正在取消本次请求…")
-                    break
-            done_event.wait()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
-
-    def _monitor_escape_windows(
-        self,
-        cancel_event: threading.Event,
-        done_event: threading.Event,
-        output: Callable[[str], None],
-    ) -> None:
-        import msvcrt
-
-        while not done_event.is_set():
-            if msvcrt.kbhit():
-                char = msvcrt.getch()
-                if char == b"\x1b":
-                    cancel_event.set()
-                    output("[system] 捕获 ESC，正在取消本次请求…")
-                    break
-            if done_event.wait(0.05):
-                break
-        done_event.wait()
 
 
 class CodeAgentCLIFlow(Flow):

@@ -47,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     emitter = create_rich_output(console)
     try:
         os.chdir(workspace)
-        session = CodeAgentSession(max_iterations=100)
+        session = CodeAgentSession(max_iterations=100, workspace=workspace)
         if prompt:
             run_code_agent_once(
                 prompt,

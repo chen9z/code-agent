@@ -94,7 +94,7 @@ def create_default_registry(
 ) -> ToolRegistry:
     """Construct a registry with the built-in tool implementations."""
     from tools.bash import BashTool
-    from tools.codebase_search import CodebaseSearchTool
+    # from tools.codebase_search import CodebaseSearchTool  # Temporarily disabled
     from tools.edit import EditTool
     from tools.glob import GlobTool
     from tools.grep import GrepSearchTool
@@ -105,7 +105,6 @@ def create_default_registry(
 
     tool_classes = {
         "bash": BashTool,
-        "codebase_search": CodebaseSearchTool,
         "edit": EditTool,
         "glob": GlobTool,
         "grep": GrepSearchTool,
@@ -121,7 +120,5 @@ def create_default_registry(
         if selected is not None and key not in selected:
             continue
         kwargs: Dict[str, Any] = {}
-        if key == "codebase_search":
-            kwargs["default_project_root"] = project_root
         registry.register(tool_cls(**kwargs), key=key)
     return registry

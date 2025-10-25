@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
-import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
-from __init__ import Flow, FlowCancelledError, Node
+from __init__ import Flow, Node
 from cli.code_agent_cli import (
     CodeAgentCLIFlow,
     run_cli_main as _run_cli_main,
@@ -49,13 +48,6 @@ def build_code_agent_system_prompt(
 
 
 def _emit(shared: Dict[str, Any], message: str) -> None:
-    cancel_event = shared.get("cancel_event") if isinstance(shared, dict) else None
-    if cancel_event is not None:
-        checker = getattr(cancel_event, "is_set", None)
-        if callable(checker) and checker():
-            return
-        if not callable(checker) and cancel_event:
-            return
     callback = shared.get("output_callback")
     if callable(callback):
         callback(message)
@@ -157,19 +149,12 @@ class ToolPlanningNode(Node):
         thoughts = assistant_message.get("content")
         if thoughts:
             _emit(shared, f"[assistant:planner] {thoughts}")
-        for call in assistant_message.get("tool_calls") or []:
-            name = call.get("function", {}).get("name")
-            raw_args = call.get("function", {}).get("arguments")
-            parsed_args: Any = {}
-            if isinstance(raw_args, str) and raw_args:
-                try:
-                    parsed_args = json.loads(raw_args)
-                except json.JSONDecodeError:
-                    parsed_args = raw_args
-            else:
-                parsed_args = raw_args or {}
-            args_preview = _preview_payload(parsed_args, 180)
-            message_body = name or "tool"
+        for call in tool_calls:
+            name = call.get("key")
+            if not name:
+                continue
+            args_preview = _preview_payload(call.get("arguments") or {}, 180)
+            message_body = name
             if args_preview and args_preview not in {"{}", "null"}:
                 message_body += f" | args: {args_preview}"
             _emit(shared, f"[plan] {message_body}")
@@ -274,36 +259,13 @@ class ToolPlanningNode(Node):
             return obj.get(attr, default)
         return getattr(obj, attr, default)
 
-    @staticmethod
-    def _strip_explanation_from_parameters(parameters: Any) -> Any:
-        if not isinstance(parameters, dict):
-            return parameters
-        sanitized = copy.deepcopy(parameters)
-        props = sanitized.get("properties")
-        if isinstance(props, dict) and "explanation" in props:
-            stripped_props = dict(props)
-            stripped_props.pop("explanation", None)
-            sanitized["properties"] = stripped_props
-        required = sanitized.get("required")
-        if isinstance(required, list) and "explanation" in required:
-            sanitized["required"] = [item for item in required if item != "explanation"]
-        return sanitized
-
     @classmethod
     def _strip_explanation_from_descriptor(cls, descriptor: Mapping[str, Any]) -> Mapping[str, Any]:
-        sanitized = dict(descriptor)
-        params = sanitized.get("parameters")
-        if params is not None:
-            sanitized["parameters"] = cls._strip_explanation_from_parameters(params)
-        return sanitized
+        return dict(descriptor)
 
     @classmethod
     def _strip_explanation_from_tool(cls, tool: Mapping[str, Any]) -> Dict[str, Any]:
-        sanitized = copy.deepcopy(tool)
-        function = sanitized.get("function")
-        if isinstance(function, dict) and "parameters" in function:
-            function["parameters"] = cls._strip_explanation_from_parameters(function["parameters"])
-        return sanitized
+        return copy.deepcopy(tool)
 
 
 class SummaryNode(Node):
@@ -548,7 +510,6 @@ def create_code_agent_flow(
     model: Optional[str] = None,
     max_iterations: int = 25,
     system_prompt: Optional[str] = None,
-    extra_system_sections: Optional[Sequence[str]] = None,
     environment: Optional[Mapping[str, Any]] = None,
 ) -> ToolAgentFlow:
     """Return a `ToolAgentFlow` instance with all default tools registered."""
@@ -557,7 +518,7 @@ def create_code_agent_flow(
     if resolved_prompt is None:
         resolved_prompt = build_code_agent_system_prompt(
             base_prompt=_BASE_SYSTEM_PROMPT,
-            extra_sections=extra_system_sections,
+            extra_sections=None,
             environment=environment,
         )
 
@@ -587,7 +548,6 @@ class CodeAgentSession:
         max_iterations: int = 25,
         flow_factory: Optional[FlowFactory] = None,
         system_prompt: Optional[str] = None,
-        extra_system_sections: Optional[Sequence[str]] = None,
         environment: Optional[Mapping[str, Any]] = None,
         workspace: Optional[str | Path] = None,
     ) -> None:
@@ -597,7 +557,6 @@ class CodeAgentSession:
         self.max_parallel_workers = max_parallel_workers
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
         self.system_prompt = system_prompt
-        self.extra_system_sections = extra_system_sections
         if environment is not None:
             self.environment = environment
         elif self.workspace is not None:
@@ -615,7 +574,6 @@ class CodeAgentSession:
                 max_iterations=self.max_iterations,
                 model=default_model,
                 system_prompt=self.system_prompt,
-                extra_system_sections=self.extra_system_sections,
                 environment=self.environment,
             )
         self.history: List[Dict[str, Any]] = []
@@ -625,30 +583,20 @@ class CodeAgentSession:
         user_input: str,
         *,
         output_callback: Optional[Callable[[str], None]] = None,
-        cancel_event: Optional[threading.Event] = None,
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
-        token = cancel_event or threading.Event()
-        token_setter = getattr(token, "is_set", None)
-        if callable(token_setter) and token_setter():
-            return {"cancelled": True, "history": list(self.history)}
-        if not callable(token_setter) and token:
-            return {"cancelled": True, "history": list(self.history)}
         flow = self._flow_factory()
-        params: Dict[str, Any] = {"user_input": user_input.strip(), "cancel_event": token}
+        params: Dict[str, Any] = {"user_input": user_input.strip()}
         if self.history:
             params["history"] = list(self.history)
         if output_callback is not None:
             params["output_callback"] = output_callback
         flow.set_params(params)
-        shared: Dict[str, Any] = {"cancel_event": token}
+        shared: Dict[str, Any] = {}
         if output_callback is not None:
             shared["output_callback"] = output_callback
-        try:
-            result = flow._run(shared)
-        except FlowCancelledError:
-            return {"cancelled": True, "history": list(self.history)}
+        result = flow._run(shared)
         updated = result.get("history")
         if isinstance(updated, list):
             self.history = [self._normalize_message(msg) for msg in updated if self._is_valid_message(msg)]

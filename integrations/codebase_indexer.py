@@ -173,7 +173,7 @@ class SemanticCodeIndexer:
         endpoint = _resolve_endpoint()
         model = os.getenv("CODEBASE_EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL") or "jinaai/jina-embeddings-v4"
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
-        api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "30"))
+        api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "120"))
 
         store_path = os.getenv("CODEBASE_QDRANT_PATH", "storage")
         store_root = Path(store_path).expanduser()
@@ -270,23 +270,15 @@ class SemanticCodeIndexer:
 
         for path, path_hits in hits_by_path.items():
             path_hits.sort(key=lambda h: (h.chunk.start_line, h.chunk.end_line))
-            snippet_lines: List[str] = []
-            last_line: Optional[int] = None
-            for hit in path_hits:
-                entry = hit.chunk
-                start_line = entry.start_line
-                content_lines = entry.content.splitlines()
-                if last_line is not None and start_line > last_line + 1:
-                    snippet_lines.append("...")
-                for offset, raw_line in enumerate(content_lines):
-                    line_number = start_line + offset
-                    snippet_lines.append(f"{line_number}: {raw_line}")
-                if content_lines:
-                    last_line = start_line + len(content_lines) - 1
-                else:
-                    last_line = start_line
-            snippet = "\n".join(snippet_lines)
-            summary_blocks.append(f"path:{path}\n{snippet}")
+            top_hit = path_hits[0].chunk
+            symbol = top_hit.symbol or "(anonymous)"
+            preview_lines = top_hit.content.strip().splitlines()[:5]
+            preview = " ".join(line.strip() for line in preview_lines)
+            if len(top_hit.content.splitlines()) > 5:
+                preview += " ..."
+            summary_blocks.append(
+                f"{path}:{top_hit.start_line}-{top_hit.end_line} [{symbol}] {preview}"
+            )
 
         for hit in hits:
             entry = hit.chunk
@@ -302,7 +294,7 @@ class SemanticCodeIndexer:
                     "snippet": entry.content,
                 }
             )
-        summary = "\n\n".join(summary_blocks)
+        summary = "\n".join(f"- {block}" for block in summary_blocks)
         return {"results": results, "summary": summary}
 
     @staticmethod
@@ -387,7 +379,6 @@ class SemanticCodeIndexer:
             self._store.delete_points(remove_ids)
 
         if items:
-            print(items)
             texts = [item.snippet for item in items]
             embeddings = self._embedder.embed_batch(texts)
             if len(embeddings) != len(items):
