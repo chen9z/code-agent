@@ -11,6 +11,7 @@ __pycache__/
 .agent_work/
 .idea/
 .claude/
+openspec/
 
 # Coverage files
 .coverage

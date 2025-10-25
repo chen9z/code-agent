@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
 from __init__ import Node
+from core.tool_output_store import ToolOutputStore
 from tools.registry import ToolRegistry, ToolSpec
 
 
@@ -89,18 +90,37 @@ class ToolOutput:
 class ToolExecutionBatchNode(Node):
     """Executes a batch of tool calls sequentially or in parallel based on plan metadata."""
 
-    def __init__(self, registry: ToolRegistry, max_parallel_workers: int = 4) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        max_parallel_workers: int = 4,
+        *,
+        default_timeout_seconds: Optional[float] = None,
+    ) -> None:
         super().__init__()
         if max_parallel_workers < 1:
             raise ValueError("max_parallel_workers must be at least 1")
         self.registry = registry
         self.max_parallel_workers = max_parallel_workers
+        self.default_timeout_seconds = (
+            float(default_timeout_seconds)
+            if default_timeout_seconds is not None and default_timeout_seconds > 0
+            else None
+        )
 
     def prep(self, shared: Dict[str, Any]) -> List[Dict[str, Any]]:
         plan = shared.get("tool_plan", {})
         tool_calls = plan.get("tool_calls", []) if isinstance(plan, dict) else []
         if not isinstance(tool_calls, list):
             raise ValueError("tool_plan.tool_calls must be a list")
+        timeout_override = shared.get("tool_timeout_seconds")
+        if timeout_override is not None:
+            try:
+                value = float(timeout_override)
+            except (TypeError, ValueError):
+                value = None
+            if value is not None and value > 0:
+                self.default_timeout_seconds = value
         return tool_calls
 
     def exec(self, tool_calls: List[Dict[str, Any]]) -> List[ToolOutput]:
@@ -120,50 +140,87 @@ class ToolExecutionBatchNode(Node):
         existing.extend(exec_res)
 
         history = shared.setdefault("history", [])
+        store: Optional[ToolOutputStore] = shared.get("tool_output_store")
         for result in exec_res:
             key = result.key
-            is_bash_tool = isinstance(key, str) and key.lower() == "bash"
-            error_payload = result.error
-            has_error = bool(error_payload)
-            if has_error:
-                content_preview = error_payload or ""
-            else:
-                payload_text = result.result.content if result.result else ""
-                content_preview = (
-                    _preview_payload(payload_text, 2000) if is_bash_tool else ""
-                )
-            message = {
-                "role": "tool",
-                "tool_call_id": result.id,
-                "name": key,
-                # Keep history compact to protect context window; store a safe preview only.
-                "content": content_preview,
-            }
-            history.append(message)
+            label = result.inputs.label or (key.upper() if isinstance(key, str) else str(key))
             arguments_preview = _preview_payload(result.inputs.arguments or {}, 180)
             if arguments_preview in {"{}", "null"}:
                 arguments_preview = ""
-            label = result.inputs.label or (key.upper() if isinstance(key, str) else str(key))
-            if not has_error and result.result:
-                snippet = _preview_payload(result.result.data, 200)
-                if snippet in {"{}", "null"}:
-                    snippet = ""
+
+            tool_key = str(key).lower() if isinstance(key, str) else ""
+            is_bash_tool = tool_key == "bash"
+            is_glob_tool = tool_key == "glob"
+            has_error = bool(result.error)
+
+            console_preview = ""
+            truncated_output = False
+            full_output_text = ""
+
+            if not has_error and result.result is not None:
+                full_output_text = _stringify_tool_output(result.result.data)
+                console_preview, truncated_output = _build_console_preview(full_output_text, result.id)
+                if (is_bash_tool or is_glob_tool) and console_preview:
+                    history_content = _build_history_preview(console_preview)
+                else:
+                    history_content = ""
+            elif has_error:
+                error_text = str(result.error or "")
+                history_content = _truncate_text(error_text, max_chars=MAX_HISTORY_PREVIEW_CHARS, max_lines=MAX_HISTORY_PREVIEW_LINES)[0]
+            else:
+                history_content = ""
+
+            history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": result.id,
+                    "name": key,
+                    "content": history_content,
+                }
+            )
+
+            if not has_error:
                 message = f"{label} | status: {result.status}"
                 if arguments_preview:
                     message += f" | args: {arguments_preview}"
-                if snippet:
-                    message += f" | result: {snippet}"
+                if truncated_output:
+                    message += f" | preview truncated; use :show {result.id}"
                 _emit(shared, f"[tool] {message}")
+                if console_preview:
+                    _emit(shared, f"[tool-output] {console_preview}")
+                if store and full_output_text:
+                    store.record(
+                        call_id=result.id,
+                        label=label,
+                        status=result.status,
+                        arguments=result.inputs.arguments,
+                        output=full_output_text,
+                        truncated=truncated_output,
+                    )
             else:
-                error_preview = _preview_payload(error_payload or "", 200)
-                if error_preview in {"{}", "null"}:
-                    error_preview = ""
+                error_preview_text, trunc_err = _truncate_text(
+                    str(result.error or ""),
+                    max_chars=MAX_ERROR_PREVIEW_CHARS,
+                    max_lines=MAX_ERROR_PREVIEW_LINES,
+                )
+                error_inline = error_preview_text.replace("\n", " ")
                 message = f"{label} | status: error"
                 if arguments_preview:
                     message += f" | args: {arguments_preview}"
-                if error_preview:
-                    message += f" | error: {error_preview}"
+                if error_inline:
+                    message += f" | error: {error_inline}"
                 _emit(shared, f"[tool] {message}")
+                if trunc_err:
+                    _emit(shared, f"[tool-output] {error_preview_text}")
+                if store:
+                    store.record(
+                        call_id=result.id,
+                        label=label,
+                        status="error",
+                        arguments=result.inputs.arguments,
+                        output=str(result.error or ""),
+                        truncated=trunc_err,
+                    )
 
         used = shared.get("tool_iterations_used", 0) + 1
         shared["tool_iterations_used"] = used
@@ -215,15 +272,17 @@ class ToolExecutionBatchNode(Node):
             )
             return ToolOutput(inputs=inputs, result=None, error=str(exc))
 
+        effective_arguments = self._apply_timeout_default(call.key, call.arguments)
+
         inputs = ToolInvocationInputs(
             key=call.key,
-            arguments=call.arguments,
+            arguments=effective_arguments,
             call_id=call.call_id,
             label=spec.name,
         )
 
         try:
-            output = spec.tool.execute(**call.arguments)
+            output = spec.tool.execute(**effective_arguments)
             payload = ToolResultPayload(
                 status="success",
                 content=_stringify_payload(output),
@@ -232,6 +291,17 @@ class ToolExecutionBatchNode(Node):
             return ToolOutput(inputs=inputs, result=payload, error=None)
         except Exception as exc:  # pragma: no cover - exercised via tests
             return ToolOutput(inputs=inputs, result=None, error=str(exc))
+
+    def _apply_timeout_default(self, key: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = str(key).lower() if isinstance(key, str) else ""
+        if normalized not in _TIMEOUT_AWARE_TOOLS or self.default_timeout_seconds is None:
+            return dict(arguments)
+        if "timeout" in arguments and arguments["timeout"]:
+            return dict(arguments)
+        timeout_ms = max(int(self.default_timeout_seconds * 1000), 1)
+        updated = dict(arguments)
+        updated["timeout"] = timeout_ms
+        return updated
 
 
 def _stringify_payload(value: Any) -> str:
@@ -261,3 +331,71 @@ def _emit(shared: Dict[str, Any], message: str) -> None:
     callback = shared.get("output_callback")
     if callable(callback):
         callback(message)
+
+def _truncate_text(text: str, *, max_chars: int, max_lines: int) -> tuple[str, bool]:
+    if not text:
+        return "", False
+    lines = text.splitlines()
+    truncated = False
+    if len(lines) > max_lines:
+        truncated = True
+        lines = lines[:max_lines]
+    joined = "\n".join(lines)
+    if len(joined) > max_chars:
+        truncated = True
+        joined = joined[: max_chars - 3] + "..."
+    return joined, truncated
+
+
+def _stringify_tool_output(data: Any) -> str:
+    if isinstance(data, dict):
+        stdout = data.get("stdout")
+        stderr = data.get("stderr")
+        if isinstance(stdout, str) or isinstance(stderr, str):
+            segments: List[str] = []
+            if isinstance(stdout, str) and stdout:
+                segments.append(stdout.rstrip("\n"))
+            if isinstance(stderr, str) and stderr:
+                header = "STDERR:"
+                segments.append(f"{header}\n{stderr.rstrip('\n')}")
+            if segments:
+                return "\n\n".join(seg for seg in segments if seg)
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    if isinstance(data, list):
+        preview = ", ".join(str(item) for item in data[:20])
+        if len(data) > 20:
+            preview += f", ... (+{len(data) - 20} more)"
+        return preview
+    return _stringify_payload(data)
+
+
+def _build_console_preview(full_output: str, call_id: str) -> tuple[str, bool]:
+    preview, truncated = _truncate_text(
+        full_output,
+        max_chars=MAX_TOOL_PREVIEW_CHARS,
+        max_lines=MAX_TOOL_PREVIEW_LINES,
+    )
+    if not preview and not truncated:
+        return "", False
+    if truncated:
+        if preview:
+            preview = f"{preview}\n... (truncated; use :show {call_id})"
+        else:
+            preview = f"... (truncated; use :show {call_id})"
+    return preview, truncated
+
+
+def _build_history_preview(preview_text: str) -> str:
+    trimmed, _ = _truncate_text(
+        preview_text,
+        max_chars=MAX_HISTORY_PREVIEW_CHARS,
+        max_lines=MAX_HISTORY_PREVIEW_LINES,
+    )
+    return trimmed
+MAX_TOOL_PREVIEW_CHARS = 4000
+MAX_TOOL_PREVIEW_LINES = 80
+MAX_HISTORY_PREVIEW_CHARS = 800
+MAX_HISTORY_PREVIEW_LINES = 8
+MAX_ERROR_PREVIEW_CHARS = 800
+MAX_ERROR_PREVIEW_LINES = 12
+_TIMEOUT_AWARE_TOOLS = {"bash"}

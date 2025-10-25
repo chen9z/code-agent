@@ -57,6 +57,8 @@ class _RunLoopNode(Node):
                 continue
             if message.lower() in {"exit", "quit"}:
                 break
+            if message.startswith(":") and self._handle_command(message, output):
+                continue
             result = self.session.run_turn(message, output_callback=output)
             self.emit_result(result, output)
         return 0
@@ -64,6 +66,48 @@ class _RunLoopNode(Node):
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: int) -> int:
         shared["exit_code"] = exec_res
         return "complete"
+
+    def _handle_command(self, command: str, output_callback: Callable[[str], None]) -> bool:
+        normalized = command.strip()
+        if normalized.startswith(":show"):
+            return self._handle_show_command(normalized, output_callback)
+        if normalized in {":help", ":?"}:
+            self._emit_help(output_callback)
+            return True
+        return False
+
+    def _handle_show_command(self, command: str, output_callback: Callable[[str], None]) -> bool:
+        arg = command[5:].strip()
+        target = arg or "last-truncated"
+        store_getter = getattr(self.session, "get_tool_output_store", None)
+        if not callable(store_getter):
+            output_callback("[system] Tool output inspection is unavailable in this session.")
+            return True
+        store = store_getter()
+        if store is None:
+            output_callback("[system] Tool output inspection is unavailable in this session.")
+            return True
+        entry = None
+        lowered = target.lower()
+        if lowered in {"last", "latest"}:
+            entry = store.latest(truncated_only=False)
+        elif lowered in {"last-truncated", "truncated"}:
+            entry = store.latest(truncated_only=True)
+        else:
+            entry = store.get(target)
+        if entry is None:
+            output_callback(f"[system] No stored tool output found for '{target}'.")
+            return True
+        header = f"Full output for {entry.label} ({entry.call_id}) | status: {entry.status}"
+        output_callback(f"[tool-output] {header}")
+        body = entry.output or "(empty output)"
+        output_callback(f"[tool-output] {body}")
+        return True
+
+    def _emit_help(self, output_callback: Callable[[str], None]) -> None:
+        output_callback(
+            "[system] Commands: :show <call_id|last|last-truncated> to display stored tool output; :exit to quit."
+        )
 
 
 class CodeAgentCLIFlow(Flow):
@@ -136,6 +180,7 @@ def run_cli_main(
 ) -> int:
     parser = _create_cli_parser()
     args = parser.parse_args(argv)
+    tool_timeout = args.tool_timeout
 
     workspace = Path(args.workspace).expanduser().resolve()
     if not workspace.exists():
@@ -151,6 +196,10 @@ def run_cli_main(
     try:
         os.chdir(workspace)
         session = session_factory()
+        if tool_timeout is not None:
+            setter = getattr(session, "set_tool_timeout_seconds", None)
+            if callable(setter):
+                setter(tool_timeout)
         if prompt_text:
             run_code_agent_once(
                 prompt_text,
@@ -227,6 +276,12 @@ def _create_cli_parser() -> argparse.ArgumentParser:
         "--prompt",
         nargs="+",
         help="Prompt to execute once before exiting the CLI.",
+    )
+    parser.add_argument(
+        "--tool-timeout",
+        type=float,
+        dest="tool_timeout",
+        help="Override the default tool timeout in seconds.",
     )
     return parser
 

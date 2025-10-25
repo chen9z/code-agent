@@ -47,17 +47,24 @@ def test_rag_operations():
     from code_rag import run_rag_workflow
 
     # Create a temporary test project
-    with tempfile.TemporaryDirectory() as test_project:
+    with tempfile.TemporaryDirectory() as test_project, tempfile.TemporaryDirectory() as store_dir:
+        original_store = os.environ.get("CODEBASE_QDRANT_PATH")
+
+        def set_store(suffix: str) -> None:
+            os.environ["CODEBASE_QDRANT_PATH"] = str(Path(store_dir) / suffix)
+
         # Create a test file
         test_file = os.path.join(test_project, "test.py")
         with open(test_file, "w") as f:
             f.write("def hello_world():\n    print('Hello, World!')\n")
 
         # Test indexing
+        set_store("index")
         result = run_rag_workflow(action="index", project_path=test_project)
         assert result["status"] == "success"
 
         # Test search
+        set_store("search")
         result = run_rag_workflow(
             action="search",
             project_name=Path(test_project).name,
@@ -66,6 +73,7 @@ def test_rag_operations():
         assert result["status"] == "success"
 
         # Test query
+        set_store("query")
         result = run_rag_workflow(
             action="query",
             project_name=Path(test_project).name,
@@ -73,42 +81,60 @@ def test_rag_operations():
         )
         assert result["status"] == "success"
 
+        if original_store is not None:
+            os.environ["CODEBASE_QDRANT_PATH"] = original_store
+        else:
+            os.environ.pop("CODEBASE_QDRANT_PATH", None)
+
 
 def test_rag_flow():
     """Test RAG flow functionality."""
     from code_rag import run_rag_workflow
-    
-    with tempfile.TemporaryDirectory() as test_project:
+
+    with tempfile.TemporaryDirectory() as test_project, tempfile.TemporaryDirectory() as store_dir:
+        original_store = os.environ.get("CODEBASE_QDRANT_PATH")
+
+        def set_store(suffix: str) -> None:
+            os.environ["CODEBASE_QDRANT_PATH"] = str(Path(store_dir) / suffix)
+
         # Create a test file
         test_file = os.path.join(test_project, "test.py")
         with open(test_file, "w") as f:
             f.write("def hello_world():\n    return 'Hello, World!'\n")
-        
+
         # Test indexing flow
         try:
+            set_store("index")
             result = run_rag_workflow(action="index", project_path=test_project)
             assert isinstance(result, dict) and result.get("status") == "success"
         except Exception as e:
             pytest.fail(f"Index flow failed: {e}")
-        
+
         # Test search flow
         try:
+            set_store("search")
             result = run_rag_workflow(
-                action="search", 
-                project_name=Path(test_project).name, 
-                query="function definition"
+                action="search",
+                project_name=Path(test_project).name,
+                query="function definition",
             )
             assert isinstance(result, dict) and result.get("status") == "success"
         except Exception as e:
             pytest.fail(f"Search flow failed: {e}")
-        
+
         # Test query flow
         try:
+            set_store("query")
             result = run_rag_workflow(
-                action="query", 
-                project_name=Path(test_project).name, 
-                question="What does this code do?"
+                action="query",
+                project_name=Path(test_project).name,
+                question="What does this code do?",
             )
             assert isinstance(result, dict) and result.get("status") == "success"
         except Exception as e:
             pytest.fail(f"Query flow failed: {e}")
+
+        if original_store is not None:
+            os.environ["CODEBASE_QDRANT_PATH"] = original_store
+        else:
+            os.environ.pop("CODEBASE_QDRANT_PATH", None)

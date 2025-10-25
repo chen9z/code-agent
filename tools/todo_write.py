@@ -87,6 +87,7 @@ class TodoWriteTool(BaseTool):
 
         normalized: List[Dict[str, str]] = []
         in_progress_count = 0
+        status_counts = {key: 0 for key in _ALLOWED_STATUSES}
         for index, raw in enumerate(todos):
             if not isinstance(raw, dict):
                 raise TypeError(f"todo entry at index {index} must be an object")
@@ -113,6 +114,7 @@ class TodoWriteTool(BaseTool):
 
             if status == "in_progress":
                 in_progress_count += 1
+            status_counts[status] += 1
 
             normalized.append({
                 "status": status,
@@ -120,13 +122,22 @@ class TodoWriteTool(BaseTool):
                 "activeForm": active_form,
             })
 
-        if in_progress_count != 1:
-            raise ValueError(
-                "Exactly one todo must have status 'in_progress'. Found "
-                f"{in_progress_count} entries marked in_progress."
-            )
+        if in_progress_count == 1:
+            return normalized
 
-        return normalized
+        completed_only = (
+            in_progress_count == 0
+            and status_counts["pending"] == 0
+            and status_counts["completed"] == len(normalized)
+        )
+
+        if completed_only:
+            return normalized
+
+        raise ValueError(
+            "Exactly one todo must have status 'in_progress'. Found "
+            f"{in_progress_count} entries marked in_progress."
+        )
 
     @staticmethod
     def _summarize_counts(todos: List[Dict[str, str]]) -> Dict[str, int]:

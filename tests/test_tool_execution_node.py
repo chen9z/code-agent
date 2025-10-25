@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from core.tool_output_store import ToolOutputStore
 from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
@@ -53,6 +54,46 @@ class _EmptyTool(BaseTool):
 
     def execute(self, **kwargs):
         return []
+
+
+class _LongOutputTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "Long"
+
+    @property
+    def description(self) -> str:
+        return "returns lengthy stdout"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def execute(self, **kwargs):
+        lines = [f"line {i}" for i in range(200)]
+        payload = "\n".join(lines)
+        return {"stdout": payload, "command": "generate"}
+
+
+class _TimeoutAwareTool(BaseTool):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    @property
+    def name(self) -> str:
+        return "Bash"
+
+    @property
+    def description(self) -> str:
+        return "expects timeout"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {"timeout": {"type": "number"}}}
+
+    def execute(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"stdout": "done"}
 
 
 @pytest.fixture()
@@ -143,3 +184,63 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
     assert isinstance(result, ToolOutput)
     assert result.status == "error"
     assert result.error and "missing" in result.error.lower()
+
+
+def test_truncates_long_tool_output_and_records_store():
+    registry = ToolRegistry()
+    registry.register(_LongOutputTool(), key="long")
+    node = ToolExecutionBatchNode(registry)
+    messages: list[str] = []
+    store = ToolOutputStore(max_entries=5)
+    shared = {
+        "tool_plan": {"tool_calls": [{"key": "long", "arguments": {}}]},
+        "output_callback": messages.append,
+        "tool_output_store": store,
+    }
+
+    node._run(shared)
+
+    tool_messages = [msg for msg in messages if msg.startswith("[tool]")]
+    preview_messages = [msg for msg in messages if msg.startswith("[tool-output]")]
+
+    assert tool_messages, "Expected a tool status message"
+    assert preview_messages, "Expected a preview message for long output"
+    assert "... (truncated; use :show" in preview_messages[-1]
+
+    entry = store.latest(truncated_only=True)
+    assert entry is not None
+    assert entry.truncated is True
+    assert entry.call_id
+    assert entry.output.count("line") >= 200
+    assert len(preview_messages[-1]) < len(entry.output)
+
+
+def test_default_timeout_applies_to_bash_when_missing_argument():
+    registry = ToolRegistry()
+    bash_tool = _TimeoutAwareTool()
+    registry.register(bash_tool, key="bash")
+    node = ToolExecutionBatchNode(registry, default_timeout_seconds=42)
+    shared = {
+        "tool_plan": {"tool_calls": [{"key": "bash", "arguments": {"command": "echo ok"}}]},
+    }
+
+    node._run(shared)
+
+    assert bash_tool.calls, "expected the tool to be invoked"
+    call_kwargs = bash_tool.calls[0]
+    assert call_kwargs.get("timeout") == 42000
+
+
+def test_existing_timeout_is_preserved():
+    registry = ToolRegistry()
+    bash_tool = _TimeoutAwareTool()
+    registry.register(bash_tool, key="bash")
+    node = ToolExecutionBatchNode(registry, default_timeout_seconds=99)
+    shared = {
+        "tool_plan": {"tool_calls": [{"key": "bash", "arguments": {"command": "echo ok", "timeout": 10}}]},
+    }
+
+    node._run(shared)
+
+    call_kwargs = bash_tool.calls[0]
+    assert call_kwargs.get("timeout") == 10

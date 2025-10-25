@@ -12,6 +12,7 @@ _RICH_STYLE_MAP = {
     "planner": "white",
     "plan": "green",
     "tool": "green",
+    "tool-output": "dim",
     "user": "bold white",
     "system": "magenta",
     "warning": "yellow",
@@ -87,6 +88,12 @@ def create_rich_output(
             bullet_style = "green" if status.lower() == "success" else "red"
             header_style = "bold green" if status.lower() == "success" else "bold red"
             _render_bullet(active_console, header, metadata, bullet_style, header_style)
+            return
+
+        if normalized_tag == "tool-output":
+            style = _RICH_STYLE_MAP.get(normalized_tag, "dim")
+            active_console.print(Text(body, style=style))
+            active_console.print()
             return
 
         style = _RICH_STYLE_MAP.get(normalized_tag, "white")

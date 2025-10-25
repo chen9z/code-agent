@@ -123,12 +123,14 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             }
 
         formatted = self._indexer.format_hits(hits)
+        results = formatted.get("results", [])
         return {
             "status": "success",
             "query": query,
             "project_root": str(root),
             "project_name": index.project_name,
-            "count": len(formatted["results"]),
+            "results": results,
+            "count": len(results),
             "result": formatted["summary"] or "[no semantic matches]",
             "index": self._indexer.index_metadata(index),
             "target_directories": list(target_directories or []),

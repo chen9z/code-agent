@@ -33,6 +33,7 @@ export LLM_API_BASE=https://api.deepseek.com
 export OPENAI_API_KEY=sk-...            # compatibility fallback
 export OPENAI_API_BASE=https://api.openai.com/v1
 export CHAT_CODEBASE_PATH=/path/to/chat-codebase  # optional deep integration
+export CLI_TOOL_TIMEOUT_SECONDS=120     # optional: override default tool timeout in seconds
 ```
 
 ## Python API
@@ -60,11 +61,13 @@ Launch the code agent from the terminal and interact conversationally:
 uv run python main.py                  # starts the agent in the current directory
 uv run python main.py -w /path/to/repo  # target a different workspace
 uv run python main.py -p "List TODOs"   # run a single prompt then exit
+uv run python main.py --tool-timeout 180  # allow tools up to 3 minutes by default
 ```
 
 Type your prompts when the CLI shows `You: ` and enter `exit` (or `quit`) to finish. The agent streams planning thoughts, tool activity, and final answers inline.
 
 Notes (concise): the agent uses native tool-calling; if multiple tools are planned in a turn they execute in parallel, and outputs are shown in the original plan order.
+Long Bash/Glob logs are truncated for readability. When the CLI displays `preview truncated` you can reveal the full content with `:show <tool_call_id>` (or `:show last` / `:show last-truncated`).
 
 ## Development
 

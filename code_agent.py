@@ -23,6 +23,7 @@ from core.prompt import (
     _SUMMARY_INSTRUCTIONS,
     compose_system_prompt,
 )
+from core.tool_output_store import ToolOutputStore
 from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
 from tools.registry import ToolRegistry, create_default_registry
 
@@ -434,10 +435,16 @@ class ToolAgentFlow(Flow):
         *,
         max_iterations: int = 25,
         system_prompt: Optional[str] = None,
+        default_tool_timeout: Optional[float] = None,
     ) -> None:
+        cfg = get_config()
         if model is None:
-            cfg = get_config()
             model = cfg.llm.model
+        resolved_timeout = (
+            float(default_tool_timeout)
+            if default_tool_timeout is not None and default_tool_timeout > 0
+            else float(cfg.cli.tool_timeout_seconds)
+        )
         self.registry = registry or create_default_registry()
         self.llm = llm_client or get_default_llm_client()
         self.model = model
@@ -447,7 +454,10 @@ class ToolAgentFlow(Flow):
         resolved_prompt = system_prompt or _BASE_SYSTEM_PROMPT
         self.context_node = ConversationContextNode(system_prompt=resolved_prompt)
         self.planning_node = ToolPlanningNode(self.registry, model=self.model, llm_client=self.llm)
-        self.execution_node = ToolExecutionBatchNode(self.registry)
+        self.execution_node = ToolExecutionBatchNode(
+            self.registry,
+            default_timeout_seconds=resolved_timeout,
+        )
         self.summary_node = SummaryNode(model=self.model, llm_client=self.llm, system_prompt=resolved_prompt)
 
         self.execution_node.max_iterations = self.max_iterations
@@ -489,6 +499,7 @@ def create_tool_agent_flow(
     *,
     max_iterations: int = 25,
     system_prompt: Optional[str] = None,
+    default_tool_timeout: Optional[float] = None,
 ) -> ToolAgentFlow:
     return ToolAgentFlow(
         registry=registry,
@@ -496,6 +507,7 @@ def create_tool_agent_flow(
         model=model,
         max_iterations=max_iterations,
         system_prompt=system_prompt,
+        default_tool_timeout=default_tool_timeout,
     )
 
 
@@ -511,6 +523,7 @@ def create_code_agent_flow(
     max_iterations: int = 25,
     system_prompt: Optional[str] = None,
     environment: Optional[Mapping[str, Any]] = None,
+    default_tool_timeout: Optional[float] = None,
 ) -> ToolAgentFlow:
     """Return a `ToolAgentFlow` instance with all default tools registered."""
 
@@ -528,6 +541,7 @@ def create_code_agent_flow(
         model=model,
         max_iterations=max_iterations,
         system_prompt=resolved_prompt,
+        default_tool_timeout=default_tool_timeout,
     )
     if max_parallel_workers < 1:
         raise ValueError("max_parallel_workers must be >= 1")
@@ -550,6 +564,7 @@ class CodeAgentSession:
         system_prompt: Optional[str] = None,
         environment: Optional[Mapping[str, Any]] = None,
         workspace: Optional[str | Path] = None,
+        tool_timeout_seconds: Optional[float] = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
         self.registry = registry or create_default_registry(project_root=self.workspace)
@@ -563,10 +578,17 @@ class CodeAgentSession:
             self.environment = {"cwd": str(self.workspace)}
         else:
             self.environment = None
+        cfg = get_config()
+        default_model = cfg.llm.model
+        config_timeout = float(cfg.cli.tool_timeout_seconds)
+        self.tool_timeout_seconds = (
+            float(tool_timeout_seconds)
+            if tool_timeout_seconds is not None and tool_timeout_seconds > 0
+            else config_timeout
+        )
         if flow_factory is not None:
             self._flow_factory = flow_factory
         else:
-            default_model = get_config().llm.model
             self._flow_factory = lambda: create_code_agent_flow(
                 registry=self.registry,
                 llm_client=self.llm_client,
@@ -575,8 +597,10 @@ class CodeAgentSession:
                 model=default_model,
                 system_prompt=self.system_prompt,
                 environment=self.environment,
+                default_tool_timeout=self.tool_timeout_seconds,
             )
         self.history: List[Dict[str, Any]] = []
+        self.tool_output_store = ToolOutputStore()
 
     def run_turn(
         self,
@@ -596,6 +620,8 @@ class CodeAgentSession:
         shared: Dict[str, Any] = {}
         if output_callback is not None:
             shared["output_callback"] = output_callback
+        shared["tool_output_store"] = self.tool_output_store
+        shared["tool_timeout_seconds"] = self.tool_timeout_seconds
         result = flow._run(shared)
         updated = result.get("history")
         if isinstance(updated, list):
@@ -608,6 +634,16 @@ class CodeAgentSession:
                 ]
             )
         return result
+
+    def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
+        if seconds is None:
+            return
+        if seconds <= 0:
+            return
+        self.tool_timeout_seconds = float(seconds)
+
+    def get_tool_output_store(self) -> ToolOutputStore:
+        return self.tool_output_store
 
     @staticmethod
     def _is_valid_message(raw: Any) -> bool:

@@ -52,3 +52,33 @@ def test_todo_write_validates_required_fields():
 
     assert "error" in result
     assert "activeForm" in result["error"]
+
+
+def test_todo_write_accepts_all_completed_snapshot():
+    tool = TodoWriteTool()
+    todos = [
+        {"content": "Wrap up work", "status": "completed", "activeForm": "Wrapping up"},
+        {"content": "Share summary", "status": "completed", "activeForm": "Summarizing"},
+    ]
+
+    result = tool.execute(todos=todos)
+
+    assert "error" not in result
+    assert result["counts"] == {
+        "pending": 0,
+        "in_progress": 0,
+        "completed": 2,
+    }
+
+
+def test_todo_write_rejects_zero_in_progress_with_pending_items():
+    tool = TodoWriteTool()
+    todos = [
+        {"content": "Plan work", "status": "pending", "activeForm": "Planning"},
+        {"content": "Consider ideas", "status": "completed", "activeForm": "Considering"},
+    ]
+
+    result = tool.execute(todos=todos)
+
+    assert "error" in result
+    assert "Exactly one todo" in result["error"]

@@ -116,18 +116,43 @@ class RAGConfig:
 
 
 @dataclass(slots=True)
+class CLIConfig:
+    tool_timeout_seconds: int = 60
+
+    @classmethod
+    def from_env(cls) -> "CLIConfig":
+        raw = os.getenv("CLI_TOOL_TIMEOUT_SECONDS") or os.getenv("CODE_AGENT_TOOL_TIMEOUT_SECONDS")
+        timeout = _to_int(raw, cls().tool_timeout_seconds)
+        if timeout <= 0:
+            timeout = cls().tool_timeout_seconds
+        return cls(tool_timeout_seconds=timeout)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"tool_timeout_seconds": self.tool_timeout_seconds}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CLIConfig":
+        value = data.get("tool_timeout_seconds") if isinstance(data, dict) else None
+        timeout = _to_int(str(value) if value is not None else None, cls().tool_timeout_seconds)
+        if timeout <= 0:
+            timeout = cls().tool_timeout_seconds
+        return cls(tool_timeout_seconds=timeout)
+
+@dataclass(slots=True)
 class AppConfig:
     rag: RAGConfig = field(default_factory=RAGConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    cli: CLIConfig = field(default_factory=CLIConfig)
 
     @classmethod
     def from_env(cls) -> "AppConfig":
-        return cls(rag=RAGConfig.from_env(), llm=LLMConfig.from_env())
+        return cls(rag=RAGConfig.from_env(), llm=LLMConfig.from_env(), cli=CLIConfig.from_env())
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "rag": self.rag.to_dict(),
             "llm": self.llm.to_dict(),
+            "cli": self.cli.to_dict(),
         }
 
     def dict(self) -> Dict[str, Any]:
@@ -137,9 +162,11 @@ class AppConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
         rag_data = data.get("rag", {})
         llm_data = data.get("llm", {})
+        cli_data = data.get("cli", {})
         return cls(
             rag=RAGConfig.from_dict(rag_data) if isinstance(rag_data, dict) else RAGConfig(),
             llm=LLMConfig.from_dict(llm_data) if isinstance(llm_data, dict) else LLMConfig(),
+            cli=CLIConfig.from_dict(cli_data) if isinstance(cli_data, dict) else CLIConfig(),
         )
 
 
@@ -164,3 +191,7 @@ def get_rag_config() -> RAGConfig:
 
 def config_as_dict() -> Dict[str, Any]:
     return get_config().to_dict()
+
+
+def get_cli_config() -> CLIConfig:
+    return get_config().cli

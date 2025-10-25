@@ -48,6 +48,7 @@ def test_config_default_values():
     assert config.llm.max_tokens == 2000
     # RAG defaults
     assert config.rag.chunk_size == 200
+    assert config.cli.tool_timeout_seconds == 60
 
 
 def test_environment_variable_override():
@@ -59,16 +60,18 @@ def test_environment_variable_override():
         'LLM_MODEL': 'custom-model',
         'LLM_TEMPERATURE': '0.5',
         'RAG_CHUNK_SIZE': '123',
+        'CLI_TOOL_TIMEOUT_SECONDS': '75',
     }):
         # Reload config to pick up environment variables
         config = reload_config()
-        
+
         # Check that environment variables override defaults
         assert config.rag.embedding_model == "custom-embedding"
         assert config.rag.rerank_model == "custom-reranker"
         assert config.llm.model == "custom-model"
         assert config.llm.temperature == 0.5
         assert config.rag.chunk_size == 123
+        assert config.cli.tool_timeout_seconds == 75
 
 
 def test_config_validation():
@@ -93,7 +96,8 @@ def test_config_reload():
     # Change environment and reload
     with patch.dict(os.environ, {
         'RAG_EMBEDDING_MODEL': 'reloaded-embedding',
-        'RAG_CHUNK_SIZE': '321'
+        'RAG_CHUNK_SIZE': '321',
+        'CLI_TOOL_TIMEOUT_SECONDS': '120',
     }):
         config2 = reload_config()
 
@@ -104,6 +108,7 @@ def test_config_reload():
         # But values should be updated
         assert config2.rag.embedding_model == "reloaded-embedding"
         assert config2.rag.chunk_size == 321
+        assert config2.cli.tool_timeout_seconds == 120
 
     # Clean up environment and restore original config
     reload_config()
@@ -137,6 +142,7 @@ def test_config_serialization():
     recreated = AppConfig.from_dict(config_dict)
     assert recreated.rag.embedding_model == config.rag.embedding_model
     assert recreated.llm.model == config.llm.model
+    assert recreated.cli.tool_timeout_seconds == config.cli.tool_timeout_seconds
 
 
 if __name__ == "__main__":

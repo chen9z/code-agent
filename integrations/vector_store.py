@@ -3,6 +3,7 @@ from __future__ import annotations
 """Utilities for persisting parsed symbols into a local Qdrant vector store."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from qdrant_client import QdrantClient
@@ -33,12 +34,21 @@ class QdrantPoint:
     payload: Mapping[str, Any]
 
 
+_CLIENT_CACHE: Dict[str, QdrantClient] = {}
+
+
 class LocalQdrantStore:
     """Thin wrapper around the Qdrant client for symbol indexing."""
 
     def __init__(self, config: Optional[QdrantConfig] = None) -> None:
         self.config = config or QdrantConfig()
-        self.client = QdrantClient(path=self.config.path)
+        cache_key = str(Path(self.config.path).resolve())
+        if cache_key in _CLIENT_CACHE:
+            self.client = _CLIENT_CACHE[cache_key]
+        else:
+            client = QdrantClient(path=self.config.path)
+            _CLIENT_CACHE[cache_key] = client
+            self.client = client
         self._vector_size: Optional[int] = self.config.vector_size
         if self._vector_size is not None:
             self._ensure_collection(self._vector_size)
