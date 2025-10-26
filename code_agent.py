@@ -14,7 +14,8 @@ from cli.code_agent_cli import (
     run_code_agent_cli as _run_code_agent_cli,
     run_code_agent_once as _run_code_agent_once,
 )
-from cli.rich_output import create_rich_output, preview_payload as _preview_payload, stringify_payload as _stringify_payload
+from cli.rich_output import create_rich_output, preview_payload as _preview_payload, \
+    stringify_payload as _stringify_payload
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 from core.prompt import (
@@ -32,19 +33,16 @@ if TYPE_CHECKING:
 
 
 def build_code_agent_system_prompt(
-    *,
-    base_prompt: str = _BASE_SYSTEM_PROMPT,
-    extra_sections: Optional[Sequence[str]] = None,
-    environment: Optional[Mapping[str, Any]] = None,
-    include_security_prompt: bool = True,
+        *,
+        base_prompt: str = _BASE_SYSTEM_PROMPT,
+        environment: Optional[Mapping[str, Any]] = None,
+        include_security_prompt: bool = True,
 ) -> str:
     """Compose the system prompt using the shared helper."""
 
     sections: List[str] = []
     if include_security_prompt:
         sections.append(SECURITY_SYSTEM_PROMPT)
-    if extra_sections:
-        sections.extend(extra_sections)
     return compose_system_prompt(base_prompt, extra_sections=sections, environment=environment)
 
 
@@ -129,7 +127,7 @@ class ToolPlanningNode(Node):
         assistant_message: Dict[str, Any] = {
             "role": "assistant",
             "content": exec_res.get("thoughts")
-            or f"Tool plan: {json.dumps(exec_res.get('tool_calls', []), ensure_ascii=False)}",
+                       or f"Tool plan: {json.dumps(exec_res.get('tool_calls', []), ensure_ascii=False)}",
         }
 
         tool_calls = exec_res.get("tool_calls") or []
@@ -321,9 +319,9 @@ class SummaryNode(Node):
 
         plan_final = plan.get("final_response")
         summary_prompt = (
-            f"{_SUMMARY_INSTRUCTIONS}\n\n"
-            f"Latest user request:\n{self._latest_user_content(history)}\n\n"
-            f"Tool outcomes:\n- " + "\n- ".join(results_summary_lines)
+                f"{_SUMMARY_INSTRUCTIONS}\n\n"
+                f"Latest user request:\n{self._latest_user_content(history)}\n\n"
+                f"Tool outcomes:\n- " + "\n- ".join(results_summary_lines)
         )
         if plan_final:
             summary_prompt += f"\n\nPlanner suggestion:\n{plan_final}"
@@ -347,7 +345,8 @@ class SummaryNode(Node):
         return "(no direct user input captured)"
 
     @staticmethod
-    def _trim_history(history: List[Dict[str, Any]], *, max_chars: int = 6000, max_messages: int = 12) -> List[Dict[str, Any]]:
+    def _trim_history(history: List[Dict[str, Any]], *, max_chars: int = 6000, max_messages: int = 12) -> List[
+        Dict[str, Any]]:
         trimmed: List[Dict[str, Any]] = []
         remaining_chars = max_chars
         for message in reversed(history):
@@ -362,7 +361,7 @@ class SummaryNode(Node):
 
     @staticmethod
     def _ensure_history_coherence(
-        full_history: List[Dict[str, Any]], trimmed: List[Dict[str, Any]]
+            full_history: List[Dict[str, Any]], trimmed: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         coherent = list(trimmed)
 
@@ -428,14 +427,14 @@ class ToolAgentFlow(Flow):
     """End-to-end agent flow orchestrating tool planning, execution, and summarisation."""
 
     def __init__(
-        self,
-        registry: Optional[ToolRegistry] = None,
-        llm_client=None,
-        model: Optional[str] = None,
-        *,
-        max_iterations: int = 25,
-        system_prompt: Optional[str] = None,
-        default_tool_timeout: Optional[float] = None,
+            self,
+            registry: Optional[ToolRegistry] = None,
+            llm_client=None,
+            model: Optional[str] = None,
+            *,
+            max_iterations: int = 25,
+            system_prompt: Optional[str] = None,
+            default_tool_timeout: Optional[float] = None,
     ) -> None:
         cfg = get_config()
         if model is None:
@@ -493,13 +492,13 @@ class ToolAgentFlow(Flow):
 
 
 def create_tool_agent_flow(
-    registry: Optional[ToolRegistry] = None,
-    llm_client=None,
-    model: Optional[str] = None,
-    *,
-    max_iterations: int = 25,
-    system_prompt: Optional[str] = None,
-    default_tool_timeout: Optional[float] = None,
+        registry: Optional[ToolRegistry] = None,
+        llm_client=None,
+        model: Optional[str] = None,
+        *,
+        max_iterations: int = 25,
+        system_prompt: Optional[str] = None,
+        default_tool_timeout: Optional[float] = None,
 ) -> ToolAgentFlow:
     return ToolAgentFlow(
         registry=registry,
@@ -515,15 +514,14 @@ FlowFactory = Callable[[], ToolAgentFlow]
 
 
 def create_code_agent_flow(
-    *,
-    registry: Optional[ToolRegistry] = None,
-    llm_client: Any = None,
-    max_parallel_workers: int = 4,
-    model: Optional[str] = None,
-    max_iterations: int = 25,
-    system_prompt: Optional[str] = None,
-    environment: Optional[Mapping[str, Any]] = None,
-    default_tool_timeout: Optional[float] = None,
+        *,
+        registry: Optional[ToolRegistry] = None,
+        llm_client: Any = None,
+        model: Optional[str] = None,
+        max_iterations: int = 25,
+        system_prompt: Optional[str] = None,
+        environment: Optional[Mapping[str, Any]] = None,
+        default_tool_timeout: Optional[float] = None,
 ) -> ToolAgentFlow:
     """Return a `ToolAgentFlow` instance with all default tools registered."""
 
@@ -531,7 +529,6 @@ def create_code_agent_flow(
     if resolved_prompt is None:
         resolved_prompt = build_code_agent_system_prompt(
             base_prompt=_BASE_SYSTEM_PROMPT,
-            extra_sections=None,
             environment=environment,
         )
 
@@ -543,10 +540,6 @@ def create_code_agent_flow(
         system_prompt=resolved_prompt,
         default_tool_timeout=default_tool_timeout,
     )
-    if max_parallel_workers < 1:
-        raise ValueError("max_parallel_workers must be >= 1")
-    if hasattr(flow, "execution_node") and hasattr(flow.execution_node, "max_parallel_workers"):
-        flow.execution_node.max_parallel_workers = max_parallel_workers
     return flow
 
 
@@ -554,22 +547,19 @@ class CodeAgentSession:
     """In-memory conversation session for the Code Agent CLI."""
 
     def __init__(
-        self,
-        *,
-        registry: Optional[ToolRegistry] = None,
-        llm_client: Any = None,
-        max_parallel_workers: int = 4,
-        max_iterations: int = 25,
-        flow_factory: Optional[FlowFactory] = None,
-        system_prompt: Optional[str] = None,
-        environment: Optional[Mapping[str, Any]] = None,
-        workspace: Optional[str | Path] = None,
-        tool_timeout_seconds: Optional[float] = None,
+            self,
+            *,
+            registry: Optional[ToolRegistry] = None,
+            llm_client: Any = None,
+            max_iterations: int = 25,
+            flow_factory: Optional[FlowFactory] = None,
+            system_prompt: Optional[str] = None,
+            environment: Optional[Mapping[str, Any]] = None,
+            workspace: Optional[str | Path] = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
         self.registry = registry or create_default_registry(project_root=self.workspace)
         self.llm_client = llm_client
-        self.max_parallel_workers = max_parallel_workers
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
         self.system_prompt = system_prompt
         if environment is not None:
@@ -580,19 +570,13 @@ class CodeAgentSession:
             self.environment = None
         cfg = get_config()
         default_model = cfg.llm.model
-        config_timeout = float(cfg.cli.tool_timeout_seconds)
-        self.tool_timeout_seconds = (
-            float(tool_timeout_seconds)
-            if tool_timeout_seconds is not None and tool_timeout_seconds > 0
-            else config_timeout
-        )
+        self.tool_timeout_seconds = float(cfg.cli.tool_timeout_seconds)
         if flow_factory is not None:
             self._flow_factory = flow_factory
         else:
             self._flow_factory = lambda: create_code_agent_flow(
                 registry=self.registry,
                 llm_client=self.llm_client,
-                max_parallel_workers=self.max_parallel_workers,
                 max_iterations=self.max_iterations,
                 model=default_model,
                 system_prompt=self.system_prompt,
@@ -603,10 +587,10 @@ class CodeAgentSession:
         self.tool_output_store = ToolOutputStore()
 
     def run_turn(
-        self,
-        user_input: str,
-        *,
-        output_callback: Optional[Callable[[str], None]] = None,
+            self,
+            user_input: str,
+            *,
+            output_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
@@ -664,12 +648,12 @@ class CodeAgentSession:
 
 
 def run_code_agent_cli(
-    *,
-    session: Optional["CodeAgentSession"] = None,
-    session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
-    input_iter: Optional[Iterable[str]] = None,
-    output_callback: Optional[Callable[[str], None]] = None,
-    console: Optional["Console"] = None,
+        *,
+        session: Optional["CodeAgentSession"] = None,
+        session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
+        input_iter: Optional[Iterable[str]] = None,
+        output_callback: Optional[Callable[[str], None]] = None,
+        console: Optional["Console"] = None,
 ) -> int:
     factory = session_factory or (lambda: CodeAgentSession())
     return _run_code_agent_cli(
@@ -682,12 +666,12 @@ def run_code_agent_cli(
 
 
 def run_code_agent_once(
-    prompt: str,
-    *,
-    session: Optional["CodeAgentSession"] = None,
-    session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
-    output_callback: Optional[Callable[[str], None]] = None,
-    console: Optional["Console"] = None,
+        prompt: str,
+        *,
+        session: Optional["CodeAgentSession"] = None,
+        session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
+        output_callback: Optional[Callable[[str], None]] = None,
+        console: Optional["Console"] = None,
 ) -> Dict[str, Any]:
     factory = session_factory or (lambda: CodeAgentSession())
     return _run_code_agent_once(

@@ -7,13 +7,13 @@ _BASE_SYSTEM_PROMPT = dedent(
     """
     You are Code Agent, an autonomous software assistant operating inside the user's current workspace. Stay within the provided project directory, avoid inspecting the filesystem root, and prefer targeted searches over broad scans. Maintain the conversation history, minimise redundant tool calls, and when finished produce a concise natural language answer that cites the evidence you gathered.
     """
-).strip()
+)
 
 _SUMMARY_INSTRUCTIONS = dedent(
     """
     Provide the final answer to the user using the available context. Reference tool results when they exist and be explicit about any limitations.
     """
-).strip()
+)
 
 SECURITY_SYSTEM_PROMPT = dedent(
     """
@@ -165,7 +165,7 @@ SECURITY_SYSTEM_PROMPT = dedent(
     assistant: Clients are marked as failed in the `connectToServer` function in src/services/process.ts:712.
     </example>
     """
-).strip()
+)
 
 
 def compose_system_prompt(

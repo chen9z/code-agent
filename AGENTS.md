@@ -1,56 +1,31 @@
-<!-- OPENSPEC:START -->
-# OpenSpec Instructions
-
-These instructions are for AI assistants working in this project.
-
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
-<!-- OPENSPEC:END -->
-
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Runtime primitives now live in the project root `__init__.py`; import flows directly from `__init__` to keep dependencies predictable.
-- Top-level agent modules (e.g., `code_rag.py`, `code_agent.py`) provide ready-to-run flows; document their entrypoints within each module.
-- `integrations/`: Connectors for repos, embeddings, and other backends (e.g., `integrations/repository.py`); rely on dependency injection from flows.
-- `configs/`: Environment-driven settings managed through `configs/manager.py`; read via the provided helpers instead of `os.environ` directly.
-- Supporting directories: `clients/` & `tools/` host LLM adapters and reusable tool abstractions, `nodes/` contains reusable flow nodes, while `tests/` mirrors this tree for pytest coverage.
+- Core orchestrators — `code_agent.py`, `codebase_retrieval.py`, `main.py` — assemble flows from shared logic in `core/`, `nodes/`, and `tools/`.
+- CLI entry points stay in `cli/`; client adapters and config helpers live in `clients/`, `integrations/`, and `configs/`.
+- Benchmarks and transcripts belong in `benchmarks/`; user-facing docs reside in `docs/`. Tests mirror runtime modules inside `tests/`, while gitignored embeddings land in `storage/`.
 
 ## Build, Test, and Development Commands
-- `uv venv && source .venv/bin/activate`: create and enter the project virtualenv.
-- `uv sync` or `uv pip install -e '.[test]'`: install editable dependencies plus test extras.
-- `uv run pytest`: execute the full automated test suite.
-- `uv run pytest tests/test_rag.py::test_rag_flow -q`: target the primary RAG flow regression test.
-- `uv run python main.py`: launch the CLI demo from the configured workspace.
+- `uv sync` — install dependencies; rerun after editing `pyproject.toml` or `uv.lock`.
+- `uv run python main.py` — launch the interactive agent. Add `-w <repo>` to target another workspace or `-p "List TODOs"` for a one-off prompt.
+- `uv run pytest` — execute the suite; focus with `uv run pytest tests/test_tool_agent_flow.py -q`.
+- `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json` — regenerate embedding performance reports under `benchmarks/results/`.
 
 ## Coding Style & Naming Conventions
-- Python 3.11+, 4-space indentation, and PEP 8 naming (`snake_case` functions/modules, `PascalCase` classes).
-- Keep node/flow units short and composable; prefer constructor injection for integrations to ease testing.
-- Limit comments to non-obvious orchestration; rely on descriptive function names instead of inline narration.
+- Python 3.11+, four-space indentation, type annotations by default, and double-quoted strings unless another delimiter reduces escaping.
+- Keep functions focused; move shared operations into `nodes/` or `tools/`. Prefer descriptive flow/node names (`SemanticCodeIndexer`, `ToolPlanningNode`), and align new test modules with their targets.
 
 ## Testing Guidelines
-- Pytest is the default harness; tests reside under `tests/` with `test_*.py` modules mirroring runtime packages.
-- Add focused unit tests for nodes, tools, and integrations; stub external services with fixtures under `tests/fixtures/` when needed.
-- Run `uv run pytest --maxfail=1 -q` before submitting to surface fast failures locally.
+- Provide pytest coverage for every behavior change; share fixtures through `tests/conftest.py`.
+- Combine scenario tests (CLI, planner) with narrow unit checks when touching runtime logic (see `tests/test_cli_output.py`).
+- Run `uv run pytest --cov=core --cov=nodes --cov=tools` before submitting; treat coverage drops as blockers.
 
 ## Commit & Pull Request Guidelines
-- Write commits in imperative tense with scoped prefixes (e.g., `Add: register new retriever`).
-- PRs must include a summary, rationale, linked issue when applicable, and a `Test Plan` enumerating commands executed; attach logs or screenshots for UX or CLI output changes.
+- Use `<Verb>: <summary>` commit headers consistent with history (`Refactor: simplify codebase retrieval helpers`). Expand body text only when rationale or rollout steps need clarification.
+- PRs must outline scope, manual verification, and linked issues. Attach transcripts or screenshots if CLI UX changes.
+- Update `README.md` or `docs/` for user-facing shifts and surface configuration updates explicitly.
 
 ## Security & Configuration Tips
-- Read secrets via environment variables such as `OPENAI_API_KEY`, `LLM_*`, and `RAG_*`; never hardcode credentials.
-- Keep local vector artifacts under `storage/` (gitignored) and exclude large binaries from commits.
-
-## Agent-Specific Instructions
-- Compose new agents by wiring reusable nodes within `Flow`; extend existing patterns in `code_rag.py` for reference.
-- Document each agent’s entrypoints in its module docstring and provide factory helpers for reuse.
+- Inject secrets through environment variables consumed by `configs/manager.py`; never commit `.env` files.
+- Clear `storage/` before sharing reproductions and document migrations when embedding schemas change.
+- Document new external tool requirements (scopes, rate limits) in `docs/` and expose toggle flags in configuration.
