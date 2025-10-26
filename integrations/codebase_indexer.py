@@ -191,7 +191,17 @@ class SemanticCodeIndexer:
         self._indices: Dict[str, CodebaseIndex] = {}
         self._lock = threading.Lock()
 
-    def ensure_index(self, project_root: Path | str, *, refresh: bool = False) -> CodebaseIndex:
+    @property
+    def chunk_size(self) -> int:
+        return self._chunk_size
+
+    def ensure_index(
+        self,
+        project_root: Path | str,
+        *,
+        refresh: bool = False,
+        show_progress: bool = False,
+    ) -> CodebaseIndex:
         root = Path(project_root).expanduser().resolve()
         key = str(root)
         with self._lock:
@@ -200,7 +210,7 @@ class SemanticCodeIndexer:
             collection_missing = not self._store.collection_exists(root.name)
             if not refresh and cached is not None and not collection_missing:
                 return cached
-            index = self._build_index(root)
+            index = self._build_index(root, show_progress=show_progress)
             self._indices[key] = index
             return index
 
@@ -308,7 +318,7 @@ class SemanticCodeIndexer:
             "build_time_seconds": round(index.build_time_seconds, 3),
         }
 
-    def _build_index(self, root: Path) -> CodebaseIndex:
+    def _build_index(self, root: Path, *, show_progress: bool = False) -> CodebaseIndex:
         start = time.perf_counter()
         project_key = _project_identifier(root)
         self._store.use_collection(root.name)
@@ -322,6 +332,7 @@ class SemanticCodeIndexer:
             parser.close()
 
         covered_paths: set[str] = set()
+        reported_paths: set[str] = set()
         items: List[PendingEmbeddingItem] = []
         for symbol in symbols:
             if symbol.kind is not TagKind.DEF:
@@ -341,6 +352,13 @@ class SemanticCodeIndexer:
                 symbol=symbol.metadata.get("identifier") or symbol.name,
                 snippet=snippet_text,
             )
+            if show_progress and symbol.absolute_path not in reported_paths:
+                try:
+                    rel = Path(symbol.absolute_path).relative_to(root).as_posix()
+                except ValueError:
+                    rel = symbol.relative_path
+                print(f"Indexing {rel}")
+                reported_paths.add(symbol.absolute_path)
             covered_paths.add(symbol.absolute_path)
             file_paths.add(symbol.absolute_path)
             entries.append(self._entry_from_item(item, None))
@@ -355,6 +373,10 @@ class SemanticCodeIndexer:
                 chunks = chunk_code_file(file_path, chunk_size=self._chunk_size)
             except Exception:
                 continue
+
+            if show_progress and absolute not in reported_paths:
+                print(f"Indexing {relative_path}")
+                reported_paths.add(absolute)
 
             for chunk in chunks:
                 snippet_text = chunk.content.rstrip("\n")

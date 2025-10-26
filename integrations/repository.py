@@ -35,20 +35,22 @@ class RepositoryAdapter:
         )
         self._project_paths: Dict[str, Path] = {}
 
-    def index_project(self, project_path: str) -> Dict[str, int | str]:
+    def index_project(self, project_path: str, *, show_progress: bool = False) -> Dict[str, int | str]:
         root = Path(project_path).expanduser().resolve()
         if not root.exists():
             raise FileNotFoundError(f"Project directory not found: {root}")
         if not root.is_dir():
             raise ValueError(f"Path is not a directory: {root}")
 
-        index = self._indexer.ensure_index(root, refresh=True)
+        index = self._indexer.ensure_index(root, refresh=True, show_progress=show_progress)
         self._project_paths[index.project_name] = root
         _PROJECT_ROOTS[index.project_name] = root
         return {
             "project_name": index.project_name,
             "project_path": str(root),
-            "total_chunks": index.chunk_count,
+            "chunk_count": index.chunk_count,
+            "file_count": index.file_count,
+            "chunk_size": self._indexer.chunk_size,
         }
 
     def search(

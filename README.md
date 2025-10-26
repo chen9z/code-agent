@@ -5,7 +5,7 @@ Composable agent runtime focused on code understanding. Index repositories, run 
 ## Project Layout
 
 - Flow/node runtime primitives exported directly via top-level `__init__`.
-- Agent modules (e.g., `code_rag.py`, `code_agent.py`) built from reusable nodes and tools.
+- Agent modules (e.g., `codebase_retrieval.py`, `code_agent.py`) built from reusable nodes and tools.
 - `integrations/` – adapters for repositories, vector stores, external bridges.
 - `configs/` – environment-driven configuration helpers.
 - `clients/` / `tools/` – LLM clients and tool abstractions.
@@ -38,20 +38,24 @@ export CLI_TOOL_TIMEOUT_SECONDS=120     # optional: override default tool timeou
 
 ## Python API
 
-Minimal Code-RAG examples:
-
 ```python
-from code_rag import run_rag_workflow
+from codebase_retrieval import index_project, search_project
 
-# Index
-run_rag_workflow(action="index", project_path="/path/to/project")
+# Index a repository
+index_result = index_project("/path/to/project")
 
-# Search
-res = run_rag_workflow(action="search", project_name="project", query="function definition", limit=5)
+# Search for relevant code chunks
+search_result = search_project(index_result["project_name"], "function definition", limit=5)
 
-# Query
-res = run_rag_workflow(action="query", project_name="project", question="How does it work?", limit=5)
+# Inspect summary metadata returned by indexing (e.g., chunk counts)
+print(index_result["chunk_count"], index_result["chunk_size"])
 ```
+
+### Chunking & Retrieval Flow
+- Files are tokenized by `SemanticCodeIndexer` and split into ~`chunk_size` lines (default 200) with symbol-aware boundaries provided by Tree-sitter.
+- Each chunk is embedded via the configured model and stored in a local Qdrant collection keyed by project name under `storage/`.
+- Index responses now surface `chunk_count`, `file_count`, and `chunk_size` so you can verify coverage and tune chunking upfront.
+- Search embeds the query once, filters hits by optional directory patterns, and returns scored chunks with file paths and line spans for downstream tooling.
 
 ## Agent CLI
 
@@ -72,7 +76,7 @@ Long Bash/Glob logs are truncated for readability. When the CLI displays `previe
 ## Development
 
 - Run tests: `uv run pytest`
-- Focused flow test: `uv run pytest tests/test_rag.py::test_rag_flow -q`
+- Focused retrieval test: `uv run pytest tests/test_codebase_retrieval.py -q`
 - Agent CLI smoke test: `uv run python main.py`
 - Benchmark scenarios: `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json --transcript-dir benchmarks/logs --output benchmarks/results/latest.json`
 

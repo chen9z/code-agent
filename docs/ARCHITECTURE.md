@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, exposed via the package `__init__`, remains unchanged; higher-level features (RAG, cursor-like agent, PR reviewer) are assembled from nodes and tools.
+This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, exposed via the package `__init__`, remains available for other agents; however `codebase_retrieval.py` now exposes direct helper functions without wrapping them in Flow/Node abstractions.
 
 ## Layers
 - flow runtime: Flow/Node execution, retries, routing. No changes for now.
@@ -12,7 +12,7 @@ This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, e
 - ui: CLI/TUI entrypoints and HTTP adapters.
 
 ## Module Responsibilities
-- code_rag.py: RAG index/search/query flows reusing `integrations.repository` and LLM clients via nodes.
+- codebase_retrieval.py: Lightweight helpers for indexing and searching codebases using `integrations.repository` (no Flow/Node orchestration or LLM calls).
 - integrations/repository.py: `ChatRepository` implements local indexing (line-chunked) and simple search scoring; bridges to external chat-codebase when available via `CHAT_CODEBASE_PATH`.
 - clients/llm.py (planned): Unified LLM client (litellm), streaming, caching; `model.py` to be replaced gradually.
 
@@ -21,11 +21,11 @@ This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, e
 - Document model: `{path, content, chunk_id, start_line, end_line, score}`. Chunks are non-overlapping and max ~RAG_CHUNK_SIZE lines (default 200).
 
 ## Usage
-- Programmatic API: `code_rag.run_rag_workflow(action=...)`.
+- Programmatic API: direct helpers `index_project`, `search_project`.
 
 ## Extensibility Guidelines
-- New nodes extend `Node`; keep side effects isolated and parameters explicit.
-- Compose flows from small nodes; avoid global state.
+- New nodes extend `Node`; keep side effects isolated and parameters explicit. (Not required for `codebase_retrieval`, which now uses direct helpers.)
+- Compose flows from small nodes; avoid global state when using the Flow runtime.
 - Config is read via `configs.manager.get_config()`; avoid direct `os.environ` in nodes.
 
 ## Roadmap (excerpt)

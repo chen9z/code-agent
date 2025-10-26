@@ -46,7 +46,7 @@ test = [
 ]
 
 #[project.scripts]
-# No CLI entrypoints for now; use Python API via code_rag.
+# No CLI entrypoints for now; use Python API via codebase_retrieval.
 
 [tool.uv]
 dev-dependencies = ["pytest>=8.4.2", "pytest-cov>=5.0.0"]
@@ -58,7 +58,7 @@ include = [
     "main.py",
     "model.py",
     "code_agent.py",
-    "code_rag.py",
+    "codebase_retrieval.py",
     "configs/*.py",
     "tools/*.py",
     "integrations/tree_sitter/*.py",
@@ -77,7 +77,7 @@ include = [
     "main.py",
     "model.py",
     "code_agent.py",
-    "code_rag.py",
+    "codebase_retrieval.py",
     "clients/**",
     "configs/**",
     "integrations/**",
