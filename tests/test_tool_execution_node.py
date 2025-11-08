@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 
-from core.tool_output_store import ToolOutputStore
 from nodes.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
@@ -178,11 +177,10 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
     assert result.error and "missing" in result.error.lower()
 
 
-def test_truncates_long_tool_output_and_records_store():
+def test_truncates_long_tool_output_and_emits_preview():
     registry = ToolRegistry()
     registry.register(_LongOutputTool(), key="long")
     messages: list[str] = []
-    store = ToolOutputStore(max_entries=5)
     runner = ToolExecutionRunner(registry)
     history: list[dict[str, Any]] = []
 
@@ -190,22 +188,15 @@ def test_truncates_long_tool_output_and_records_store():
         [{"key": "long", "arguments": {}}],
         history=history,
         output_callback=messages.append,
-        store=store,
     )
 
     tool_messages = [msg for msg in messages if msg.startswith("[tool]")]
     preview_messages = [msg for msg in messages if msg.startswith("[tool-output]")]
 
     assert tool_messages, "Expected a tool status message"
+    assert any("preview truncated" in msg for msg in tool_messages)
     assert preview_messages, "Expected a preview message for long output"
-    assert "... (truncated; use :show" in preview_messages[-1]
-
-    entry = store.latest(truncated_only=True)
-    assert entry is not None
-    assert entry.truncated is True
-    assert entry.call_id
-    assert entry.output.count("line") >= 200
-    assert len(preview_messages[-1]) < len(entry.output)
+    assert any("output truncated" in msg for msg in preview_messages)
 
 
 def test_default_timeout_applies_to_bash_when_missing_argument():

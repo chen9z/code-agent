@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
-from core.tool_output_store import ToolOutputStore
 from tools.registry import ToolRegistry, ToolSpec
 
 
@@ -118,7 +117,6 @@ class ToolExecutionRunner:
         *,
         history: List[Dict[str, Any]],
         output_callback: Optional[Callable[[str], None]] = None,
-        store: Optional[ToolOutputStore] = None,
         timeout_override: Optional[float] = None,
     ) -> List[ToolOutput]:
         if timeout_override is not None and timeout_override > 0:
@@ -130,7 +128,7 @@ class ToolExecutionRunner:
             return []
 
         results = self._run_parallel(calls)
-        self._record_results(results, history, output_callback, store)
+        self._record_results(results, history, output_callback)
         return results
 
     def _record_results(
@@ -138,7 +136,6 @@ class ToolExecutionRunner:
         results: List[ToolOutput],
         history: List[Dict[str, Any]],
         output_callback: Optional[Callable[[str], None]],
-        store: Optional[ToolOutputStore],
     ) -> None:
         for result in results:
             key = result.key
@@ -158,7 +155,7 @@ class ToolExecutionRunner:
 
             if not has_error and result.result is not None:
                 full_output_text = _stringify_tool_output(result.result.data)
-                console_preview, truncated_output = _build_console_preview(full_output_text, result.id)
+                console_preview, truncated_output = _build_console_preview(full_output_text)
                 if (is_bash_tool or is_glob_tool) and console_preview:
                     history_content = _build_history_preview(console_preview)
                 else:
@@ -187,19 +184,10 @@ class ToolExecutionRunner:
                 if arguments_preview:
                     message += f" | args: {arguments_preview}"
                 if truncated_output:
-                    message += f" | preview truncated; use :show {result.id}"
+                    message += " | preview truncated"
                 _emit(output_callback, f"[tool] {message}")
                 if console_preview:
                     _emit(output_callback, f"[tool-output] {console_preview}")
-                if store and full_output_text:
-                    store.record(
-                        call_id=result.id,
-                        label=label,
-                        status=result.status,
-                        arguments=result.inputs.arguments,
-                        output=full_output_text,
-                        truncated=truncated_output,
-                    )
             else:
                 error_preview_text, trunc_err = _truncate_text(
                     str(result.error or ""),
@@ -215,15 +203,6 @@ class ToolExecutionRunner:
                 _emit(output_callback, f"[tool] {message}")
                 if trunc_err:
                     _emit(output_callback, f"[tool-output] {error_preview_text}")
-                if store:
-                    store.record(
-                        call_id=result.id,
-                        label=label,
-                        status="error",
-                        arguments=result.inputs.arguments,
-                        output=str(result.error or ""),
-                        truncated=trunc_err,
-                    )
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
@@ -355,7 +334,7 @@ def _stringify_tool_output(data: Any) -> str:
     return _stringify_payload(data)
 
 
-def _build_console_preview(full_output: str, call_id: str) -> tuple[str, bool]:
+def _build_console_preview(full_output: str) -> tuple[str, bool]:
     preview, truncated = _truncate_text(
         full_output,
         max_chars=MAX_TOOL_PREVIEW_CHARS,
@@ -365,9 +344,9 @@ def _build_console_preview(full_output: str, call_id: str) -> tuple[str, bool]:
         return "", False
     if truncated:
         if preview:
-            preview = f"{preview}\n... (truncated; use :show {call_id})"
+            preview = f"{preview}\n... (output truncated)"
         else:
-            preview = f"... (truncated; use :show {call_id})"
+            preview = "... (output truncated)"
     return preview, truncated
 
 

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+"""Code Agent CLI utilities and executable entrypoint."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,7 +10,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, P
 
 from rich.console import Console
 
-from cli.rich_output import create_rich_output, stringify_payload
+from ui.rich_output import create_rich_output, stringify_payload
 
 
 class AgentSessionProtocol(Protocol):
@@ -26,50 +29,14 @@ def _handle_cli_command(
     output_callback: Callable[[str], None],
 ) -> bool:
     normalized = command.strip()
-    if normalized.startswith(":show"):
-        return _handle_show_command(normalized, session, output_callback)
     if normalized in {":help", ":?"}:
         _emit_help(output_callback)
         return True
     return False
 
 
-def _handle_show_command(
-    command: str,
-    session: AgentSessionProtocol,
-    output_callback: Callable[[str], None],
-) -> bool:
-    arg = command[5:].strip()
-    target = arg or "last-truncated"
-    store_getter = getattr(session, "get_tool_output_store", None)
-    if not callable(store_getter):
-        output_callback("[system] Tool output inspection is unavailable in this session.")
-        return True
-    store = store_getter()
-    if store is None:
-        output_callback("[system] Tool output inspection is unavailable in this session.")
-        return True
-    lowered = target.lower()
-    if lowered in {"last", "latest"}:
-        entry = store.latest(truncated_only=False)
-    elif lowered in {"last-truncated", "truncated"}:
-        entry = store.latest(truncated_only=True)
-    else:
-        entry = store.get(target)
-    if entry is None:
-        output_callback(f"[system] No stored tool output found for {target}.")
-        return True
-    header = f"Full output for {entry.label} ({entry.call_id}) | status: {entry.status}"
-    output_callback(f"[tool-output] {header}")
-    body = entry.output or "(empty output)"
-    output_callback(f"[tool-output] {body}")
-    return True
-
-
 def _emit_help(output_callback: Callable[[str], None]) -> None:
-    output_callback(
-        "[system] Commands: :show <call_id|last|last-truncated> to display stored tool output; :exit to quit."
-    )
+    output_callback("[system] Commands: :help to show this message; type exit to quit.")
 
 
 def run_code_agent_cli(
@@ -113,7 +80,7 @@ def run_code_agent_once(
     output_callback: Callable[[str], None],
     emit_result: Optional[Callable[[Mapping[str, Any], Callable[[str], None]], None]] = None,
 ) -> Dict[str, Any]:
-    """Execute a single Code Agent turn and emit the summarised result."""
+    """Execute a single Code Agent turn and emit the result."""
 
     active_session = _resolve_session(session, session_factory)
     result = active_session.run_turn(prompt, output_callback=output_callback)
@@ -232,6 +199,60 @@ def _create_cli_parser() -> argparse.ArgumentParser:
         help="Override the default tool timeout in seconds.",
     )
     return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Standalone CLI entrypoint so `python cli.py` just works."""
+
+    parser = argparse.ArgumentParser(description="Code Agent command-line interface")
+    parser.add_argument(
+        "-w",
+        "--workspace",
+        default=".",
+        help="Workspace path to operate in during the agent session.",
+    )
+    parser.add_argument(
+        "-p",
+        "--prompt",
+        nargs="+",
+        help="Prompt to run in a one-off non-interactive session.",
+    )
+    args = parser.parse_args(argv)
+
+    workspace = Path(args.workspace).expanduser().resolve()
+    if not workspace.exists():
+        raise FileNotFoundError(f"Workspace does not exist: {workspace}")
+    if not workspace.is_dir():
+        raise NotADirectoryError(f"Workspace is not a directory: {workspace}")
+
+    prompt = " ".join(args.prompt).strip() if args.prompt else ""
+
+    from code_agent import CodeAgentSession  # Local import to avoid circular dependency.
+
+    original_cwd = Path.cwd()
+    console = Console()
+    emitter = create_rich_output(console)
+    try:
+        os.chdir(workspace)
+        session = CodeAgentSession(max_iterations=100, workspace=workspace)
+        if prompt:
+            run_code_agent_once(
+                prompt,
+                session=session,
+                output_callback=emitter,
+            )
+            return 0
+        return run_code_agent_cli(
+            session=session,
+            output_callback=emitter,
+            console=console,
+        )
+    finally:
+        os.chdir(original_cwd)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 __all__ = [

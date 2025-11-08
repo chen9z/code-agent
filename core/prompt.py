@@ -9,12 +9,6 @@ _BASE_SYSTEM_PROMPT = dedent(
     """
 )
 
-_SUMMARY_INSTRUCTIONS = dedent(
-    """
-    Provide the final answer to the user using the available context. Reference tool results when they exist and be explicit about any limitations.
-    """
-)
-
 SECURITY_SYSTEM_PROMPT = dedent(
     """
     You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
@@ -203,7 +197,6 @@ def _normalize(value: str) -> str:
 
 __all__ = [
     "_BASE_SYSTEM_PROMPT",
-    "_SUMMARY_INSTRUCTIONS",
     "SECURITY_SYSTEM_PROMPT",
     "compose_system_prompt",
 ]

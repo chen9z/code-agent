@@ -152,7 +152,7 @@ class AppConfig:
         return {
             "rag": self.rag.to_dict(),
             "llm": self.llm.to_dict(),
-            "cli": self.cli.to_dict(),
+            "ui": self.cli.to_dict(),
         }
 
     def dict(self) -> Dict[str, Any]:
@@ -162,7 +162,7 @@ class AppConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
         rag_data = data.get("rag", {})
         llm_data = data.get("llm", {})
-        cli_data = data.get("cli", {})
+        cli_data = data.get("ui", {})
         return cls(
             rag=RAGConfig.from_dict(rag_data) if isinstance(rag_data, dict) else RAGConfig(),
             llm=LLMConfig.from_dict(llm_data) if isinstance(llm_data, dict) else LLMConfig(),

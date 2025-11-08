@@ -62,22 +62,22 @@ print(index_result["chunk_count"], index_result["chunk_size"])
 Launch the code agent from the terminal and interact conversationally:
 
 ```bash
-uv run python main.py                  # starts the agent in the current directory
-uv run python main.py -w /path/to/repo  # target a different workspace
-uv run python main.py -p "List TODOs"   # run a single prompt then exit
-uv run python main.py --tool-timeout 180  # allow tools up to 3 minutes by default
+uv run python cli.py                  # starts the agent in the current directory
+uv run python cli.py -w /path/to/repo  # target a different workspace
+uv run python cli.py -p "List TODOs"   # run a single prompt then exit
+uv run python cli.py --tool-timeout 180  # allow tools up to 3 minutes by default
 ```
 
 Type your prompts when the CLI shows `You: ` and enter `exit` (or `quit`) to finish. The agent streams planning thoughts, tool activity, and final answers inline.
 
 Notes (concise): the agent uses native tool-calling; if multiple tools are planned in a turn they execute in parallel, and outputs are shown in the original plan order.
-Long Bash/Glob logs are truncated for readability. When the CLI displays `preview truncated` you can reveal the full content with `:show <tool_call_id>` (or `:show last` / `:show last-truncated`).
+Long Bash/Glob logs are truncated for readability. When you see `preview truncated` or `... (output truncated)` the console has already shown as much as it will retain.
 
 ## Development
 
 - Run tests: `uv run pytest`
 - Focused retrieval test: `uv run pytest tests/test_codebase_retrieval.py -q`
-- Agent CLI smoke test: `uv run python main.py`
+- Agent CLI smoke test: `uv run python cli.py`
 - Benchmark scenarios: `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json --transcript-dir benchmarks/logs --output benchmarks/results/latest.json`
 
 Refer to `AGENTS.md` for contributor guidance and coding conventions.

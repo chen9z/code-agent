@@ -1,31 +1,51 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Core orchestrators — `code_agent.py`, `codebase_retrieval.py`, `main.py` — assemble flows from shared logic in `core/`, `nodes/`, and `tools/`.
-- CLI entry points stay in `cli/`; client adapters and config helpers live in `clients/`, `integrations/`, and `configs/`.
-- Benchmarks and transcripts belong in `benchmarks/`; user-facing docs reside in `docs/`. Tests mirror runtime modules inside `tests/`, while gitignored embeddings land in `storage/`.
+
+Runtime entry points (`cli.py`, `code_agent.py`, `codebase_retrieval.py`) wire together reusable building blocks.
+Domain logic is split across `core/` (prompts, security, config), `nodes/` (tool planners/executors), `tools/` and
+`clients/` (LLM + external integrations). The CLI shell in `cli.py` handles interactive UX, while `integrations/` carries
+adapters such as Tree-sitter grammars. Persisted embeddings live under `storage/` (gitignored), and parity tests mirror
+the runtime layout inside `tests/`.
 
 ## Build, Test, and Development Commands
-- `uv sync` — install dependencies; rerun after editing `pyproject.toml` or `uv.lock`.
-- `uv run python main.py` — launch the interactive agent. Add `-w <repo>` to target another workspace or `-p "List TODOs"` for a one-off prompt.
-- `uv run pytest` — execute the suite; focus with `uv run pytest tests/test_tool_agent_flow.py -q`.
-- `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json` — regenerate embedding performance reports under `benchmarks/results/`.
+
+- `uv venv && source .venv/bin/activate && uv sync` – create/update the managed environment; add
+  `uv pip install -e '.[test]'` when working on coverage.
+- `uv run python cli.py -w /path/to/repo` – launch the conversational agent against a workspace; omit `-w` to target
+  the current tree.
+- `uv run pytest` – execute the full regression suite; append `-k retrieval` for focused debugging.
+- `uv run pytest tests/test_codebase_retrieval.py -q` – fast signal for the semantic indexer pipeline.
+-
+`uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json --output benchmarks/results/latest.json` –
+compare embedding/model settings before shipping planner changes.
 
 ## Coding Style & Naming Conventions
-- Python 3.11+, four-space indentation, type annotations by default, and double-quoted strings unless another delimiter reduces escaping.
-- Keep functions focused; move shared operations into `nodes/` or `tools/`. Prefer descriptive flow/node names (`SemanticCodeIndexer`, `ToolPlanningNode`), and align new test modules with their targets.
+
+Target Python 3.11, four-space indentation, and PEP 8 line widths (~100 chars). Prefer explicit type hints (see
+`code_agent.py`) and docstrings for public helpers. Modules, files, and functions stay `snake_case`; classes are
+PascalCase. Use `pathlib.Path` for filesystem work and keep most side effects inside CLI wrappers or nodes.
 
 ## Testing Guidelines
-- Provide pytest coverage for every behavior change; share fixtures through `tests/conftest.py`.
-- Combine scenario tests (CLI, planner) with narrow unit checks when touching runtime logic (see `tests/test_cli_output.py`).
-- Run `uv run pytest --cov=core --cov=nodes --cov=tools` before submitting; treat coverage drops as blockers.
+
+All tests run through `pytest`; place mirrors of new modules inside `tests/<module_name>/` and name files
+`test_<feature>.py`. Within a file, order fixtures → helpers → `test_*` functions or parameterized classes. Run
+`uv run pytest --cov=core --cov=tools --cov=nodes` before pushing and capture flaky seeds in the PR description.
 
 ## Commit & Pull Request Guidelines
-- Use `<Verb>: <summary>` commit headers consistent with history (`Refactor: simplify codebase retrieval helpers`). Expand body text only when rationale or rollout steps need clarification.
-- PRs must outline scope, manual verification, and linked issues. Attach transcripts or screenshots if CLI UX changes.
-- Update `README.md` or `docs/` for user-facing shifts and surface configuration updates explicitly.
+
+Follow the existing history pattern: a concise imperative subject with an optional scope prefix (e.g.,
+`Refactor: simplify CLI output wiring`). Document behavioral changes, linked issues, and local test/benchmark results in
+the PR body; include CLI transcripts or screenshots if UX output shifts. Each PR should stay focused on one feature/fix,
+update relevant docs (`README.md`, `docs/`, this guide), and ensure storage artifacts stay untracked.
 
 ## Security & Configuration Tips
-- Inject secrets through environment variables consumed by `configs/manager.py`; never commit `.env` files.
-- Clear `storage/` before sharing reproductions and document migrations when embedding schemas change.
-- Document new external tool requirements (scopes, rate limits) in `docs/` and expose toggle flags in configuration.
+
+Secrets are read via `configs/manager.py`; set `LLM_MODEL`, `LLM_API_KEY`, `OPENAI_API_KEY`, and related endpoints in
+your shell, never in code. Keep local `.env` files out of Git, and double-check that `storage/` snapshots or benchmark
+logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECONDS` override sparingly and document why longer tool
+windows are required.
+
+要遵守的原则：
+1. Development Spirit: Remember: Our development should follow the spirit of Linus.
+2. Output with Chinese.
