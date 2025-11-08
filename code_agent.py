@@ -63,21 +63,98 @@ def _prepare_messages(
     return messages
 
 
-class ToolPlanner:
-    """Uses the LLM to produce a tool execution plan."""
+class CodeAgentSession:
+    """In-memory conversation session for the Code Agent CLI."""
 
-    def __init__(self, registry: ToolRegistry, model: str, llm_client=None) -> None:
-        self.registry = registry
-        self.model = model
-        self.llm = llm_client or get_default_llm_client()
+    def __init__(
+        self,
+        *,
+        registry: Optional[ToolRegistry] = None,
+        llm_client: Any = None,
+        max_iterations: int = 25,
+        system_prompt: Optional[str] = None,
+        environment: Optional[Mapping[str, Any]] = None,
+        workspace: Optional[str | Path] = None,
+    ) -> None:
+        self.workspace = Path(workspace).expanduser().resolve() if workspace else None
+        self.registry = registry or create_default_registry(project_root=self.workspace)
+        self.llm_client = llm_client or get_default_llm_client()
+        self.max_iterations = max_iterations if max_iterations >= 1 else 1
+        if environment is not None:
+            self.environment = environment
+        elif self.workspace is not None:
+            self.environment = {"cwd": str(self.workspace)}
+        else:
+            self.environment = None
+        cfg = get_config()
+        self.model = cfg.llm.model
+        self.tool_timeout_seconds = float(cfg.cli.tool_timeout_seconds)
+        if system_prompt is None:
+            resolved_prompt = build_code_agent_system_prompt(
+                base_prompt=_BASE_SYSTEM_PROMPT,
+                environment=self.environment,
+            )
+        else:
+            resolved_prompt = system_prompt
+        self.system_prompt = resolved_prompt
+        self.executor = ToolExecutionRunner(
+            self.registry,
+            default_timeout_seconds=self.tool_timeout_seconds,
+        )
+        self.history: List[Dict[str, Any]] = []
 
-    def plan(
+    def run_turn(
+        self,
+        user_input: str,
+        *,
+        output_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        if not user_input or not user_input.strip():
+            raise ValueError("user_input cannot be empty")
+        messages = _prepare_messages(self.history, self.system_prompt, user_input)
+        _emit(output_callback, f"[user] {user_input}")
+
+        tool_results: List[ToolOutput] = []
+        iterations = 0
+
+        while True:
+            plan = self._plan_with_llm(messages, output_callback)
+            tool_plan = plan
+            tool_calls = plan.get("tool_calls") or []
+            if not tool_calls:
+                break
+            outputs = self.executor.run(
+                tool_calls,
+                history=messages,
+                output_callback=output_callback,
+                timeout_override=self.tool_timeout_seconds,
+            )
+            tool_results.extend(outputs)
+            iterations += 1
+            if iterations >= self.max_iterations:
+                break
+
+        final_response: Optional[str] = None
+        if final_response:
+            messages.append({"role": "assistant", "content": final_response})
+            _emit(output_callback, f"[assistant] {final_response}")
+
+        result = {
+            "final_response": final_response,
+            "tool_results": list(tool_results),
+            "tool_plan": tool_plan,
+            "history": list(messages),
+        }
+        self.history = [msg for msg in messages if self._is_valid_message(msg)]
+        return result
+
+    def _plan_with_llm(
         self,
         history: List[Dict[str, Any]],
         output_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         tools = list(self.registry.to_openai_tools())
-        response = self.llm.create_with_tools(
+        response = self.llm_client.create_with_tools(
             model=self.model,
             messages=history,
             tools=tools,
@@ -121,30 +198,40 @@ class ToolPlanner:
             _emit(output_callback, f"[plan] {message_body}")
         return plan
 
+    def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
+        if seconds is None or seconds <= 0:
+            return
+        self.tool_timeout_seconds = float(seconds)
+        self.executor.set_default_timeout(self.tool_timeout_seconds)
+
+    @staticmethod
+    def _is_valid_message(raw: Any) -> bool:
+        return isinstance(raw, dict) and isinstance(raw.get("role"), str) and "content" in raw
+
     @staticmethod
     def _parse_tool_response(response: Any) -> Dict[str, Any]:
-        message = ToolPlanner._extract_message(response)
+        message = CodeAgentSession._extract_message(response)
         if not message:
             return {"tool_calls": [], "final_response": None, "thoughts": None}
 
-        tool_calls = ToolPlanner._extract_tool_calls(message)
-        content_text = ToolPlanner._message_content_to_str(
-            ToolPlanner._get_attr(message, "content")
+        tool_calls = CodeAgentSession._extract_tool_calls(message)
+        content_text = CodeAgentSession._message_content_to_str(
+            CodeAgentSession._get_attr(message, "content")
         )
 
         if tool_calls:
             normalized_calls: List[Dict[str, Any]] = []
             for idx, call in enumerate(tool_calls):
-                function = ToolPlanner._get_attr(call, "function", {})
-                name = ToolPlanner._get_attr(function, "name")
-                arguments_str = ToolPlanner._get_attr(function, "arguments", "{}")
+                function = CodeAgentSession._get_attr(call, "function", {})
+                name = CodeAgentSession._get_attr(function, "name")
+                arguments_str = CodeAgentSession._get_attr(function, "arguments", "{}")
                 try:
                     arguments = json.loads(arguments_str) if arguments_str else {}
                 except json.JSONDecodeError:
                     arguments = {}
                 normalized_calls.append(
                     {
-                        "id": ToolPlanner._get_attr(call, "id", f"call-{idx}"),
+                        "id": CodeAgentSession._get_attr(call, "id", f"call-{idx}"),
                         "key": str(name) if name else "",
                         "arguments": arguments,
                     }
@@ -179,7 +266,7 @@ class ToolPlanner:
 
     @staticmethod
     def _extract_tool_calls(message: Any) -> List[Any]:
-        tool_calls = ToolPlanner._get_attr(message, "tool_calls")
+        tool_calls = CodeAgentSession._get_attr(message, "tool_calls")
         if tool_calls is None:
             return []
         if isinstance(tool_calls, list):
@@ -220,103 +307,6 @@ class ToolPlanner:
         if isinstance(obj, dict):
             return obj.get(attr, default)
         return getattr(obj, attr, default)
-
-
-class CodeAgentSession:
-    """In-memory conversation session for the Code Agent CLI."""
-
-    def __init__(
-        self,
-        *,
-        registry: Optional[ToolRegistry] = None,
-        llm_client: Any = None,
-        max_iterations: int = 25,
-        system_prompt: Optional[str] = None,
-        environment: Optional[Mapping[str, Any]] = None,
-        workspace: Optional[str | Path] = None,
-    ) -> None:
-        self.workspace = Path(workspace).expanduser().resolve() if workspace else None
-        self.registry = registry or create_default_registry(project_root=self.workspace)
-        self.llm_client = llm_client or get_default_llm_client()
-        self.max_iterations = max_iterations if max_iterations >= 1 else 1
-        if environment is not None:
-            self.environment = environment
-        elif self.workspace is not None:
-            self.environment = {"cwd": str(self.workspace)}
-        else:
-            self.environment = None
-        cfg = get_config()
-        default_model = cfg.llm.model
-        self.tool_timeout_seconds = float(cfg.cli.tool_timeout_seconds)
-        if system_prompt is None:
-            resolved_prompt = build_code_agent_system_prompt(
-                base_prompt=_BASE_SYSTEM_PROMPT,
-                environment=self.environment,
-            )
-        else:
-            resolved_prompt = system_prompt
-        self.system_prompt = resolved_prompt
-        self.planner = ToolPlanner(self.registry, model=default_model, llm_client=self.llm_client)
-        self.executor = ToolExecutionRunner(
-            self.registry,
-            default_timeout_seconds=self.tool_timeout_seconds,
-        )
-        self.history: List[Dict[str, Any]] = []
-
-    def run_turn(
-        self,
-        user_input: str,
-        *,
-        output_callback: Optional[Callable[[str], None]] = None,
-    ) -> Dict[str, Any]:
-        if not user_input or not user_input.strip():
-            raise ValueError("user_input cannot be empty")
-        messages = _prepare_messages(self.history, self.system_prompt, user_input)
-        _emit(output_callback, f"[user] {user_input}")
-
-        tool_results: List[ToolOutput] = []
-        iterations = 0
-
-        while True:
-            plan = self.planner.plan(messages, output_callback)
-            tool_plan = plan
-            tool_calls = plan.get("tool_calls") or []
-            if not tool_calls:
-                break
-            outputs = self.executor.run(
-                tool_calls,
-                history=messages,
-                output_callback=output_callback,
-                timeout_override=self.tool_timeout_seconds,
-            )
-            tool_results.extend(outputs)
-            iterations += 1
-            if iterations >= self.max_iterations:
-                break
-
-        final_response: Optional[str] = None
-        if final_response:
-            messages.append({"role": "assistant", "content": final_response})
-            _emit(output_callback, f"[assistant] {final_response}")
-
-        result = {
-            "final_response": final_response,
-            "tool_results": list(tool_results),
-            "tool_plan": tool_plan,
-            "history": list(messages),
-        }
-        self.history = [msg for msg in messages if self._is_valid_message(msg)]
-        return result
-
-    def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
-        if seconds is None or seconds <= 0:
-            return
-        self.tool_timeout_seconds = float(seconds)
-        self.executor.set_default_timeout(self.tool_timeout_seconds)
-
-    @staticmethod
-    def _is_valid_message(raw: Any) -> bool:
-        return isinstance(raw, dict) and isinstance(raw.get("role"), str) and "content" in raw
 
 
 def run_code_agent_cli(
