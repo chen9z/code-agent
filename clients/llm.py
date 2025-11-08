@@ -12,37 +12,37 @@ except ImportError:  # pragma: no cover - optional dependency guard
 
 class BaseLLMClient:
     def get_response(
-        self,
-        model: str,
-        messages: List[Dict[str, str]],
-        *,
-        temperature: float | None = None,
-        stream: bool = False,
+            self,
+            model: str,
+            messages: List[Dict[str, str]],
+            *,
+            temperature: float | None = None,
+            stream: bool = False,
     ) -> Generator[str, None, None]:
         raise NotImplementedError
 
     def create_with_tools(
-        self,
-        *,
-        model: str,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        tool_choice: str | Dict[str, Any] | None = None,
-        parallel_tool_calls: bool = True,
-        temperature: float | None = None,
+            self,
+            *,
+            model: str,
+            messages: List[Dict[str, Any]],
+            tools: List[Dict[str, Any]],
+            tool_choice: str | Dict[str, Any] | None = None,
+            parallel_tool_calls: bool = True,
+            temperature: float | None = None,
     ) -> Dict[str, Any]:
         raise NotImplementedError
 
 
 class OpenAICompatLLMClient(BaseLLMClient):
     def __init__(
-        self,
-        api_key: str,
-        base_url: str | None = None,
-        *,
-        temperature: float = 0.0,
-        opik_project_name: str | None = None,
-        opik_enabled: bool = True,
+            self,
+            api_key: str,
+            base_url: str | None = None,
+            *,
+            temperature: float = 0.0,
+            opik_project_name: str | None = None,
+            opik_enabled: bool = True,
     ):
         from openai import OpenAI
 
@@ -63,12 +63,12 @@ class OpenAICompatLLMClient(BaseLLMClient):
         self.opik_enabled = bool(track_openai and opik_enabled)
 
     def get_response(
-        self,
-        model: str,
-        messages: List[Dict[str, str]],
-        *,
-        temperature: float | None = None,
-        stream: bool = False,
+            self,
+            model: str,
+            messages: List[Dict[str, str]],
+            *,
+            temperature: float | None = None,
+            stream: bool = False,
     ) -> Generator[str, None, None]:
         resolved_temp = self.default_temperature if temperature is None else temperature
         if stream:
@@ -91,23 +91,21 @@ class OpenAICompatLLMClient(BaseLLMClient):
             yield r.choices[0].message.content
 
     def create_with_tools(
-        self,
-        *,
-        model: str,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        tool_choice: str | Dict[str, Any] | None = None,
-        parallel_tool_calls: bool = True,
-        temperature: float | None = None,
+            self,
+            *,
+            model: str,
+            messages: List[Dict[str, Any]],
+            tools: List[Dict[str, Any]],
+            tool_choice="auto",
+            parallel_tool_calls: bool = True,
+            temperature=0.7,
     ) -> Any:
-        resolved_temp = self.default_temperature if temperature is None else temperature
         return self.client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
-            tool_choice=tool_choice or "auto",
-            parallel_tool_calls=parallel_tool_calls,
-            temperature=resolved_temp,
+            tool_choice=tool_choice,
+            temperature=temperature,
         )
 
 

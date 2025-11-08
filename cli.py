@@ -71,23 +71,6 @@ def run_code_agent_cli(
         emit_hook(result, emitter)
     return 0
 
-
-def run_code_agent_once(
-    prompt: str,
-    *,
-    session: Optional[AgentSessionProtocol] = None,
-    session_factory: Optional[Callable[[], AgentSessionProtocol]] = None,
-    output_callback: Callable[[str], None],
-    emit_result: Optional[Callable[[Mapping[str, Any], Callable[[str], None]], None]] = None,
-) -> Dict[str, Any]:
-    """Execute a single Code Agent turn and emit the result."""
-
-    active_session = _resolve_session(session, session_factory)
-    result = active_session.run_turn(prompt, output_callback=output_callback)
-    (emit_result or _emit_result)(result, output_callback)
-    return result
-
-
 def run_cli_main(
     argv: Optional[Sequence[str]] = None,
     *,
@@ -117,12 +100,7 @@ def run_cli_main(
             if callable(setter):
                 setter(tool_timeout)
         if prompt_text:
-            run_code_agent_once(
-                prompt_text,
-                session=session,
-                output_callback=emitter,
-                emit_result=emit_result,
-            )
+            session.run_turn(prompt_text, output_callback=emitter)
             return 0
         return run_code_agent_cli(
             session=session,
@@ -236,11 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         os.chdir(workspace)
         session = CodeAgentSession(max_iterations=100, workspace=workspace)
         if prompt:
-            run_code_agent_once(
-                prompt,
-                session=session,
-                output_callback=emitter,
-            )
+            session.run_turn(prompt, output_callback=emitter)
             return 0
         return run_code_agent_cli(
             session=session,
@@ -253,13 +227,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-__all__ = [
-    "AgentSessionProtocol",
-    "create_rich_output",
-    "run_cli_main",
-    "run_code_agent_cli",
-    "run_code_agent_once",
-    "stringify_payload",
-]
