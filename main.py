@@ -53,7 +53,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 prompt,
                 session=session,
                 output_callback=emitter,
-                console=console,
             )
             return 0
         return run_code_agent_cli(

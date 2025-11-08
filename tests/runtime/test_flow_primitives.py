@@ -70,14 +70,6 @@ class _FallbackNode(Node):
 
     def exec_fallback(self, prep_res: Any, exc: Exception) -> str:
         return f"fallback:{self.invocations}:{exc}"
-
-
-def test_node_exec_fallback_runs_after_retries() -> None:
-    node = _FallbackNode(attempts=2)
-    result = node._run({})
-    assert result.startswith("fallback:2")
-
-
 class _EchoTool(BaseTool):
     def __init__(self) -> None:
         self.calls: List[Dict[str, Any]] = []

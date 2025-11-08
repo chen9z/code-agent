@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from __init__ import Flow, Node
 from cli.code_agent_cli import (
-    CodeAgentCLIFlow,
     run_cli_main as _run_cli_main,
     run_code_agent_cli as _run_code_agent_cli,
     run_code_agent_once as _run_code_agent_once,
 )
-from cli.rich_output import create_rich_output, preview_payload as _preview_payload, \
+from cli.rich_output import preview_payload as _preview_payload, \
     stringify_payload as _stringify_payload
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
@@ -94,21 +92,16 @@ class ToolPlanningNode(Node):
         self.llm = llm_client or get_default_llm_client()
 
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        descriptors = self.registry.describe()
         history = list(shared.get("history") or [])
-        return {"history": history, "descriptors": descriptors}
+        return {"history": history}
 
     def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         history = prep_res["history"]
-        descriptors = [self._strip_explanation_from_descriptor(d) for d in prep_res["descriptors"]]
-        serialized_tools = json.dumps(descriptors, ensure_ascii=False, indent=2)
-        planning_prompt = "Available tools:\n" + serialized_tools
-        messages = history + [{"role": "system", "content": planning_prompt}]
-        tools = [self._strip_explanation_from_tool(tool) for tool in self.registry.to_openai_tools()]
+        tools = list(self.registry.to_openai_tools())
 
         response = self.llm.create_with_tools(
             model=self.model,
-            messages=messages,
+            messages=history,
             tools=tools,
             parallel_tool_calls=True,
         )
@@ -257,14 +250,6 @@ class ToolPlanningNode(Node):
         if isinstance(obj, dict):
             return obj.get(attr, default)
         return getattr(obj, attr, default)
-
-    @classmethod
-    def _strip_explanation_from_descriptor(cls, descriptor: Mapping[str, Any]) -> Mapping[str, Any]:
-        return dict(descriptor)
-
-    @classmethod
-    def _strip_explanation_from_tool(cls, tool: Mapping[str, Any]) -> Dict[str, Any]:
-        return copy.deepcopy(tool)
 
 
 class SummaryNode(Node):
@@ -670,8 +655,7 @@ def run_code_agent_once(
         *,
         session: Optional["CodeAgentSession"] = None,
         session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
-        output_callback: Optional[Callable[[str], None]] = None,
-        console: Optional["Console"] = None,
+        output_callback: Callable[[str], None],
 ) -> Dict[str, Any]:
     factory = session_factory or (lambda: CodeAgentSession())
     return _run_code_agent_once(
@@ -679,7 +663,6 @@ def run_code_agent_once(
         session=session,
         session_factory=factory,
         output_callback=output_callback,
-        console=console,
     )
 
 

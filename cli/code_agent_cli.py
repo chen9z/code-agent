@@ -155,20 +155,14 @@ def run_code_agent_once(
     *,
     session: Optional[AgentSessionProtocol] = None,
     session_factory: Optional[Callable[[], AgentSessionProtocol]] = None,
-    output_callback: Optional[Callable[[str], None]] = None,
-    console: Optional[Console] = None,
+    output_callback: Callable[[str], None],
     emit_result: Optional[Callable[[Mapping[str, Any], Callable[[str], None]], None]] = None,
 ) -> Dict[str, Any]:
     """Execute a single Code Agent turn and emit the summarised result."""
 
     active_session = _resolve_session(session, session_factory)
-    if output_callback is None:
-        active_console = console or Console()
-        emitter = create_rich_output(active_console)
-    else:
-        emitter = output_callback
-    result = active_session.run_turn(prompt, output_callback=emitter)
-    (emit_result or _emit_result)(result, emitter)
+    result = active_session.run_turn(prompt, output_callback=output_callback)
+    (emit_result or _emit_result)(result, output_callback)
     return result
 
 
@@ -205,7 +199,6 @@ def run_cli_main(
                 prompt_text,
                 session=session,
                 output_callback=emitter,
-                console=console,
                 emit_result=emit_result,
             )
             return 0

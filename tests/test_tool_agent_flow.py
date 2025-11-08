@@ -93,7 +93,8 @@ def test_tool_agent_flow_executes_tools(tmp_path):
     assert len(stub.calls) >= 2
     planning_messages = stub.calls[0]["messages"]
     system_msgs = [msg for msg in planning_messages if msg.get("role") == "system"]
-    assert any("Available tools" in msg.get("content", "") for msg in system_msgs)
+    assert len(system_msgs) == 1
+    assert "Available tools" not in system_msgs[0].get("content", "")
 
 
 def test_tool_agent_flow_direct_response(tmp_path):
