@@ -9,12 +9,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, 
 from cli import (
     run_cli_main as _run_cli_main,
     run_code_agent_cli as _run_code_agent_cli,
-    run_code_agent_once as _run_code_agent_once,
 )
-from ui.rich_output import (
-    preview_payload as _preview_payload,
-    stringify_payload as _stringify_payload,
-)
+from ui.rich_output import preview_payload as _preview_payload
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 from core.prompt import (
@@ -48,27 +44,23 @@ def _emit(output_callback: Optional[Callable[[str], None]], message: str) -> Non
         output_callback(message)
 
 
-def _prepare_history(
+def _prepare_messages(
     existing_history: Optional[Iterable[Mapping[str, Any]]],
     system_prompt: str,
     user_input: str,
 ) -> List[Dict[str, Any]]:
-    history = [dict(message) for message in (existing_history or [])]
-    if not history:
-        history = [{"role": "system", "content": system_prompt}]
-    elif history[0].get("role") != "system":
-        history.insert(0, {"role": "system", "content": system_prompt})
-    else:
-        history[0] = {"role": "system", "content": system_prompt}
+    cloned_history = [dict(message) for message in (existing_history or [])]
+
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": system_prompt}
+    ]
+
+    messages.extend(message for message in cloned_history if message.get("role") != "system")
 
     if user_input:
-        history.append({"role": "user", "content": user_input})
+        messages.append({"role": "user", "content": user_input})
 
-    if history:
-        filtered = [history[0]] + [m for m in history[1:] if m.get("role") != "system"]
-    else:
-        filtered = history
-    return filtered
+    return messages
 
 
 class ToolPlanner:
@@ -279,23 +271,21 @@ class CodeAgentSession:
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
-        trimmed_input = user_input.strip()
-        history = _prepare_history(self.history, self.system_prompt, trimmed_input)
-        _emit(output_callback, f"[user] {trimmed_input}")
+        messages = _prepare_messages(self.history, self.system_prompt, user_input)
+        _emit(output_callback, f"[user] {user_input}")
 
         tool_results: List[ToolOutput] = []
-        tool_plan: Dict[str, Any] = {}
         iterations = 0
 
         while True:
-            plan = self.planner.plan(history, output_callback)
+            plan = self.planner.plan(messages, output_callback)
             tool_plan = plan
             tool_calls = plan.get("tool_calls") or []
             if not tool_calls:
                 break
             outputs = self.executor.run(
                 tool_calls,
-                history=history,
+                history=messages,
                 output_callback=output_callback,
                 timeout_override=self.tool_timeout_seconds,
             )
@@ -304,20 +294,18 @@ class CodeAgentSession:
             if iterations >= self.max_iterations:
                 break
 
-        final_response = self._select_final_response(tool_plan, tool_results)
+        final_response: Optional[str] = None
         if final_response:
-            history.append({"role": "assistant", "content": final_response})
+            messages.append({"role": "assistant", "content": final_response})
             _emit(output_callback, f"[assistant] {final_response}")
 
         result = {
             "final_response": final_response,
             "tool_results": list(tool_results),
             "tool_plan": tool_plan,
-            "history": list(history),
+            "history": list(messages),
         }
-        self.history = [
-            self._normalize_message(msg) for msg in history if self._is_valid_message(msg)
-        ]
+        self.history = [msg for msg in messages if self._is_valid_message(msg)]
         return result
 
     def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
@@ -329,45 +317,6 @@ class CodeAgentSession:
     @staticmethod
     def _is_valid_message(raw: Any) -> bool:
         return isinstance(raw, dict) and isinstance(raw.get("role"), str) and "content" in raw
-
-    @staticmethod
-    def _normalize_message(raw: Mapping[str, Any]) -> Dict[str, Any]:
-        normalized = dict(raw)
-        normalized["role"] = str(normalized.get("role"))
-        content = normalized.get("content", "")
-        if isinstance(content, str):
-            normalized["content"] = content
-        elif content is None:
-            normalized["content"] = ""
-        else:
-            normalized["content"] = content
-        return normalized
-
-    @staticmethod
-    def _select_final_response(
-        tool_plan: Optional[Mapping[str, Any]],
-        tool_results: Sequence[ToolOutput],
-    ) -> str:
-        plan_text = ""
-        if isinstance(tool_plan, Mapping):
-            candidate = tool_plan.get("final_response")
-            if isinstance(candidate, str):
-                plan_text = candidate.strip()
-            elif candidate is not None:
-                plan_text = _stringify_payload(candidate).strip()
-        if plan_text:
-            return plan_text
-
-        for result in reversed(list(tool_results)):
-            if not isinstance(result, ToolOutput):
-                continue
-            result_text = (result.result_text or "").strip()
-            if result_text:
-                return result_text
-            error_text = (str(result.error) if result.error else "").strip()
-            if error_text:
-                return error_text
-        return ""
 
 
 def run_code_agent_cli(
@@ -385,22 +334,6 @@ def run_code_agent_cli(
         input_iter=input_iter,
         output_callback=output_callback,
         console=console,
-    )
-
-
-def run_code_agent_once(
-        prompt: str,
-        *,
-        session: Optional["CodeAgentSession"] = None,
-        session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
-        output_callback: Callable[[str], None],
-) -> Dict[str, Any]:
-    factory = session_factory or (lambda: CodeAgentSession())
-    return _run_code_agent_once(
-        prompt,
-        session=session,
-        session_factory=factory,
-        output_callback=output_callback,
     )
 
 
