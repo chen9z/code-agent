@@ -118,9 +118,9 @@ class CodeAgentSession:
         iterations = 0
 
         while True:
-            plan = self._plan_with_llm(messages, output_callback)
-            tool_plan = plan
-            tool_calls = plan.get("tool_calls") or []
+            response = self._call_llm(messages, output_callback)
+            tool_plan = response
+            tool_calls = response.get("tool_calls") or []
             if not tool_calls:
                 break
             outputs = self.executor.run(
@@ -148,7 +148,7 @@ class CodeAgentSession:
         self.history = [msg for msg in messages if self._is_valid_message(msg)]
         return result
 
-    def _plan_with_llm(
+    def _call_llm(
         self,
         history: List[Dict[str, Any]],
         output_callback: Optional[Callable[[str], None]] = None,
