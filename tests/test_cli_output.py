@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict
 
 from rich.console import Console
 
-from cli.code_agent_cli import _RunLoopNode
+from cli.code_agent_cli import _handle_cli_command
 from cli.rich_output import create_rich_output
 from core.tool_output_store import ToolOutputStore
 
@@ -41,10 +41,9 @@ def test_cli_show_command_displays_full_tool_output():
         truncated=True,
     )
     session = _DummySession(store)
-    node = _RunLoopNode(session, lambda *_args, **_kwargs: None)
     outputs: list[str] = []
 
-    handled = node._handle_command(":show last", outputs.append)
+    handled = _handle_cli_command(":show last", session, outputs.append)
 
     assert handled is True
     assert any("full log contents" in line for line in outputs)

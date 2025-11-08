@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from code_agent import create_tool_agent_flow
+from code_agent import CodeAgentSession
 from nodes.tool_execution import ToolOutput
 from tools.registry import create_default_registry
 
@@ -82,8 +82,13 @@ def test_tool_agent_flow_executes_tools(tmp_path):
     )
 
     registry = create_default_registry(include=["bash", "glob", "read"])
-    flow = create_tool_agent_flow(registry=registry, llm_client=stub, max_iterations=1)
-    result = flow.run({"user_input": f"Please review {workspace}"})
+    session = CodeAgentSession(
+        registry=registry,
+        llm_client=stub,
+        max_iterations=1,
+        workspace=workspace,
+    )
+    result = session.run_turn(f"Please review {workspace}", output_callback=lambda *_args, **_kwargs: None)
 
     assert result["final_response"] == "The directory contains notes.txt with greeting content."
     assert len(result["tool_results"]) == 3
@@ -109,12 +114,12 @@ def test_tool_agent_flow_direct_response(tmp_path):
         summary_response="Direct answer without tool usage.",
     )
 
-    flow = create_tool_agent_flow(
+    session = CodeAgentSession(
         registry=create_default_registry(include=["read"]),
         llm_client=stub,
         max_iterations=1,
     )
-    result = flow.run({"user_input": "Just say hello"})
+    result = session.run_turn("Just say hello", output_callback=lambda *_args, **_kwargs: None)
 
     assert result["tool_results"] == []
     assert result["final_response"] == "Direct answer without tool usage."

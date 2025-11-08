@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
-from __init__ import Node
 from core.tool_output_store import ToolOutputStore
 from tools.registry import ToolRegistry, ToolSpec
 
@@ -87,8 +86,8 @@ class ToolOutput:
             "error": self.error,
         }
 
-class ToolExecutionBatchNode(Node):
-    """Executes a batch of tool calls sequentially or in parallel based on plan metadata."""
+class ToolExecutionRunner:
+    """Executes tool calls and streams console-friendly output."""
 
     def __init__(
         self,
@@ -97,7 +96,6 @@ class ToolExecutionBatchNode(Node):
         *,
         default_timeout_seconds: Optional[float] = None,
     ) -> None:
-        super().__init__()
         if max_parallel_workers < 1:
             raise ValueError("max_parallel_workers must be at least 1")
         self.registry = registry
@@ -108,40 +106,41 @@ class ToolExecutionBatchNode(Node):
             else None
         )
 
-    def prep(self, shared: Dict[str, Any]) -> List[Dict[str, Any]]:
-        plan = shared.get("tool_plan", {})
-        tool_calls = plan.get("tool_calls", []) if isinstance(plan, dict) else []
-        if not isinstance(tool_calls, list):
-            raise ValueError("tool_plan.tool_calls must be a list")
-        timeout_override = shared.get("tool_timeout_seconds")
-        if timeout_override is not None:
-            try:
-                value = float(timeout_override)
-            except (TypeError, ValueError):
-                value = None
-            if value is not None and value > 0:
-                self.default_timeout_seconds = value
-        return tool_calls
+    def set_default_timeout(self, seconds: Optional[float]) -> None:
+        if seconds is None or seconds <= 0:
+            self.default_timeout_seconds = None
+        else:
+            self.default_timeout_seconds = float(seconds)
 
-    def exec(self, tool_calls: List[Dict[str, Any]]) -> List[ToolOutput]:
-        calls = [self._to_tool_call(raw, idx) for idx, raw in enumerate(tool_calls or [])]
+    def run(
+        self,
+        tool_calls: Iterable[Mapping[str, Any]],
+        *,
+        history: List[Dict[str, Any]],
+        output_callback: Optional[Callable[[str], None]] = None,
+        store: Optional[ToolOutputStore] = None,
+        timeout_override: Optional[float] = None,
+    ) -> List[ToolOutput]:
+        if timeout_override is not None and timeout_override > 0:
+            self.default_timeout_seconds = float(timeout_override)
+
+        raw_calls = list(tool_calls or [])
+        calls = [self._to_tool_call(raw, idx) for idx, raw in enumerate(raw_calls)]
         if not calls:
             return []
-        # Always execute in parallel for simplicity and throughput.
-        return self._run_parallel(calls)
 
-    def post(
+        results = self._run_parallel(calls)
+        self._record_results(results, history, output_callback, store)
+        return results
+
+    def _record_results(
         self,
-        shared: Dict[str, Any],
-        prep_res: List[Dict[str, Any]],
-        exec_res: List[ToolOutput],
-    ) -> str:
-        existing = shared.setdefault("tool_results", [])
-        existing.extend(exec_res)
-
-        history = shared.setdefault("history", [])
-        store: Optional[ToolOutputStore] = shared.get("tool_output_store")
-        for result in exec_res:
+        results: List[ToolOutput],
+        history: List[Dict[str, Any]],
+        output_callback: Optional[Callable[[str], None]],
+        store: Optional[ToolOutputStore],
+    ) -> None:
+        for result in results:
             key = result.key
             label = result.inputs.label or (key.upper() if isinstance(key, str) else str(key))
             arguments_preview = _preview_payload(result.inputs.arguments or {}, 180)
@@ -166,7 +165,11 @@ class ToolExecutionBatchNode(Node):
                     history_content = ""
             elif has_error:
                 error_text = str(result.error or "")
-                history_content = _truncate_text(error_text, max_chars=MAX_HISTORY_PREVIEW_CHARS, max_lines=MAX_HISTORY_PREVIEW_LINES)[0]
+                history_content = _truncate_text(
+                    error_text,
+                    max_chars=MAX_HISTORY_PREVIEW_CHARS,
+                    max_lines=MAX_HISTORY_PREVIEW_LINES,
+                )[0]
             else:
                 history_content = ""
 
@@ -185,9 +188,9 @@ class ToolExecutionBatchNode(Node):
                     message += f" | args: {arguments_preview}"
                 if truncated_output:
                     message += f" | preview truncated; use :show {result.id}"
-                _emit(shared, f"[tool] {message}")
+                _emit(output_callback, f"[tool] {message}")
                 if console_preview:
-                    _emit(shared, f"[tool-output] {console_preview}")
+                    _emit(output_callback, f"[tool-output] {console_preview}")
                 if store and full_output_text:
                     store.record(
                         call_id=result.id,
@@ -209,9 +212,9 @@ class ToolExecutionBatchNode(Node):
                     message += f" | args: {arguments_preview}"
                 if error_inline:
                     message += f" | error: {error_inline}"
-                _emit(shared, f"[tool] {message}")
+                _emit(output_callback, f"[tool] {message}")
                 if trunc_err:
-                    _emit(shared, f"[tool-output] {error_preview_text}")
+                    _emit(output_callback, f"[tool-output] {error_preview_text}")
                 if store:
                     store.record(
                         call_id=result.id,
@@ -221,15 +224,6 @@ class ToolExecutionBatchNode(Node):
                         output=str(result.error or ""),
                         truncated=trunc_err,
                     )
-
-        used = shared.get("tool_iterations_used", 0) + 1
-        shared["tool_iterations_used"] = used
-        max_iterations = getattr(self, "max_iterations", 1)
-        if used >= max_iterations:
-            return "summarize"
-        return "plan"
-
-    # Mode batching removed: we always parallelize within a single planning step.
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
@@ -320,17 +314,9 @@ def _preview_payload(value: Any, limit: int) -> str:
     return f"{text[: limit - 3]}..."
 
 
-def _emit(shared: Dict[str, Any], message: str) -> None:
-    cancel_event = shared.get("cancel_event") if isinstance(shared, dict) else None
-    if cancel_event is not None:
-        checker = getattr(cancel_event, "is_set", None)
-        if callable(checker) and checker():
-            return
-        if not callable(checker) and cancel_event:
-            return
-    callback = shared.get("output_callback")
-    if callable(callback):
-        callback(message)
+def _emit(output_callback: Optional[Callable[[str], None]], message: str) -> None:
+    if callable(output_callback):
+        output_callback(message)
 
 def _truncate_text(text: str, *, max_chars: int, max_lines: int) -> tuple[str, bool]:
     if not text:

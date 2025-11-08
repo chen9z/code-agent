@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, Protocol, Sequence
 
 from rich.console import Console
 
-from __init__ import Flow, Node
 from cli.rich_output import create_rich_output, stringify_payload
 
 
@@ -22,109 +20,56 @@ class AgentSessionProtocol(Protocol):
         ...
 
 
-class _RunLoopNode(Node):
-    def __init__(
-        self,
-        session: AgentSessionProtocol,
-        emit_result: Callable[[Mapping[str, Any], Callable[[str], None]], None],
-    ) -> None:
-        super().__init__()
-        self.session = session
-        self.emit_result = emit_result
-
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        console = self.params.get("console")
-        output_callback = self.params.get("output_callback")
-        if output_callback is None:
-            output_callback = create_rich_output(console)
-        return {
-            "input_iter": self.params.get("input_iter"),
-            "output_callback": output_callback,
-            "console": console,
-        }
-
-    def exec(self, prep_res: Dict[str, Any]) -> int:
-        custom_iter = prep_res.get("input_iter")
-        console: Optional[Console] = prep_res.get("console")
-        iterator: Iterator[str] = (
-            custom_iter if custom_iter is not None else _stdin_iterator(console)
-        )
-        output = prep_res["output_callback"]
-        output("[system] Entering Code Agent. Type 'exit' to quit.")
-        for raw in iterator:
-            message = raw.strip()
-            if not message:
-                continue
-            if message.lower() in {"exit", "quit"}:
-                break
-            if message.startswith(":") and self._handle_command(message, output):
-                continue
-            result = self.session.run_turn(message, output_callback=output)
-            self.emit_result(result, output)
-        return 0
-
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: int) -> int:
-        shared["exit_code"] = exec_res
-        return "complete"
-
-    def _handle_command(self, command: str, output_callback: Callable[[str], None]) -> bool:
-        normalized = command.strip()
-        if normalized.startswith(":show"):
-            return self._handle_show_command(normalized, output_callback)
-        if normalized in {":help", ":?"}:
-            self._emit_help(output_callback)
-            return True
-        return False
-
-    def _handle_show_command(self, command: str, output_callback: Callable[[str], None]) -> bool:
-        arg = command[5:].strip()
-        target = arg or "last-truncated"
-        store_getter = getattr(self.session, "get_tool_output_store", None)
-        if not callable(store_getter):
-            output_callback("[system] Tool output inspection is unavailable in this session.")
-            return True
-        store = store_getter()
-        if store is None:
-            output_callback("[system] Tool output inspection is unavailable in this session.")
-            return True
-        entry = None
-        lowered = target.lower()
-        if lowered in {"last", "latest"}:
-            entry = store.latest(truncated_only=False)
-        elif lowered in {"last-truncated", "truncated"}:
-            entry = store.latest(truncated_only=True)
-        else:
-            entry = store.get(target)
-        if entry is None:
-            output_callback(f"[system] No stored tool output found for '{target}'.")
-            return True
-        header = f"Full output for {entry.label} ({entry.call_id}) | status: {entry.status}"
-        output_callback(f"[tool-output] {header}")
-        body = entry.output or "(empty output)"
-        output_callback(f"[tool-output] {body}")
+def _handle_cli_command(
+    command: str,
+    session: AgentSessionProtocol,
+    output_callback: Callable[[str], None],
+) -> bool:
+    normalized = command.strip()
+    if normalized.startswith(":show"):
+        return _handle_show_command(normalized, session, output_callback)
+    if normalized in {":help", ":?"}:
+        _emit_help(output_callback)
         return True
-
-    def _emit_help(self, output_callback: Callable[[str], None]) -> None:
-        output_callback(
-            "[system] Commands: :show <call_id|last|last-truncated> to display stored tool output; :exit to quit."
-        )
+    return False
 
 
-class CodeAgentCLIFlow(Flow):
-    def __init__(
-        self,
-        session: AgentSessionProtocol,
-        *,
-        emit_result: Optional[Callable[[Mapping[str, Any], Callable[[str], None]], None]] = None,
-    ) -> None:
-        super().__init__()
-        self.session = session
-        self.emit_result = emit_result or _emit_result
-        self.loop_node = _RunLoopNode(self.session, self.emit_result)
-        self.start(self.loop_node)
+def _handle_show_command(
+    command: str,
+    session: AgentSessionProtocol,
+    output_callback: Callable[[str], None],
+) -> bool:
+    arg = command[5:].strip()
+    target = arg or "last-truncated"
+    store_getter = getattr(session, "get_tool_output_store", None)
+    if not callable(store_getter):
+        output_callback("[system] Tool output inspection is unavailable in this session.")
+        return True
+    store = store_getter()
+    if store is None:
+        output_callback("[system] Tool output inspection is unavailable in this session.")
+        return True
+    lowered = target.lower()
+    if lowered in {"last", "latest"}:
+        entry = store.latest(truncated_only=False)
+    elif lowered in {"last-truncated", "truncated"}:
+        entry = store.latest(truncated_only=True)
+    else:
+        entry = store.get(target)
+    if entry is None:
+        output_callback(f"[system] No stored tool output found for {target}.")
+        return True
+    header = f"Full output for {entry.label} ({entry.call_id}) | status: {entry.status}"
+    output_callback(f"[tool-output] {header}")
+    body = entry.output or "(empty output)"
+    output_callback(f"[tool-output] {body}")
+    return True
 
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> int:
-        return shared.get("exit_code", 0)
+
+def _emit_help(output_callback: Callable[[str], None]) -> None:
+    output_callback(
+        "[system] Commands: :show <call_id|last|last-truncated> to display stored tool output; :exit to quit."
+    )
 
 
 def run_code_agent_cli(
@@ -139,15 +84,25 @@ def run_code_agent_cli(
     active_session = _resolve_session(session, session_factory)
     active_console = console or Console()
     emitter = output_callback or create_rich_output(active_console)
-    flow = CodeAgentCLIFlow(active_session, emit_result=emit_result)
-    flow.set_params(
-        {
-            "input_iter": input_iter,
-            "output_callback": emitter,
-            "console": active_console,
-        }
-    )
-    return flow._run({})
+    iterator: Iterator[str]
+    if input_iter is not None:
+        iterator = iter(input_iter)
+    else:
+        iterator = _stdin_iterator(active_console)
+
+    emit_hook = emit_result or _emit_result
+    emitter("[system] Entering Code Agent. Type exit to quit.")
+    for raw in iterator:
+        message = raw.strip()
+        if not message:
+            continue
+        if message.lower() in {"exit", "quit"}:
+            break
+        if message.startswith(":") and _handle_cli_command(message, active_session, emitter):
+            continue
+        result = active_session.run_turn(message, output_callback=emitter)
+        emit_hook(result, emitter)
+    return 0
 
 
 def run_code_agent_once(
@@ -243,7 +198,7 @@ def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], Non
         output_callback(f"[assistant] {stringify_payload(final)}")
 
 
-def _stdin_iterator(console: Optional[Console] = None) -> Iterable[str]:
+def _stdin_iterator(console: Optional[Console] = None) -> Iterator[str]:
     prompt = "You: "
     if console is not None:
         reader: Callable[[], str] = lambda: console.input(prompt)
@@ -281,7 +236,6 @@ def _create_cli_parser() -> argparse.ArgumentParser:
 
 __all__ = [
     "AgentSessionProtocol",
-    "CodeAgentCLIFlow",
     "create_rich_output",
     "run_cli_main",
     "run_code_agent_cli",

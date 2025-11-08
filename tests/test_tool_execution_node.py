@@ -1,13 +1,14 @@
-"""Tests for ToolExecutionBatchNode sequential and parallel execution."""
+"""Tests for the ToolExecutionRunner sequential and parallel execution."""
 
 import json
 import threading
 import time
+from typing import Any
 
 import pytest
 
 from core.tool_output_store import ToolOutputStore
-from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
+from nodes.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -105,29 +106,26 @@ def registry() -> ToolRegistry:
     return reg
 
 
-def test_sequential_execution_updates_shared(registry: ToolRegistry):
-    node = ToolExecutionBatchNode(registry)
-    shared = {
-        "tool_plan": {
-            "tool_calls": [
-                {"key": "echo", "arguments": {"value": 1}},
-                {"key": "echo", "arguments": {"value": 2}},
-            ]
-        }
-    }
+def test_sequential_execution_updates_history(registry: ToolRegistry):
+    runner = ToolExecutionRunner(registry, max_parallel_workers=1)
+    history: list[dict[str, Any]] = []
 
-    action = node._run(shared)
+    results = runner.run(
+        [
+            {"key": "echo", "arguments": {"value": 1}},
+            {"key": "echo", "arguments": {"value": 2}},
+        ],
+        history=history,
+    )
 
-    assert action == "summarize"
-    assert len(shared["tool_results"]) == 2
-    first, second = shared["tool_results"]
+    assert len(results) == 2
+    first, second = results
     assert isinstance(first, ToolOutput)
     assert isinstance(second, ToolOutput)
     assert first.status == "success"
     assert second.status == "success"
     assert first.result and first.result.data["echo"] == {"value": 1}
     assert second.result and second.result.data["echo"] == {"value": 2}
-    history = shared["history"]
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
     assert history[-2]["content"] == ""
@@ -135,52 +133,46 @@ def test_sequential_execution_updates_shared(registry: ToolRegistry):
 
 
 def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
-    node = ToolExecutionBatchNode(registry, max_parallel_workers=2)
-    shared = {
-        "tool_plan": {
-            "tool_calls": [
-                {"key": "slow", "arguments": {"value": "a"}, "mode": "parallel"},
-                {"key": "slow", "arguments": {"value": "b"}, "mode": "parallel"},
-            ]
-        }
-    }
+    runner = ToolExecutionRunner(registry, max_parallel_workers=2)
+    history: list[dict[str, Any]] = []
 
-    action = node._run(shared)
+    results = runner.run(
+        [
+            {"key": "slow", "arguments": {"value": "a"}, "mode": "parallel"},
+            {"key": "slow", "arguments": {"value": "b"}, "mode": "parallel"},
+        ],
+        history=history,
+    )
 
-    assert action == "summarize"
-    results = shared["tool_results"]
     assert len(results) == 2
     statuses = {result.result.data["echo"]["value"] for result in results if result.result}
     assert statuses == {"a", "b"}
-    history = shared["history"]
     assert all(entry["role"] == "tool" for entry in history[-2:])
     assert all(entry["content"] == "" for entry in history[-2:])
 
 
 def test_history_preserves_falsy_output(registry: ToolRegistry):
-    node = ToolExecutionBatchNode(registry)
-    shared = {
-        "tool_plan": {
-            "tool_calls": [
-                {"key": "empty", "arguments": {}, "mode": "sequential"},
-            ]
-        }
-    }
+    runner = ToolExecutionRunner(registry)
+    history: list[dict[str, Any]] = []
 
-    node._run(shared)
+    runner.run(
+        [{"key": "empty", "arguments": {}, "mode": "sequential"}],
+        history=history,
+    )
 
-    history = shared["history"]
     assert history[-1]["content"] == ""
 
 
 def test_missing_tool_returns_error(registry: ToolRegistry):
-    node = ToolExecutionBatchNode(registry)
-    shared = {"tool_plan": {"tool_calls": [{"key": "missing", "arguments": {}, "mode": "sequential"}]}}
+    runner = ToolExecutionRunner(registry)
+    history: list[dict[str, Any]] = []
 
-    action = node._run(shared)
+    results = runner.run(
+        [{"key": "missing", "arguments": {}, "mode": "sequential"}],
+        history=history,
+    )
 
-    assert action == "summarize"
-    result = shared["tool_results"][0]
+    result = results[0]
     assert isinstance(result, ToolOutput)
     assert result.status == "error"
     assert result.error and "missing" in result.error.lower()
@@ -189,16 +181,17 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
 def test_truncates_long_tool_output_and_records_store():
     registry = ToolRegistry()
     registry.register(_LongOutputTool(), key="long")
-    node = ToolExecutionBatchNode(registry)
     messages: list[str] = []
     store = ToolOutputStore(max_entries=5)
-    shared = {
-        "tool_plan": {"tool_calls": [{"key": "long", "arguments": {}}]},
-        "output_callback": messages.append,
-        "tool_output_store": store,
-    }
+    runner = ToolExecutionRunner(registry)
+    history: list[dict[str, Any]] = []
 
-    node._run(shared)
+    runner.run(
+        [{"key": "long", "arguments": {}}],
+        history=history,
+        output_callback=messages.append,
+        store=store,
+    )
 
     tool_messages = [msg for msg in messages if msg.startswith("[tool]")]
     preview_messages = [msg for msg in messages if msg.startswith("[tool-output]")]
@@ -219,12 +212,11 @@ def test_default_timeout_applies_to_bash_when_missing_argument():
     registry = ToolRegistry()
     bash_tool = _TimeoutAwareTool()
     registry.register(bash_tool, key="bash")
-    node = ToolExecutionBatchNode(registry, default_timeout_seconds=42)
-    shared = {
-        "tool_plan": {"tool_calls": [{"key": "bash", "arguments": {"command": "echo ok"}}]},
-    }
-
-    node._run(shared)
+    runner = ToolExecutionRunner(registry, default_timeout_seconds=42)
+    runner.run(
+        [{"key": "bash", "arguments": {"command": "echo ok"}}],
+        history=[],
+    )
 
     assert bash_tool.calls, "expected the tool to be invoked"
     call_kwargs = bash_tool.calls[0]
@@ -235,12 +227,11 @@ def test_existing_timeout_is_preserved():
     registry = ToolRegistry()
     bash_tool = _TimeoutAwareTool()
     registry.register(bash_tool, key="bash")
-    node = ToolExecutionBatchNode(registry, default_timeout_seconds=99)
-    shared = {
-        "tool_plan": {"tool_calls": [{"key": "bash", "arguments": {"command": "echo ok", "timeout": 10}}]},
-    }
-
-    node._run(shared)
+    runner = ToolExecutionRunner(registry, default_timeout_seconds=99)
+    runner.run(
+        [{"key": "bash", "arguments": {"command": "echo ok", "timeout": 10}}],
+        history=[],
+    )
 
     call_kwargs = bash_tool.calls[0]
     assert call_kwargs.get("timeout") == 10

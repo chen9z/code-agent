@@ -1,4 +1,4 @@
-"""Code Agent flow and CLI orchestrator built on the Flow/Node runtime."""
+"""Code Agent orchestration without the legacy Flow/Node runtime."""
 
 from __future__ import annotations
 
@@ -6,14 +6,16 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
-from __init__ import Flow, Node
 from cli.code_agent_cli import (
     run_cli_main as _run_cli_main,
     run_code_agent_cli as _run_code_agent_cli,
     run_code_agent_once as _run_code_agent_once,
 )
-from cli.rich_output import preview_payload as _preview_payload, \
-    stringify_payload as _stringify_payload
+from cli.rich_output import (
+    create_rich_output,
+    preview_payload as _preview_payload,
+    stringify_payload as _stringify_payload,
+)
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
 from core.prompt import (
@@ -23,7 +25,7 @@ from core.prompt import (
     compose_system_prompt,
 )
 from core.tool_output_store import ToolOutputStore
-from nodes.tool_execution import ToolExecutionBatchNode, ToolOutput
+from nodes.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.registry import ToolRegistry, create_default_registry
 
 if TYPE_CHECKING:
@@ -44,61 +46,48 @@ def build_code_agent_system_prompt(
     return compose_system_prompt(base_prompt, extra_sections=sections, environment=environment)
 
 
-def _emit(shared: Dict[str, Any], message: str) -> None:
-    callback = shared.get("output_callback")
-    if callable(callback):
-        callback(message)
+def _emit(output_callback: Optional[Callable[[str], None]], message: str) -> None:
+    if callable(output_callback):
+        output_callback(message)
 
 
-class ConversationContextNode(Node):
-    """Initialises conversation history and appends the latest user input."""
+def _prepare_history(
+    existing_history: Optional[Iterable[Mapping[str, Any]]],
+    system_prompt: str,
+    user_input: str,
+) -> List[Dict[str, Any]]:
+    history = [dict(message) for message in (existing_history or [])]
+    if not history:
+        history = [{"role": "system", "content": system_prompt}]
+    elif history[0].get("role") != "system":
+        history.insert(0, {"role": "system", "content": system_prompt})
+    else:
+        history[0] = {"role": "system", "content": system_prompt}
 
-    def __init__(self, system_prompt: str = _BASE_SYSTEM_PROMPT) -> None:
-        super().__init__()
-        self.system_prompt = system_prompt
+    if user_input:
+        history.append({"role": "user", "content": user_input})
 
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        history = list(shared.get("history") or self.params.get("history") or [])
-        if not history:
-            history = [{"role": "system", "content": self.system_prompt}]
-        elif history[0].get("role") != "system":
-            history.insert(0, {"role": "system", "content": self.system_prompt})
-
-        user_input = self.params.get("user_input") or shared.get("user_input")
-        if user_input:
-            history.append({"role": "user", "content": str(user_input)})
-        # Drop any additional 'system' messages beyond the first to reduce prompt injection surface.
-        if history:
-            filtered = [history[0]] + [m for m in history[1:] if m.get("role") != "system"]
-        else:
-            filtered = history
-        shared["history"] = filtered
-        return {"has_user_input": bool(user_input)}
-
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> str:
-        user_input = shared.get("user_input")
-        if user_input:
-            _emit(shared, f"[user] {user_input}")
-        return "plan"
+    if history:
+        filtered = [history[0]] + [m for m in history[1:] if m.get("role") != "system"]
+    else:
+        filtered = history
+    return filtered
 
 
-class ToolPlanningNode(Node):
+class ToolPlanner:
     """Uses the LLM to produce a tool execution plan."""
 
     def __init__(self, registry: ToolRegistry, model: str, llm_client=None) -> None:
-        super().__init__()
         self.registry = registry
         self.model = model
         self.llm = llm_client or get_default_llm_client()
 
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        history = list(shared.get("history") or [])
-        return {"history": history}
-
-    def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
-        history = prep_res["history"]
+    def plan(
+        self,
+        history: List[Dict[str, Any]],
+        output_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
         tools = list(self.registry.to_openai_tools())
-
         response = self.llm.create_with_tools(
             model=self.model,
             messages=history,
@@ -107,23 +96,14 @@ class ToolPlanningNode(Node):
         )
         plan = self._parse_tool_response(response)
         plan["raw_text"] = self._extract_raw_response(response)
-        return plan
 
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]) -> str:
-        shared["tool_plan"] = {
-            "tool_calls": exec_res.get("tool_calls", []),
-            "final_response": exec_res.get("final_response"),
-            "thoughts": exec_res.get("thoughts"),
-            "raw_text": exec_res.get("raw_text"),
-        }
-        history = shared.setdefault("history", [])
         assistant_message: Dict[str, Any] = {
             "role": "assistant",
-            "content": exec_res.get("thoughts")
-                       or f"Tool plan: {json.dumps(exec_res.get('tool_calls', []), ensure_ascii=False)}",
+            "content": plan.get("thoughts")
+            or f"Tool plan: {json.dumps(plan.get(tool_calls, []), ensure_ascii=False)}",
         }
 
-        tool_calls = exec_res.get("tool_calls") or []
+        tool_calls = plan.get("tool_calls") or []
         if tool_calls:
             assistant_message["tool_calls"] = [
                 {
@@ -140,7 +120,7 @@ class ToolPlanningNode(Node):
         history.append(assistant_message)
         thoughts = assistant_message.get("content")
         if thoughts:
-            _emit(shared, f"[assistant:planner] {thoughts}")
+            _emit(output_callback, f"[assistant:planner] {thoughts}")
         for call in tool_calls:
             name = call.get("key")
             if not name:
@@ -149,30 +129,33 @@ class ToolPlanningNode(Node):
             message_body = name
             if args_preview and args_preview not in {"{}", "null"}:
                 message_body += f" | args: {args_preview}"
-            _emit(shared, f"[plan] {message_body}")
-        return "execute" if tool_calls else "summarize"
+            _emit(output_callback, f"[plan] {message_body}")
+        return plan
 
-    def _parse_tool_response(self, response: Any) -> Dict[str, Any]:
-        message = self._extract_message(response)
+    @staticmethod
+    def _parse_tool_response(response: Any) -> Dict[str, Any]:
+        message = ToolPlanner._extract_message(response)
         if not message:
             return {"tool_calls": [], "final_response": None, "thoughts": None}
 
-        tool_calls = self._extract_tool_calls(message)
-        content_text = self._message_content_to_str(self._get_attr(message, "content"))
+        tool_calls = ToolPlanner._extract_tool_calls(message)
+        content_text = ToolPlanner._message_content_to_str(
+            ToolPlanner._get_attr(message, "content")
+        )
 
         if tool_calls:
             normalized_calls: List[Dict[str, Any]] = []
             for idx, call in enumerate(tool_calls):
-                function = self._get_attr(call, "function", {})
-                name = self._get_attr(function, "name")
-                arguments_str = self._get_attr(function, "arguments", "{}")
+                function = ToolPlanner._get_attr(call, "function", {})
+                name = ToolPlanner._get_attr(function, "name")
+                arguments_str = ToolPlanner._get_attr(function, "arguments", "{}")
                 try:
                     arguments = json.loads(arguments_str) if arguments_str else {}
                 except json.JSONDecodeError:
                     arguments = {}
                 normalized_calls.append(
                     {
-                        "id": self._get_attr(call, "id", f"call-{idx}"),
+                        "id": ToolPlanner._get_attr(call, "id", f"call-{idx}"),
                         "key": str(name) if name else "",
                         "arguments": arguments,
                     }
@@ -188,8 +171,6 @@ class ToolPlanningNode(Node):
             "final_response": content_text,
             "thoughts": content_text,
         }
-
-    # JSON-plan fallback removed
 
     @staticmethod
     def _extract_message(response: Any) -> Any:
@@ -209,7 +190,7 @@ class ToolPlanningNode(Node):
 
     @staticmethod
     def _extract_tool_calls(message: Any) -> List[Any]:
-        tool_calls = ToolPlanningNode._get_attr(message, "tool_calls")
+        tool_calls = ToolPlanner._get_attr(message, "tool_calls")
         if tool_calls is None:
             return []
         if isinstance(tool_calls, list):
@@ -252,27 +233,22 @@ class ToolPlanningNode(Node):
         return getattr(obj, attr, default)
 
 
-class SummaryNode(Node):
+class SummaryBuilder:
     """Creates the final natural language response using the LLM."""
 
     def __init__(self, model: str, llm_client=None, system_prompt: str = _BASE_SYSTEM_PROMPT) -> None:
-        super().__init__()
         self.model = model
         self.llm = llm_client or get_default_llm_client()
         self.system_prompt = system_prompt
 
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "history": list(shared.get("history") or []),
-            "tool_results": list(shared.get("tool_results") or []),
-            "tool_plan": shared.get("tool_plan") or {},
-        }
-
-    def exec(self, prep_res: Dict[str, Any]) -> str:
-        history = self._trim_history(prep_res["history"])
-        tool_results = prep_res["tool_results"]
-        plan = prep_res["tool_plan"]
-
+    def summarize(
+        self,
+        history: List[Dict[str, Any]],
+        tool_results: List[Any],
+        tool_plan: Mapping[str, Any],
+        output_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        trimmed_history = self._trim_history(history)
         results_summary_lines: List[str] = []
         for result in tool_results:
             if isinstance(result, ToolOutput):
@@ -302,25 +278,36 @@ class SummaryNode(Node):
         if not results_summary_lines:
             results_summary_lines.append("No tool results were generated.")
 
-        plan_final = plan.get("final_response")
+        plan_final = tool_plan.get("final_response") if isinstance(tool_plan, Mapping) else None
         summary_prompt = (
-                f"{_SUMMARY_INSTRUCTIONS}\n\n"
-                f"Latest user request:\n{self._latest_user_content(history)}\n\n"
-                f"Tool outcomes:\n- " + "\n- ".join(results_summary_lines)
+            f"{_SUMMARY_INSTRUCTIONS}\n\n"
+            f"Latest user request:\n{self._latest_user_content(history)}\n\n"
+            f"Tool outcomes:\n- " + "\n- ".join(results_summary_lines)
         )
         if plan_final:
             summary_prompt += f"\n\nPlanner suggestion:\n{plan_final}"
 
-        messages = self._build_messages(history, summary_prompt)
+        messages = self._build_messages(trimmed_history, summary_prompt)
         chunks = list(self.llm.get_response(model=self.model, messages=messages, stream=False))
-        return "".join(chunks).strip()
+        final_response = "".join(chunks).strip()
 
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: str) -> str:
-        shared["final_response"] = exec_res
-        shared.setdefault("history", []).append({"role": "assistant", "content": exec_res})
-        if exec_res:
-            _emit(shared, f"[assistant] {exec_res}")
-        return "complete"
+        history.append({"role": "assistant", "content": final_response})
+        if final_response:
+            _emit(output_callback, f"[assistant] {final_response}")
+        return final_response
+
+    def _build_messages(
+        self,
+        history: List[Dict[str, Any]],
+        summary_prompt: str,
+    ) -> List[Dict[str, Any]]:
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
+        for message in history:
+            if message.get("role") == "system":
+                continue
+            messages.append(message)
+        messages.append({"role": "user", "content": summary_prompt})
+        return messages
 
     @staticmethod
     def _latest_user_content(history: List[Dict[str, Any]]) -> str:
@@ -330,8 +317,12 @@ class SummaryNode(Node):
         return "(no direct user input captured)"
 
     @staticmethod
-    def _trim_history(history: List[Dict[str, Any]], *, max_chars: int = 6000, max_messages: int = 12) -> List[
-        Dict[str, Any]]:
+    def _trim_history(
+        history: List[Dict[str, Any]],
+        *,
+        max_chars: int = 6000,
+        max_messages: int = 12,
+    ) -> List[Dict[str, Any]]:
         trimmed: List[Dict[str, Any]] = []
         remaining_chars = max_chars
         for message in reversed(history):
@@ -342,15 +333,14 @@ class SummaryNode(Node):
             if len(trimmed) >= max_messages or remaining_chars <= 0:
                 break
         trimmed.reverse()
-        return SummaryNode._ensure_history_coherence(history, trimmed)
+        return SummaryBuilder._ensure_history_coherence(history, trimmed)
 
     @staticmethod
     def _ensure_history_coherence(
-            full_history: List[Dict[str, Any]], trimmed: List[Dict[str, Any]]
+        full_history: List[Dict[str, Any]],
+        trimmed: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
         coherent = list(trimmed)
-
-        # Always ensure the latest user message is present.
         latest_user = None
         for message in reversed(full_history):
             if message.get("role") == "user":
@@ -359,23 +349,25 @@ class SummaryNode(Node):
         if latest_user and latest_user not in coherent:
             coherent.insert(0, latest_user)
 
-        # Ensure each tool message is preceded by the assistant tool-call declaration.
         idx = 0
         while idx < len(coherent):
             message = coherent[idx]
             if message.get("role") == "tool":
-                if not SummaryNode._has_preceding_tool_parent(coherent, idx, message.get("tool_call_id")):
-                    parent = SummaryNode._find_tool_parent(full_history, message.get("tool_call_id"))
+                if not SummaryBuilder._has_preceding_tool_parent(coherent, idx, message.get("tool_call_id")):
+                    parent = SummaryBuilder._find_tool_parent(full_history, message.get("tool_call_id"))
                     if parent and parent not in coherent:
                         coherent.insert(idx, parent)
                         idx += 1
                         continue
             idx += 1
-
         return coherent
 
     @staticmethod
-    def _has_preceding_tool_parent(messages: List[Dict[str, Any]], idx: int, tool_call_id: Any) -> bool:
+    def _has_preceding_tool_parent(
+        messages: List[Dict[str, Any]],
+        idx: int,
+        tool_call_id: Any,
+    ) -> bool:
         if idx <= 0:
             return False
         parent = messages[idx - 1]
@@ -387,7 +379,10 @@ class SummaryNode(Node):
         return False
 
     @staticmethod
-    def _find_tool_parent(full_history: List[Dict[str, Any]], tool_call_id: Any) -> Optional[Dict[str, Any]]:
+    def _find_tool_parent(
+        full_history: List[Dict[str, Any]],
+        tool_call_id: Any,
+    ) -> Optional[Dict[str, Any]]:
         if not tool_call_id:
             return None
         for message in reversed(full_history):
@@ -398,155 +393,24 @@ class SummaryNode(Node):
                     return message
         return None
 
-    def _build_messages(self, history: List[Dict[str, Any]], summary_prompt: str) -> List[Dict[str, Any]]:
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
-        for message in history:
-            if message.get("role") == "system":
-                continue
-            messages.append(message)
-        messages.append({"role": "user", "content": summary_prompt})
-        return messages
-
-
-class ToolAgentFlow(Flow):
-    """End-to-end agent flow orchestrating tool planning, execution, and summarisation."""
-
-    def __init__(
-            self,
-            registry: Optional[ToolRegistry] = None,
-            llm_client=None,
-            model: Optional[str] = None,
-            *,
-            max_iterations: int = 25,
-            system_prompt: Optional[str] = None,
-            default_tool_timeout: Optional[float] = None,
-    ) -> None:
-        cfg = get_config()
-        if model is None:
-            model = cfg.llm.model
-        resolved_timeout = (
-            float(default_tool_timeout)
-            if default_tool_timeout is not None and default_tool_timeout > 0
-            else float(cfg.cli.tool_timeout_seconds)
-        )
-        self.registry = registry or create_default_registry()
-        self.llm = llm_client or get_default_llm_client()
-        self.model = model
-        self.max_iterations = max_iterations if max_iterations >= 1 else 1
-
-        super().__init__()
-        resolved_prompt = system_prompt or _BASE_SYSTEM_PROMPT
-        self.context_node = ConversationContextNode(system_prompt=resolved_prompt)
-        self.planning_node = ToolPlanningNode(self.registry, model=self.model, llm_client=self.llm)
-        self.execution_node = ToolExecutionBatchNode(
-            self.registry,
-            default_timeout_seconds=resolved_timeout,
-        )
-        self.summary_node = SummaryNode(model=self.model, llm_client=self.llm, system_prompt=resolved_prompt)
-
-        self.execution_node.max_iterations = self.max_iterations
-
-        self.start(self.context_node)
-        self.context_node.next(self.planning_node, "plan")
-        self.planning_node.next(self.execution_node, "execute")
-        self.planning_node.next(self.summary_node, "summarize")
-        self.execution_node.next(self.planning_node, "plan")
-        self.execution_node.next(self.summary_node, "summarize")
-
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        history = self.params.get("history") or shared.get("history")
-        if history:
-            shared["history"] = list(history)
-        user_input = self.params.get("user_input") or shared.get("user_input")
-        if not user_input:
-            raise ValueError("user_input is required for the tool agent flow")
-        shared["user_input"] = user_input
-        output_callback = self.params.get("output_callback") or shared.get("output_callback")
-        if output_callback is not None:
-            shared["output_callback"] = output_callback
-        shared["tool_iterations_used"] = 0
-        return {}
-
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Any) -> Dict[str, Any]:
-        return {
-            "final_response": shared.get("final_response"),
-            "tool_results": shared.get("tool_results", []),
-            "tool_plan": shared.get("tool_plan"),
-            "history": shared.get("history", []),
-        }
-
-
-def create_tool_agent_flow(
-        registry: Optional[ToolRegistry] = None,
-        llm_client=None,
-        model: Optional[str] = None,
-        *,
-        max_iterations: int = 25,
-        system_prompt: Optional[str] = None,
-        default_tool_timeout: Optional[float] = None,
-) -> ToolAgentFlow:
-    return ToolAgentFlow(
-        registry=registry,
-        llm_client=llm_client,
-        model=model,
-        max_iterations=max_iterations,
-        system_prompt=system_prompt,
-        default_tool_timeout=default_tool_timeout,
-    )
-
-
-FlowFactory = Callable[[], ToolAgentFlow]
-
-
-def create_code_agent_flow(
-        *,
-        registry: Optional[ToolRegistry] = None,
-        llm_client: Any = None,
-        model: Optional[str] = None,
-        max_iterations: int = 25,
-        system_prompt: Optional[str] = None,
-        environment: Optional[Mapping[str, Any]] = None,
-        default_tool_timeout: Optional[float] = None,
-) -> ToolAgentFlow:
-    """Return a `ToolAgentFlow` instance with all default tools registered."""
-
-    resolved_prompt = system_prompt
-    if resolved_prompt is None:
-        resolved_prompt = build_code_agent_system_prompt(
-            base_prompt=_BASE_SYSTEM_PROMPT,
-            environment=environment,
-        )
-
-    flow = create_tool_agent_flow(
-        registry=registry,
-        llm_client=llm_client,
-        model=model,
-        max_iterations=max_iterations,
-        system_prompt=resolved_prompt,
-        default_tool_timeout=default_tool_timeout,
-    )
-    return flow
-
 
 class CodeAgentSession:
     """In-memory conversation session for the Code Agent CLI."""
 
     def __init__(
-            self,
-            *,
-            registry: Optional[ToolRegistry] = None,
-            llm_client: Any = None,
-            max_iterations: int = 25,
-            flow_factory: Optional[FlowFactory] = None,
-            system_prompt: Optional[str] = None,
-            environment: Optional[Mapping[str, Any]] = None,
-            workspace: Optional[str | Path] = None,
+        self,
+        *,
+        registry: Optional[ToolRegistry] = None,
+        llm_client: Any = None,
+        max_iterations: int = 25,
+        system_prompt: Optional[str] = None,
+        environment: Optional[Mapping[str, Any]] = None,
+        workspace: Optional[str | Path] = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
         self.registry = registry or create_default_registry(project_root=self.workspace)
-        self.llm_client = llm_client
+        self.llm_client = llm_client or get_default_llm_client()
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
-        self.system_prompt = system_prompt
         if environment is not None:
             self.environment = environment
         elif self.workspace is not None:
@@ -556,60 +420,84 @@ class CodeAgentSession:
         cfg = get_config()
         default_model = cfg.llm.model
         self.tool_timeout_seconds = float(cfg.cli.tool_timeout_seconds)
-        if flow_factory is not None:
-            self._flow_factory = flow_factory
-        else:
-            self._flow_factory = lambda: create_code_agent_flow(
-                registry=self.registry,
-                llm_client=self.llm_client,
-                max_iterations=self.max_iterations,
-                model=default_model,
-                system_prompt=self.system_prompt,
+        if system_prompt is None:
+            resolved_prompt = build_code_agent_system_prompt(
+                base_prompt=_BASE_SYSTEM_PROMPT,
                 environment=self.environment,
-                default_tool_timeout=self.tool_timeout_seconds,
             )
+        else:
+            resolved_prompt = system_prompt
+        self.system_prompt = resolved_prompt
+        self.planner = ToolPlanner(self.registry, model=default_model, llm_client=self.llm_client)
+        self.executor = ToolExecutionRunner(
+            self.registry,
+            default_timeout_seconds=self.tool_timeout_seconds,
+        )
+        self.summarizer = SummaryBuilder(
+            model=default_model,
+            llm_client=self.llm_client,
+            system_prompt=self.system_prompt,
+        )
         self.history: List[Dict[str, Any]] = []
         self.tool_output_store = ToolOutputStore()
 
     def run_turn(
-            self,
-            user_input: str,
-            *,
-            output_callback: Optional[Callable[[str], None]] = None,
+        self,
+        user_input: str,
+        *,
+        output_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
-        flow = self._flow_factory()
-        params: Dict[str, Any] = {"user_input": user_input.strip()}
-        if self.history:
-            params["history"] = list(self.history)
-        if output_callback is not None:
-            params["output_callback"] = output_callback
-        flow.set_params(params)
-        shared: Dict[str, Any] = {}
-        if output_callback is not None:
-            shared["output_callback"] = output_callback
-        shared["tool_output_store"] = self.tool_output_store
-        shared["tool_timeout_seconds"] = self.tool_timeout_seconds
-        result = flow._run(shared)
-        updated = result.get("history")
-        if isinstance(updated, list):
-            self.history = [self._normalize_message(msg) for msg in updated if self._is_valid_message(msg)]
-        else:
-            self.history.extend(
-                [
-                    {"role": "user", "content": user_input.strip()},
-                    {"role": "assistant", "content": result.get("final_response", "")},
-                ]
+        trimmed_input = user_input.strip()
+        history = _prepare_history(self.history, self.system_prompt, trimmed_input)
+        _emit(output_callback, f"[user] {trimmed_input}")
+
+        tool_results: List[ToolOutput] = []
+        tool_plan: Dict[str, Any] = {}
+        iterations = 0
+
+        while True:
+            plan = self.planner.plan(history, output_callback)
+            tool_plan = plan
+            tool_calls = plan.get("tool_calls") or []
+            if not tool_calls:
+                break
+            outputs = self.executor.run(
+                tool_calls,
+                history=history,
+                output_callback=output_callback,
+                store=self.tool_output_store,
+                timeout_override=self.tool_timeout_seconds,
             )
+            tool_results.extend(outputs)
+            iterations += 1
+            if iterations >= self.max_iterations:
+                break
+
+        final_response = self.summarizer.summarize(
+            history,
+            tool_results,
+            tool_plan,
+            output_callback,
+        )
+
+        result = {
+            "final_response": final_response,
+            "tool_results": list(tool_results),
+            "tool_plan": tool_plan,
+            "history": list(history),
+        }
+        self.history = [
+            self._normalize_message(msg) for msg in history if self._is_valid_message(msg)
+        ]
         return result
 
     def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
-        if seconds is None:
-            return
-        if seconds <= 0:
+        if seconds is None or seconds <= 0:
             return
         self.tool_timeout_seconds = float(seconds)
+        self.executor.set_default_timeout(self.tool_timeout_seconds)
 
     def get_tool_output_store(self) -> ToolOutputStore:
         return self.tool_output_store
@@ -677,3 +565,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+__all__ = [
+    "CodeAgentSession",
+    "build_code_agent_system_prompt",
+    "create_rich_output",
+    "run_code_agent_cli",
+    "run_code_agent_once",
+    "run_cli_main",
+]
