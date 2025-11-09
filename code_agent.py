@@ -102,7 +102,7 @@ class CodeAgentSession:
             self.registry,
             default_timeout_seconds=self.tool_timeout_seconds,
         )
-        self.history: List[Dict[str, Any]] = []
+        self.messages: List[Dict[str, Any]] = []
 
     def run_turn(
         self,
@@ -112,7 +112,7 @@ class CodeAgentSession:
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
-        messages = _prepare_messages(self.history, self.system_prompt, user_input)
+        messages = _prepare_messages(self.messages, self.system_prompt, user_input)
         _emit(output_callback, create_emit_event("user", user_input))
 
         tool_results: List[ToolOutput] = []
@@ -121,12 +121,12 @@ class CodeAgentSession:
         while True:
             response = self._call_llm(messages, output_callback)
             tool_plan = response
-            tool_calls = response.get("tool_calls") or []
+            tool_calls = response.get("tool_calls")
             if not tool_calls:
                 break
             outputs = self.executor.run(
                 tool_calls,
-                history=messages,
+                messages=messages,
                 output_callback=output_callback,
                 timeout_override=self.tool_timeout_seconds,
             )
@@ -135,39 +135,38 @@ class CodeAgentSession:
             if iterations >= self.max_iterations:
                 break
 
-        final_response: Optional[str] = None
-        if final_response:
-            messages.append({"role": "assistant", "content": final_response})
-            _emit(output_callback, create_emit_event("assistant", final_response))
+        final_content: Optional[str] = None
+        if tool_plan and not (tool_plan.get("tool_calls") or []):
+            final_content = tool_plan.get("content")
+            if final_content:
+                _emit(output_callback, create_emit_event("assistant", final_content))
 
         result = {
-            "final_response": final_response,
+            "content": final_content,
             "tool_results": list(tool_results),
             "tool_plan": tool_plan,
             "history": list(messages),
         }
-        self.history = [msg for msg in messages if self._is_valid_message(msg)]
+        self.messages = [msg for msg in messages if self._is_valid_message(msg)]
         return result
 
     def _call_llm(
         self,
-        history: List[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
         output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         tools = list(self.registry.to_openai_tools())
         response = self.llm_client.create_with_tools(
             model=self.model,
-            messages=history,
+            messages=messages,
             tools=tools,
             parallel_tool_calls=True,
         )
         plan = self._parse_tool_response(response)
-        plan["raw_text"] = self._extract_raw_response(response)
 
         assistant_message: Dict[str, Any] = {
             "role": "assistant",
-            "content": plan.get("thoughts")
-            or f"Tool plan: {json.dumps(plan.get(tool_calls, []), ensure_ascii=False)}",
+            "content": plan.get("content")
         }
 
         tool_calls = plan.get("tool_calls") or []
@@ -184,14 +183,14 @@ class CodeAgentSession:
                 for call in tool_calls
                 if call.get("key")
             ]
-        history.append(assistant_message)
-        thoughts = assistant_message.get("content")
-        if thoughts:
+        messages.append(assistant_message)
+        assistant_content = assistant_message.get("content")
+        if assistant_content:
             _emit(
                 output_callback,
                 create_emit_event(
                     "assistant",
-                    thoughts,
+                    assistant_content,
                     payload={"display": [("phase", "planner")]},
                 ),
             )
@@ -234,7 +233,7 @@ class CodeAgentSession:
     def _parse_tool_response(response: Any) -> Dict[str, Any]:
         message = CodeAgentSession._extract_message(response)
         if not message:
-            return {"tool_calls": [], "final_response": None, "thoughts": None}
+            return {"tool_calls": [], "content": None}
 
         tool_calls = CodeAgentSession._extract_tool_calls(message)
         content_text = CodeAgentSession._message_content_to_str(
@@ -260,14 +259,12 @@ class CodeAgentSession:
                 )
             return {
                 "tool_calls": [c for c in normalized_calls if c["key"]],
-                "final_response": None,
-                "thoughts": content_text,
+                "content": content_text,
             }
 
         return {
             "tool_calls": [],
-            "final_response": content_text,
-            "thoughts": content_text,
+            "content": content_text,
         }
 
     @staticmethod
@@ -310,19 +307,6 @@ class CodeAgentSession:
                     parts.append(str(item))
             return "".join(parts).strip()
         return str(content)
-
-    @staticmethod
-    def _extract_raw_response(response: Any) -> str:
-        try:
-            if hasattr(response, "model_dump_json"):
-                return response.model_dump_json()
-            if hasattr(response, "model_dump"):
-                return json.dumps(response.model_dump(), ensure_ascii=False)
-            if isinstance(response, dict):
-                return json.dumps(response, ensure_ascii=False)
-            return str(response)
-        except Exception:  # pragma: no cover - diagnostics only
-            return str(response)
 
     @staticmethod
     def _get_attr(obj: Any, attr: str, default: Any = None) -> Any:

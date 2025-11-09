@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, P
 
 from rich.console import Console
 
+from core.emission import OutputCallback, create_emit_event
 from ui.rich_output import create_rich_output, stringify_payload
 
 
@@ -18,7 +19,7 @@ class AgentSessionProtocol(Protocol):
         self,
         user_input: str,
         *,
-        output_callback: Optional[Callable[[str], None]] = None,
+        output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -26,7 +27,7 @@ class AgentSessionProtocol(Protocol):
 def _handle_cli_command(
     command: str,
     session: AgentSessionProtocol,
-    output_callback: Callable[[str], None],
+    output_callback: OutputCallback,
 ) -> bool:
     normalized = command.strip()
     if normalized in {":help", ":?"}:
@@ -35,8 +36,13 @@ def _handle_cli_command(
     return False
 
 
-def _emit_help(output_callback: Callable[[str], None]) -> None:
-    output_callback("[system] Commands: :help to show this message; type exit to quit.")
+def _emit_help(output_callback: OutputCallback) -> None:
+    output_callback(
+        create_emit_event(
+            "system",
+            "Commands: :help to show this message; type exit to quit.",
+        )
+    )
 
 
 def run_code_agent_cli(
@@ -44,9 +50,9 @@ def run_code_agent_cli(
     session: Optional[AgentSessionProtocol] = None,
     session_factory: Optional[Callable[[], AgentSessionProtocol]] = None,
     input_iter: Optional[Iterable[str]] = None,
-    output_callback: Optional[Callable[[str], None]] = None,
+    output_callback: Optional[OutputCallback] = None,
     console: Optional[Console] = None,
-    emit_result: Optional[Callable[[Mapping[str, Any], Callable[[str], None]], None]] = None,
+    emit_result: Optional[Callable[[Mapping[str, Any], OutputCallback], None]] = None,
 ) -> int:
     active_session = _resolve_session(session, session_factory)
     active_console = console or Console()
@@ -58,7 +64,7 @@ def run_code_agent_cli(
         iterator = _stdin_iterator(active_console)
 
     emit_hook = emit_result or _emit_result
-    emitter("[system] Entering Code Agent. Type exit to quit.")
+    emitter(create_emit_event("system", "Entering Code Agent. Type exit to quit."))
     for raw in iterator:
         message = raw.strip()
         if not message:
@@ -75,7 +81,7 @@ def run_cli_main(
     argv: Optional[Sequence[str]] = None,
     *,
     session_factory: Callable[[], AgentSessionProtocol],
-    emit_result: Optional[Callable[[Mapping[str, Any], Callable[[str], None]], None]] = None,
+    emit_result: Optional[Callable[[Mapping[str, Any], OutputCallback], None]] = None,
 ) -> int:
     parser = _create_cli_parser()
     args = parser.parse_args(argv)
@@ -123,8 +129,12 @@ def _resolve_session(
     return session_factory()
 
 
-def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], None]) -> None:
-    final = result.get("final_response")
+def _emit_result(result: Mapping[str, Any], output_callback: OutputCallback) -> None:
+    final = result.get("content")
+    if not final:
+        tool_plan = result.get("tool_plan") or {}
+        if isinstance(tool_plan, Mapping):
+            final = tool_plan.get("content")
     if not final:
         return
 
@@ -140,7 +150,12 @@ def _emit_result(result: Mapping[str, Any], output_callback: Callable[[str], Non
             break
 
     if not already_emitted:
-        output_callback(f"[assistant] {stringify_payload(final)}")
+        output_callback(
+            create_emit_event(
+                "assistant",
+                stringify_payload(final),
+            )
+        )
 
 
 def _stdin_iterator(console: Optional[Console] = None) -> Iterator[str]:

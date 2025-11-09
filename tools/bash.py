@@ -2,15 +2,10 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
-import signal
 import subprocess
-import threading
-import time
 import uuid
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 from tools.base import BaseTool
 
@@ -48,7 +43,7 @@ def _split_complete_lines(buffer: str) -> tuple[List[str], str]:
         if newline_index == -1:
             break
         lines.append(remainder[:newline_index])
-        remainder = remainder[newline_index + 1 :]
+        remainder = remainder[newline_index + 1:]
     return lines, remainder
 
 
@@ -150,12 +145,6 @@ Usage notes:
                     "type": "number",
                     "description": "Optional timeout in milliseconds (max 600000)",
                 },
-                "description": {
-                    "type": "string",
-                    "description": (
-                        "Clear, concise description of what this command does in 5-10 words."
-                    ),
-                },
                 "run_in_background": {
                     "type": "boolean",
                     "description": (
@@ -167,12 +156,11 @@ Usage notes:
         }
 
     def execute(
-        self,
-        *,
-        command: str,
-        timeout: float | int | None = None,
-        description: str | None = None,
-        run_in_background: bool | None = None,
+            self,
+            *,
+            command: str,
+            timeout: float | int | None = None,
+            run_in_background: bool | None = None,
     ) -> Dict[str, Any]:
         if not command:
             return {"error": "command must be a non-empty string", "command": command}
@@ -215,7 +203,6 @@ Usage notes:
                 "status": "running",
                 "result": "started",
                 "command": command,
-                "description": description,
             }
 
         try:
@@ -233,7 +220,6 @@ Usage notes:
                 "exit_code": completed.returncode,
                 "timed_out": False,
                 "command": command,
-                "description": description,
             }
         except subprocess.TimeoutExpired as exc:
             return {
@@ -242,7 +228,6 @@ Usage notes:
                 "exit_code": None,
                 "timed_out": True,
                 "command": command,
-                "description": description,
             }
 
 

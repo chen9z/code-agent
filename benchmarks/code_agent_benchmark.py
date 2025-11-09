@@ -31,7 +31,7 @@ class ScenarioResult:
     duration_sec: float
     tool_calls: int
     tools_used: List[str]
-    final_response: str
+    content: str
     transcript_path: Optional[str]
     validators: List[ValidatorResult]
 
@@ -90,7 +90,7 @@ def extract_tool_keys(tool_results: Optional[Sequence[Any]]) -> List[str]:
 def run_validators(
     validators: Sequence[Mapping[str, Any]],
     *,
-    final_response: str,
+    content: str,
     transcript: Sequence[str],
 ) -> List[ValidatorResult]:
     results: List[ValidatorResult] = []
@@ -99,14 +99,14 @@ def run_validators(
         name = validator.get("name") or f"validator_{idx}"
         if vtype == "contains":
             values = [str(item) for item in validator.get("values", [])]
-            missing = [value for value in values if value not in final_response]
+            missing = [value for value in values if value not in content]
             status = "pass" if not missing else "fail"
             results.append(
                 ValidatorResult(name=name, status=status, details={"missing": missing})
             )
         elif vtype == "regex":
             pattern = re.compile(str(validator.get("pattern")))
-            match = bool(pattern.search(final_response))
+            match = bool(pattern.search(content))
             status = "pass" if match else "fail"
             results.append(
                 ValidatorResult(name=name, status=status, details={"matched": match})
@@ -114,7 +114,7 @@ def run_validators(
         elif vtype == "regex_set":
             pattern = re.compile(str(validator.get("pattern")))
             expected = {str(item) for item in validator.get("expected", [])}
-            matches = {match if isinstance(match, str) else match[0] for match in pattern.findall(final_response)}
+            matches = {match if isinstance(match, str) else match[0] for match in pattern.findall(content)}
             ignore = {str(item) for item in validator.get("ignore", [])}
             matches -= ignore
             missing = sorted(expected - matches)
@@ -171,14 +171,14 @@ def run_scenario(
         result = session.run_turn(prompt, output_callback=transcript.append)
     duration = time.perf_counter() - start
 
-    final_response = str(result.get("final_response", ""))
+    content = str(result.get("content") or (result.get("tool_plan") or {}).get("content") or "")
     tool_results = result.get("tool_results") or []
     tool_calls = len(tool_results)
     tools_used = extract_tool_keys(tool_results)
 
     validators = run_validators(
         scenario.get("validators", []),
-        final_response=final_response,
+        content=content,
         transcript=transcript,
     )
     success = all(v.status == "pass" for v in validators)
@@ -190,7 +190,7 @@ def run_scenario(
         duration_sec=duration,
         tool_calls=tool_calls,
         tools_used=tools_used,
-        final_response=final_response,
+        content=content,
         transcript_path=transcript_path,
         validators=validators,
     )
@@ -208,7 +208,7 @@ def summarise(results: Sequence[ScenarioResult]) -> Dict[str, Any]:
                 "duration_sec": round(item.duration_sec, 3),
                 "tool_calls": item.tool_calls,
                 "tools_used": item.tools_used,
-                "final_response": item.final_response,
+                "content": item.content,
                 "transcript_path": item.transcript_path,
                 "validators": [
                     {

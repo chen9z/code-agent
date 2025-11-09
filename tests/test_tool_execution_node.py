@@ -114,7 +114,7 @@ def test_sequential_execution_updates_history(registry: ToolRegistry):
             {"key": "echo", "arguments": {"value": 1}},
             {"key": "echo", "arguments": {"value": 2}},
         ],
-        history=history,
+        messages=history,
     )
 
     assert len(results) == 2
@@ -140,7 +140,7 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
             {"key": "slow", "arguments": {"value": "a"}, "mode": "parallel"},
             {"key": "slow", "arguments": {"value": "b"}, "mode": "parallel"},
         ],
-        history=history,
+        messages=history,
     )
 
     assert len(results) == 2
@@ -156,7 +156,7 @@ def test_history_preserves_falsy_output(registry: ToolRegistry):
 
     runner.run(
         [{"key": "empty", "arguments": {}, "mode": "sequential"}],
-        history=history,
+        messages=history,
     )
 
     assert history[-1]["content"] == ""
@@ -168,7 +168,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
 
     results = runner.run(
         [{"key": "missing", "arguments": {}, "mode": "sequential"}],
-        history=history,
+        messages=history,
     )
 
     result = results[0]
@@ -186,7 +186,7 @@ def test_truncates_long_tool_output_and_emits_preview():
 
     runner.run(
         [{"key": "long", "arguments": {}}],
-        history=history,
+        messages=history,
         output_callback=messages.append,
     )
 
@@ -206,7 +206,7 @@ def test_default_timeout_applies_to_bash_when_missing_argument():
     runner = ToolExecutionRunner(registry, default_timeout_seconds=42)
     runner.run(
         [{"key": "bash", "arguments": {"command": "echo ok"}}],
-        history=[],
+        messages=[],
     )
 
     assert bash_tool.calls, "expected the tool to be invoked"
@@ -221,7 +221,7 @@ def test_existing_timeout_is_preserved():
     runner = ToolExecutionRunner(registry, default_timeout_seconds=99)
     runner.run(
         [{"key": "bash", "arguments": {"command": "echo ok", "timeout": 10}}],
-        history=[],
+        messages=[],
     )
 
     call_kwargs = bash_tool.calls[0]

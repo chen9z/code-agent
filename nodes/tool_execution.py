@@ -117,7 +117,7 @@ class ToolExecutionRunner:
         self,
         tool_calls: Iterable[Mapping[str, Any]],
         *,
-        history: List[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
         output_callback: Optional[OutputCallback] = None,
         timeout_override: Optional[float] = None,
     ) -> List[ToolOutput]:
@@ -130,7 +130,7 @@ class ToolExecutionRunner:
             return []
 
         results = self._run_parallel(calls)
-        self._record_results(results, history, output_callback)
+        self._record_results(results, messages, output_callback)
         return results
 
     def _record_results(
