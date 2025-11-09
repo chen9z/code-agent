@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+from core.emission import OutputCallback, OutputMessage, create_emit_event
 
 from tools.registry import ToolRegistry, ToolSpec
 
@@ -116,7 +118,7 @@ class ToolExecutionRunner:
         tool_calls: Iterable[Mapping[str, Any]],
         *,
         history: List[Dict[str, Any]],
-        output_callback: Optional[Callable[[str], None]] = None,
+        output_callback: Optional[OutputCallback] = None,
         timeout_override: Optional[float] = None,
     ) -> List[ToolOutput]:
         if timeout_override is not None and timeout_override > 0:
@@ -135,7 +137,7 @@ class ToolExecutionRunner:
         self,
         results: List[ToolOutput],
         history: List[Dict[str, Any]],
-        output_callback: Optional[Callable[[str], None]],
+        output_callback: Optional[OutputCallback],
     ) -> None:
         for result in results:
             key = result.key
@@ -180,14 +182,42 @@ class ToolExecutionRunner:
             )
 
             if not has_error:
-                message = f"{label} | status: {result.status}"
+                display = [("status", result.status)]
                 if arguments_preview:
-                    message += f" | args: {arguments_preview}"
+                    display.append(("args", arguments_preview))
                 if truncated_output:
-                    message += " | preview truncated"
-                _emit(output_callback, f"[tool] {message}")
+                    display.append(("note", "preview truncated"))
+                payload = {
+                    "tool": key,
+                    "tool_call_id": result.id,
+                    "arguments": result.arguments,
+                    "status": result.status,
+                    "truncated_output": truncated_output,
+                }
+                if display:
+                    payload["display"] = display
+                _emit(
+                    output_callback,
+                    create_emit_event(
+                        "tool",
+                        label,
+                        payload=payload,
+                    ),
+                )
                 if console_preview:
-                    _emit(output_callback, f"[tool-output] {console_preview}")
+                    _emit(
+                        output_callback,
+                        create_emit_event(
+                            "tool-output",
+                            console_preview,
+                            payload={
+                                "tool": key,
+                                "tool_call_id": result.id,
+                                "preview": console_preview,
+                                "full_output": full_output_text,
+                            },
+                        ),
+                    )
             else:
                 error_preview_text, trunc_err = _truncate_text(
                     str(result.error or ""),
@@ -195,14 +225,40 @@ class ToolExecutionRunner:
                     max_lines=MAX_ERROR_PREVIEW_LINES,
                 )
                 error_inline = error_preview_text.replace("\n", " ")
-                message = f"{label} | status: error"
+                display = [("status", "error")]
                 if arguments_preview:
-                    message += f" | args: {arguments_preview}"
+                    display.append(("args", arguments_preview))
                 if error_inline:
-                    message += f" | error: {error_inline}"
-                _emit(output_callback, f"[tool] {message}")
+                    display.append(("error", error_inline))
+                payload = {
+                    "tool": key,
+                    "tool_call_id": result.id,
+                    "arguments": result.arguments,
+                    "error": result.error,
+                }
+                if display:
+                    payload["display"] = display
+                _emit(
+                    output_callback,
+                    create_emit_event(
+                        "tool",
+                        label,
+                        payload=payload,
+                    ),
+                )
                 if trunc_err:
-                    _emit(output_callback, f"[tool-output] {error_preview_text}")
+                    _emit(
+                        output_callback,
+                        create_emit_event(
+                            "tool-output",
+                            error_preview_text,
+                            payload={
+                                "tool": key,
+                                "tool_call_id": result.id,
+                                "error": result.error,
+                            },
+                        ),
+                    )
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
@@ -293,7 +349,7 @@ def _preview_payload(value: Any, limit: int) -> str:
     return f"{text[: limit - 3]}..."
 
 
-def _emit(output_callback: Optional[Callable[[str], None]], message: str) -> None:
+def _emit(output_callback: Optional[OutputCallback], message: OutputMessage) -> None:
     if callable(output_callback):
         output_callback(message)
 

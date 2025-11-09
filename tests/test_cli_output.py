@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from rich.console import Console
 
+from core.emission import create_emit_event
 from cli import _handle_cli_command
 from ui.rich_output import create_rich_output
 
@@ -21,6 +22,25 @@ def test_rich_output_renders_tool_output_tag():
 
     rendered = console.export_text()
     assert "preview text" in rendered
+
+
+def test_rich_output_handles_structured_events():
+    console = Console(record=True)
+    emit = create_rich_output(console)
+
+    event = create_emit_event(
+        "tool",
+        "Echo",
+        payload={
+            "hello": "world",
+            "display": [("status", "success"), ("args", "value: 1")],
+        },
+    )
+    emit(event)
+
+    rendered = console.export_text()
+    assert "Echo" in rendered
+    assert "args" in rendered
 
 
 

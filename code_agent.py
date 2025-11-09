@@ -10,6 +10,7 @@ from cli import (
     run_cli_main as _run_cli_main,
     run_code_agent_cli as _run_code_agent_cli,
 )
+from core.emission import OutputCallback, OutputMessage, create_emit_event
 from ui.rich_output import preview_payload as _preview_payload
 from clients.llm import get_default_llm_client
 from configs.manager import get_config
@@ -39,7 +40,7 @@ def build_code_agent_system_prompt(
     return compose_system_prompt(base_prompt, extra_sections=sections, environment=environment)
 
 
-def _emit(output_callback: Optional[Callable[[str], None]], message: str) -> None:
+def _emit(output_callback: Optional[OutputCallback], message: OutputMessage) -> None:
     if callable(output_callback):
         output_callback(message)
 
@@ -107,12 +108,12 @@ class CodeAgentSession:
         self,
         user_input: str,
         *,
-        output_callback: Optional[Callable[[str], None]] = None,
+        output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
         messages = _prepare_messages(self.history, self.system_prompt, user_input)
-        _emit(output_callback, f"[user] {user_input}")
+        _emit(output_callback, create_emit_event("user", user_input))
 
         tool_results: List[ToolOutput] = []
         iterations = 0
@@ -137,7 +138,7 @@ class CodeAgentSession:
         final_response: Optional[str] = None
         if final_response:
             messages.append({"role": "assistant", "content": final_response})
-            _emit(output_callback, f"[assistant] {final_response}")
+            _emit(output_callback, create_emit_event("assistant", final_response))
 
         result = {
             "final_response": final_response,
@@ -151,7 +152,7 @@ class CodeAgentSession:
     def _call_llm(
         self,
         history: List[Dict[str, Any]],
-        output_callback: Optional[Callable[[str], None]] = None,
+        output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         tools = list(self.registry.to_openai_tools())
         response = self.llm_client.create_with_tools(
@@ -186,16 +187,37 @@ class CodeAgentSession:
         history.append(assistant_message)
         thoughts = assistant_message.get("content")
         if thoughts:
-            _emit(output_callback, f"[assistant:planner] {thoughts}")
+            _emit(
+                output_callback,
+                create_emit_event(
+                    "assistant",
+                    thoughts,
+                    payload={"display": [("phase", "planner")]},
+                ),
+            )
         for call in tool_calls:
             name = call.get("key")
             if not name:
                 continue
             args_preview = _preview_payload(call.get("arguments") or {}, 180)
-            message_body = name
+            payload = {
+                "tool": name,
+                "arguments": call.get("arguments") or {},
+                "call_id": call.get("id"),
+            }
+            display: list[tuple[str, Optional[str]]] = []
             if args_preview and args_preview not in {"{}", "null"}:
-                message_body += f" | args: {args_preview}"
-            _emit(output_callback, f"[plan] {message_body}")
+                display.append(("args", args_preview))
+            if display:
+                payload["display"] = display
+            _emit(
+                output_callback,
+                create_emit_event(
+                    "plan",
+                    name,
+                    payload=payload,
+                ),
+            )
         return plan
 
     def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
@@ -314,7 +336,7 @@ def run_code_agent_cli(
         session: Optional["CodeAgentSession"] = None,
         session_factory: Optional[Callable[[], "CodeAgentSession"]] = None,
         input_iter: Optional[Iterable[str]] = None,
-        output_callback: Optional[Callable[[str], None]] = None,
+        output_callback: Optional[OutputCallback] = None,
         console: Optional["Console"] = None,
 ) -> int:
     factory = session_factory or (lambda: CodeAgentSession())

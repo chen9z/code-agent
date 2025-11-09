@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Mapping, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from rich.console import Console
 from rich.text import Text
 
+from core.emission import EmitEvent, OutputCallback
 _RICH_STYLE_MAP = {
     "assistant": "white",
     "assistant:planner": "white",
@@ -41,7 +42,7 @@ def create_rich_output(
     console: Optional[Console] = None,
     *,
     stringify: Callable[[Any], str] = stringify_payload,
-) -> Callable[[Any], None]:
+) -> OutputCallback:
     """Return a callback that renders agent events using a Rich console."""
 
     active_console = console or Console()
@@ -49,11 +50,26 @@ def create_rich_output(
     def emit(message: Any) -> None:
         if message is None:
             return
-        if isinstance(message, Mapping):
-            text = stringify(message)
+        display_entries: List[Tuple[str, Optional[str]]] = []
+        if isinstance(message, EmitEvent):
+            tag = message.kind or None
+            body = message.body
+            text = str(message)
+            display_entries = list(message.display)
         else:
-            text = message if isinstance(message, str) else stringify(message)
-        tag, body = _split_message_tag(text)
+            if isinstance(message, Mapping):
+                text = stringify(message)
+            else:
+                text = message if isinstance(message, str) else stringify(message)
+            tag, body = _split_message_tag(text)
+            if tag is not None and not display_entries and tag.lower() == "tool":
+                body, display_entries = _parse_structured_body(body)
+        if isinstance(message, EmitEvent):
+            tag = message.kind or tag
+            body = message.body if message.body else body
+            if not display_entries and tag and tag.lower() == "tool":
+                body, display_entries = _parse_structured_body(body)
+        tag = tag or None
         if tag is None:
             active_console.print(Text(str(text)))
             active_console.print()
@@ -83,11 +99,13 @@ def create_rich_output(
             return
 
         if normalized_tag == "tool":
-            header, metadata = _parse_structured_body(body)
-            status = _extract_metadata_value(metadata, "status") or "success"
+            header = body
+            if not display_entries:
+                header, display_entries = _parse_structured_body(body)
+            status = _extract_display_value(display_entries, "status") or "success"
             bullet_style = "green" if status.lower() == "success" else "red"
             header_style = "bold green" if status.lower() == "success" else "bold red"
-            _render_bullet(active_console, header, metadata, bullet_style, header_style)
+            _render_bullet(active_console, header, display_entries, bullet_style, header_style)
             return
 
         if normalized_tag == "tool-output":
@@ -117,21 +135,22 @@ def _split_message_tag(message: str) -> tuple[Optional[str], str]:
     return tag, body
 
 
-def _parse_structured_body(body: str) -> tuple[str, List[tuple[str, str]]]:
+def _parse_structured_body(body: str) -> tuple[str, List[tuple[str, Optional[str]]]]:
     parts = [segment.strip() for segment in body.split("|") if segment.strip()]
     if not parts:
         return body, []
     header = parts[0]
-    metadata: List[tuple[str, str]] = []
+    metadata: List[tuple[str, Optional[str]]] = []
     for segment in parts[1:]:
         if ":" not in segment:
+            metadata.append((segment.strip(), None))
             continue
         key, value = segment.split(":", 1)
         metadata.append((key.strip(), value.strip()))
     return header, metadata
 
 
-def _extract_metadata_value(metadata: List[tuple[str, str]], key: str) -> Optional[str]:
+def _extract_display_value(metadata: List[tuple[str, Optional[str]]], key: str) -> Optional[str]:
     for meta_key, value in metadata:
         if meta_key.lower() == key.lower():
             return value
@@ -141,7 +160,7 @@ def _extract_metadata_value(metadata: List[tuple[str, str]], key: str) -> Option
 def _render_bullet(
     console: Console,
     header: str,
-    metadata: List[tuple[str, str]],
+    metadata: Sequence[tuple[str, Optional[str]]],
     bullet_style: str,
     header_style: str,
 ) -> None:
@@ -149,7 +168,7 @@ def _render_bullet(
     header_text = Text(header, style=header_style)
     console.print(Text.assemble(bullet, header_text))
 
-    meta_lines = _format_metadata(metadata)
+    meta_lines = _format_display(metadata)
     for idx, line in enumerate(meta_lines):
         prefix = Text("└ " if idx == 0 else "  ", style="dim")
         console.print(Text.assemble(prefix, line))
@@ -157,12 +176,12 @@ def _render_bullet(
     console.print()
 
 
-def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
+def _format_display(metadata: Sequence[tuple[str, Optional[str]]]) -> List[Text]:
     lines: List[Text] = []
     for key, value in metadata:
         normalized = key.lower()
-        value_text = value
-        if not value_text:
+        value_text = value or ""
+        if not value_text and normalized not in {"note"}:
             continue
         if normalized == "status":
             value_str = str(value_text)
@@ -175,6 +194,8 @@ def _format_metadata(metadata: List[tuple[str, str]]) -> List[Text]:
             line = Text(value_text, style="white")
         elif normalized == "error":
             line = Text(f"error: {value_text}", style="bold red")
+        elif normalized == "note":
+            line = Text(value_text or key, style="dim")
         else:
             line = Text(f"{key}: {value_text}", style="dim")
         lines.append(line)
