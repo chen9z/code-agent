@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from rich.console import Console
 from rich.text import Text
@@ -9,8 +9,6 @@ from rich.text import Text
 from ui.emission import EmitEvent, OutputCallback
 _RICH_STYLE_MAP = {
     "assistant": "white",
-    "assistant:planner": "white",
-    "planner": "white",
     "plan": "green",
     "tool": "green",
     "tool-output": "dim",
@@ -56,27 +54,28 @@ def create_rich_output(
             body = message.body
             text = str(message)
             display_entries = list(message.display)
-        else:
-            if isinstance(message, Mapping):
-                text = stringify(message)
-            else:
-                text = message if isinstance(message, str) else stringify(message)
-            tag, body = _split_message_tag(text)
-            if tag is not None and not display_entries and tag.lower() == "tool":
-                body, display_entries = _parse_structured_body(body)
-        if isinstance(message, EmitEvent):
-            tag = message.kind or tag
-            body = message.body if message.body else body
             if not display_entries and tag and tag.lower() == "tool":
                 body, display_entries = _parse_structured_body(body)
+        else:
+            tag = "unknown"
+            try:
+                body = json.dumps(message, ensure_ascii=False)
+            except TypeError:
+                body = stringify(message)
+            text = body
         tag = tag or None
         if tag is None:
             active_console.print(Text(str(text)))
             active_console.print()
             return
 
-        normalized_tag = tag.lower()
-        if normalized_tag == "user":
+        kind = tag.strip().lower()
+        if not kind:
+            active_console.print(Text(str(text)))
+            active_console.print()
+            return
+
+        if kind == "user":
             line = Text.assemble(
                 Text("> ", style="bold white"),
                 Text(body, style="bold white"),
@@ -85,20 +84,17 @@ def create_rich_output(
             active_console.print()
             return
 
-        if normalized_tag == "system":
-            style = _RICH_STYLE_MAP.get(normalized_tag, "magenta")
+        if kind == "system":
+            style = _RICH_STYLE_MAP.get(kind, "magenta")
             active_console.print(Text(body, style=style))
             active_console.print()
             return
 
-        if normalized_tag in {"assistant", "assistant:planner", "planner"}:
+        if kind == "assistant":
             _render_bullet(active_console, body, [], "white", "white")
             return
 
-        if normalized_tag == "plan":
-            return
-
-        if normalized_tag == "tool":
+        if kind in {"tool", "tool-output"}:
             header = body
             if not display_entries:
                 header, display_entries = _parse_structured_body(body)
@@ -108,31 +104,10 @@ def create_rich_output(
             _render_bullet(active_console, header, display_entries, bullet_style, header_style)
             return
 
-        if normalized_tag == "tool-output":
-            style = _RICH_STYLE_MAP.get(normalized_tag, "dim")
-            active_console.print(Text(body, style=style))
-            active_console.print()
-            return
-
-        style = _RICH_STYLE_MAP.get(normalized_tag, "white")
+        style = _RICH_STYLE_MAP.get(kind, "white")
         _render_bullet(active_console, body, [], style, style)
 
     return emit
-
-
-def _split_message_tag(message: str) -> tuple[Optional[str], str]:
-    stripped = message.strip()
-    if not stripped.startswith("["):
-        return None, message
-    closing = stripped.find("]")
-    if closing <= 1:
-        return None, message
-    suffix = stripped[closing + 1 :]
-    if not suffix.startswith(" "):
-        return None, message
-    tag = stripped[1:closing]
-    body = stripped[closing + 2 :]
-    return tag, body
 
 
 def _parse_structured_body(body: str) -> tuple[str, List[tuple[str, Optional[str]]]]:

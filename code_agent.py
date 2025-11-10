@@ -189,8 +189,7 @@ class CodeAgentSession:
                 output_callback,
                 create_emit_event(
                     "assistant",
-                    assistant_content,
-                    payload={"display": [("phase", "planner")]},
+                    assistant_content
                 ),
             )
         for call in tool_calls:
@@ -211,7 +210,7 @@ class CodeAgentSession:
             _emit(
                 output_callback,
                 create_emit_event(
-                    "plan",
+                    "tool",
                     name,
                     payload=payload,
                 ),

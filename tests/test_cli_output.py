@@ -18,9 +18,20 @@ def test_rich_output_renders_tool_output_tag():
     console = Console(record=True)
     emit = create_rich_output(console)
 
-    emit("[tool-output] preview text")
+    event = create_emit_event(
+        "tool-output",
+        "Preview",
+        payload={
+            "display": [
+                ("status", "success"),
+                ("output", "preview text"),
+            ]
+        },
+    )
+    emit(event)
 
     rendered = console.export_text()
+    assert "Preview" in rendered
     assert "preview text" in rendered
 
 

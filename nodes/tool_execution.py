@@ -185,6 +185,8 @@ class ToolExecutionRunner:
                 display = [("status", result.status)]
                 if arguments_preview:
                     display.append(("args", arguments_preview))
+                if console_preview:
+                    display.append(("output", console_preview))
                 if truncated_output:
                     display.append(("note", "preview truncated"))
                 payload = {
@@ -199,25 +201,11 @@ class ToolExecutionRunner:
                 _emit(
                     output_callback,
                     create_emit_event(
-                        "tool",
+                        "tool-output",
                         label,
                         payload=payload,
                     ),
                 )
-                if console_preview:
-                    _emit(
-                        output_callback,
-                        create_emit_event(
-                            "tool-output",
-                            console_preview,
-                            payload={
-                                "tool": key,
-                                "tool_call_id": result.id,
-                                "preview": console_preview,
-                                "full_output": full_output_text,
-                            },
-                        ),
-                    )
             else:
                 error_preview_text, trunc_err = _truncate_text(
                     str(result.error or ""),
@@ -230,6 +218,10 @@ class ToolExecutionRunner:
                     display.append(("args", arguments_preview))
                 if error_inline:
                     display.append(("error", error_inline))
+                if error_preview_text:
+                    display.append(("output", error_preview_text))
+                if trunc_err:
+                    display.append(("note", "preview truncated"))
                 payload = {
                     "tool": key,
                     "tool_call_id": result.id,
@@ -241,24 +233,11 @@ class ToolExecutionRunner:
                 _emit(
                     output_callback,
                     create_emit_event(
-                        "tool",
+                        "tool-output",
                         label,
                         payload=payload,
                     ),
                 )
-                if trunc_err:
-                    _emit(
-                        output_callback,
-                        create_emit_event(
-                            "tool-output",
-                            error_preview_text,
-                            payload={
-                                "tool": key,
-                                "tool_call_id": result.id,
-                                "error": result.error,
-                            },
-                        ),
-                    )
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):

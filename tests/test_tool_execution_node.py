@@ -190,13 +190,11 @@ def test_truncates_long_tool_output_and_emits_preview():
         output_callback=messages.append,
     )
 
-    tool_messages = [msg for msg in messages if msg.startswith("[tool]")]
     preview_messages = [msg for msg in messages if msg.startswith("[tool-output]")]
 
-    assert tool_messages, "Expected a tool status message"
-    assert any("preview truncated" in msg for msg in tool_messages)
-    assert preview_messages, "Expected a preview message for long output"
-    assert any("output truncated" in msg for msg in preview_messages)
+    assert preview_messages, "Expected a tool-output message"
+    assert any("preview truncated" in msg for msg in preview_messages)
+    assert any("line 0" in msg for msg in preview_messages)
 
 
 def test_default_timeout_applies_to_bash_when_missing_argument():
