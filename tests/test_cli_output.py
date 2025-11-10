@@ -14,24 +14,26 @@ class _DummySession:
         raise AssertionError("run_turn should not be called in this test")
 
 
-def test_rich_output_renders_tool_output_tag():
+def test_rich_output_renders_tool_header_with_args():
     console = Console(record=True)
     emit = create_rich_output(console)
 
     event = create_emit_event(
-        "tool-output",
-        "Preview",
+        "tool",
+        "Bash",
         payload={
+            "tool": "bash",
+            "arguments": {"command": "ls"},
             "display": [
                 ("status", "success"),
-                ("output", "preview text"),
+                ("result", "preview text"),
             ]
         },
     )
     emit(event)
 
     rendered = console.export_text()
-    assert "Preview" in rendered
+    assert 'Bash({"command": "ls"})' in rendered
     assert "preview text" in rendered
 
 
@@ -52,6 +54,28 @@ def test_rich_output_handles_structured_events():
     rendered = console.export_text()
     assert "Echo" in rendered
     assert "args" in rendered
+
+
+def test_rich_output_renders_todo_markdown():
+    console = Console(record=True)
+    emit = create_rich_output(console)
+
+    event = create_emit_event(
+        "tool",
+        "TodoWrite",
+        payload={
+            "tool": "todo_write",
+            "display": [
+                ("status", "success"),
+                ("todo", "- [ ] draft plan\n- [x] fix bug"),
+            ],
+        },
+    )
+    emit(event)
+
+    rendered = console.export_text()
+    assert "- [ ] draft plan" in rendered
+    assert "- [x] fix bug" in rendered
 
 
 

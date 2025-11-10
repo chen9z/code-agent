@@ -142,10 +142,6 @@ class ToolExecutionRunner:
         for result in results:
             key = result.key
             label = result.inputs.label or (key.upper() if isinstance(key, str) else str(key))
-            arguments_preview = _preview_payload(result.inputs.arguments or {}, 180)
-            if arguments_preview in {"{}", "null"}:
-                arguments_preview = ""
-
             tool_key = str(key).lower() if isinstance(key, str) else ""
             is_bash_tool = tool_key == "bash"
             is_glob_tool = tool_key == "glob"
@@ -183,10 +179,14 @@ class ToolExecutionRunner:
 
             if not has_error:
                 display = [("status", result.status)]
-                if arguments_preview:
-                    display.append(("args", arguments_preview))
-                if console_preview:
-                    display.append(("output", console_preview))
+                display.extend(
+                    _build_tool_result_display_entries(
+                        tool_key,
+                        result.result,
+                        console_preview,
+                        full_output_text,
+                    )
+                )
                 if truncated_output:
                     display.append(("note", "preview truncated"))
                 payload = {
@@ -201,7 +201,7 @@ class ToolExecutionRunner:
                 _emit(
                     output_callback,
                     create_emit_event(
-                        "tool-output",
+                        "tool",
                         label,
                         payload=payload,
                     ),
@@ -214,8 +214,6 @@ class ToolExecutionRunner:
                 )
                 error_inline = error_preview_text.replace("\n", " ")
                 display = [("status", "error")]
-                if arguments_preview:
-                    display.append(("args", arguments_preview))
                 if error_inline:
                     display.append(("error", error_inline))
                 if error_preview_text:
@@ -233,7 +231,7 @@ class ToolExecutionRunner:
                 _emit(
                     output_callback,
                     create_emit_event(
-                        "tool-output",
+                        "tool",
                         label,
                         payload=payload,
                     ),
@@ -310,6 +308,104 @@ class ToolExecutionRunner:
         updated = dict(arguments)
         updated["timeout"] = timeout_ms
         return updated
+
+
+def _build_tool_result_display_entries(
+    tool_key: str,
+    tool_result: Optional[ToolResultPayload],
+    console_preview: str,
+    full_output_text: str,
+) -> List[tuple[str, Optional[str]]]:
+    entries: List[tuple[str, Optional[str]]] = []
+    normalized = (tool_key or "").lower()
+    data = tool_result.data if tool_result else None
+
+    if normalized == "read":
+        summary = _format_read_summary(data)
+        if summary:
+            entries.append(("result", summary))
+            return entries
+
+    if normalized == "grep":
+        entries.extend(_format_grep_matches(data))
+        if entries:
+            return entries
+
+    if normalized == "todo_write":
+        entries.extend(_format_todo_markdown(data))
+        if entries:
+            return entries
+
+    fallback = console_preview or (tool_result.content if tool_result and tool_result.content else full_output_text)
+    fallback = fallback.strip()
+    if fallback:
+        entries.append(("result", fallback))
+    return entries
+
+
+def _format_read_summary(data: Any) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+    count = data.get("count")
+    if isinstance(count, (int, float)):
+        return f"Read {int(count)} lines"
+    return "Read file"
+
+
+def _format_grep_matches(data: Any) -> List[tuple[str, Optional[str]]]:
+    entries: List[tuple[str, Optional[str]]] = []
+    if not isinstance(data, dict):
+        return entries
+    matches = data.get("matches")
+    if not isinstance(matches, list) or not matches:
+        entries.append(("result", "No matches"))
+        return entries
+
+    display_limit = MAX_GREP_DISPLAY_MATCHES
+    for match in matches[:display_limit]:
+        if not isinstance(match, dict):
+            continue
+        path = match.get("path") or "[unknown path]"
+        line_no = match.get("line")
+        location = f"{path}:{line_no}" if isinstance(line_no, int) else str(path)
+        snippet = (match.get("line_text") or "").strip()
+        entry_value = f"{location} {snippet}".strip()
+        entries.append(("match", entry_value))
+
+    total = data.get("count")
+    if isinstance(total, int) and total > display_limit:
+        entries.append(("note", f"+{total - display_limit} more matches"))
+
+    return entries
+
+
+def _format_todo_markdown(data: Any) -> List[tuple[str, Optional[str]]]:
+    entries: List[tuple[str, Optional[str]]] = []
+    if not isinstance(data, dict):
+        return entries
+    todos = data.get("todos")
+    if not isinstance(todos, list) or not todos:
+        return entries
+
+    lines: List[str] = []
+    for todo in todos:
+        if not isinstance(todo, dict):
+            continue
+        status = str(todo.get("status") or "").lower()
+        if status == "completed":
+            marker = "[x]"
+        elif status == "in_progress":
+            marker = "[-]"
+        else:
+            marker = "[ ]"
+        content = str(todo.get("content") or "").strip()
+        active_form = str(todo.get("activeForm") or "").strip()
+        suffix = f" ({active_form})" if active_form else ""
+        lines.append(f"- {marker} {content}{suffix}".rstrip())
+
+    if lines:
+        entries.append(("todo", "\n".join(lines)))
+    return entries
 
 
 def _stringify_payload(value: Any) -> str:
@@ -399,3 +495,4 @@ MAX_HISTORY_PREVIEW_LINES = 8
 MAX_ERROR_PREVIEW_CHARS = 800
 MAX_ERROR_PREVIEW_LINES = 12
 _TIMEOUT_AWARE_TOOLS = {"bash"}
+MAX_GREP_DISPLAY_MATCHES = 5

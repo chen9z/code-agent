@@ -190,9 +190,9 @@ def test_truncates_long_tool_output_and_emits_preview():
         output_callback=messages.append,
     )
 
-    preview_messages = [msg for msg in messages if msg.startswith("[tool-output]")]
+    preview_messages = [msg for msg in messages if msg.startswith("[tool]")]
 
-    assert preview_messages, "Expected a tool-output message"
+    assert preview_messages, "Expected a tool message"
     assert any("preview truncated" in msg for msg in preview_messages)
     assert any("line 0" in msg for msg in preview_messages)
 

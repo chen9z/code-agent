@@ -118,11 +118,16 @@ class CodeAgentSession:
         tool_results: List[ToolOutput] = []
         iterations = 0
 
+        final_content: Optional[str] = None
         while True:
             response = self._call_llm(messages, output_callback)
+            assistant_content = response.get("content")
+            if assistant_content:
+                _emit(output_callback, create_emit_event("assistant", assistant_content))
             tool_plan = response
             tool_calls = response.get("tool_calls")
             if not tool_calls:
+                final_content = assistant_content
                 break
             outputs = self.executor.run(
                 tool_calls,
@@ -134,12 +139,6 @@ class CodeAgentSession:
             iterations += 1
             if iterations >= self.max_iterations:
                 break
-
-        final_content: Optional[str] = None
-        if tool_plan and not (tool_plan.get("tool_calls") or []):
-            final_content = tool_plan.get("content")
-            if final_content:
-                _emit(output_callback, create_emit_event("assistant", final_content))
 
         result = {
             "content": final_content,
@@ -183,38 +182,6 @@ class CodeAgentSession:
                 if call.get("key")
             ]
         messages.append(assistant_message)
-        assistant_content = assistant_message.get("content")
-        if assistant_content:
-            _emit(
-                output_callback,
-                create_emit_event(
-                    "assistant",
-                    assistant_content
-                ),
-            )
-        for call in tool_calls:
-            name = call.get("key")
-            if not name:
-                continue
-            args_preview = _preview_payload(call.get("arguments") or {}, 180)
-            payload = {
-                "tool": name,
-                "arguments": call.get("arguments") or {},
-                "call_id": call.get("id"),
-            }
-            display: list[tuple[str, Optional[str]]] = []
-            if args_preview and args_preview not in {"{}", "null"}:
-                display.append(("args", args_preview))
-            if display:
-                payload["display"] = display
-            _emit(
-                output_callback,
-                create_emit_event(
-                    "tool",
-                    name,
-                    payload=payload,
-                ),
-            )
         return plan
 
     def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:

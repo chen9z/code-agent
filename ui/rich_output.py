@@ -11,7 +11,6 @@ _RICH_STYLE_MAP = {
     "assistant": "white",
     "plan": "green",
     "tool": "green",
-    "tool-output": "dim",
     "user": "bold white",
     "system": "magenta",
     "warning": "yellow",
@@ -94,11 +93,16 @@ def create_rich_output(
             _render_bullet(active_console, body, [], "white", "white")
             return
 
-        if kind in {"tool", "tool-output"}:
-            header = body
+        if kind == "tool":
+            payload = message.payload if isinstance(message, EmitEvent) else None
+            header = _format_tool_header(body, payload)
             if not display_entries:
                 header, display_entries = _parse_structured_body(body)
-            status = _extract_display_value(display_entries, "status") or "success"
+            status = (
+                (payload or {}).get("status")
+                or _extract_display_value(display_entries, "status")
+                or "success"
+            )
             bullet_style = "green" if status.lower() == "success" else "red"
             header_style = "bold green" if status.lower() == "success" else "bold red"
             _render_bullet(active_console, header, display_entries, bullet_style, header_style)
@@ -155,7 +159,7 @@ def _format_display(metadata: Sequence[tuple[str, Optional[str]]]) -> List[Text]
     lines: List[Text] = []
     for key, value in metadata:
         normalized = key.lower()
-        value_text = value or ""
+        value_text = str(value) if value is not None else ""
         if not value_text and normalized not in {"note"}:
             continue
         if normalized == "status":
@@ -164,14 +168,43 @@ def _format_display(metadata: Sequence[tuple[str, Optional[str]]]) -> List[Text]
                 lines.append(Text(f"status: {value_str}", style="bold red"))
             continue
         if normalized == "args":
-            line = Text(f"args: {value_text}", style="dim")
-        elif normalized in {"output", "result"}:
-            line = Text(value_text, style="white")
+            text_value = f"args: {value_text}"
+            style = "dim"
+        elif normalized in {"output", "result", "match", "todo"}:
+            text_value = value_text
+            style = "white"
         elif normalized == "error":
-            line = Text(f"error: {value_text}", style="bold red")
+            text_value = f"error: {value_text}"
+            style = "bold red"
         elif normalized == "note":
-            line = Text(value_text or key, style="dim")
+            text_value = value_text or key
+            style = "dim"
         else:
-            line = Text(f"{key}: {value_text}", style="dim")
-        lines.append(line)
+            text_value = f"{key}: {value_text}"
+            style = "dim"
+
+        for segment in _split_multiline_text(text_value):
+            lines.append(Text(segment, style=style))
     return lines
+
+
+def _format_tool_header(body: str, payload: Optional[dict[str, Any]]) -> str:
+    if not isinstance(payload, dict):
+        return body
+    tool_key = str(payload.get("tool") or "").lower()
+    if tool_key == "todo_write":
+        return body
+    arguments = payload.get("arguments")
+    if not arguments:
+        return body
+    args_preview = preview_payload(arguments, 80)
+    if args_preview in {"", "{}", "null"}:
+        return body
+    return f"{body}({args_preview})"
+
+
+def _split_multiline_text(value: str) -> List[str]:
+    if value == "":
+        return [""]
+    segments = value.splitlines()
+    return segments or [value]

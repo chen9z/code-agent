@@ -39,6 +39,7 @@ def test_default_registry_contains_expected_tools():
     registry = create_default_registry()
     keys = [spec.key for spec in registry.list()]
 
+    assert "ls" in keys
     assert "read" in keys
     assert "write" in keys
     assert "todo_write" in keys
