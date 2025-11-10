@@ -7,7 +7,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from configs.manager import AppConfig, get_config, reload_config, validate_config
+from configs.config import AppConfig, get_config, reload_config
 
 
 def test_get_config_singleton():
@@ -24,80 +24,85 @@ def test_config_structure():
     config = get_config()
 
     assert isinstance(config, AppConfig)
-    assert hasattr(config, 'rag')
-    assert hasattr(config, 'llm')
-    assert hasattr(config.rag, 'embedding_model')
-    assert hasattr(config.rag, 'rerank_model')
-    assert hasattr(config.rag, 'chunk_size')
-    assert hasattr(config.llm, 'model')
-    assert hasattr(config.llm, 'temperature')
-    assert hasattr(config.llm, 'max_tokens')
+    assert hasattr(config, "rag_embedding_model")
+    assert hasattr(config, "rag_rerank_model")
+    assert hasattr(config, "rag_chunk_size")
+    assert hasattr(config, "llm_model")
+    assert hasattr(config, "llm_temperature")
+    assert hasattr(config, "llm_max_tokens")
+    assert hasattr(config, "cli_tool_timeout_seconds")
 
 
 def test_config_default_values():
     """Test that config has sensible default values."""
     config = get_config()
 
-    # RAG defaults
-    assert config.rag.embedding_model == "openai-like"
-    assert config.rag.rerank_model == "api"
-
-    # LLM defaults
-    assert config.llm.model == "deepseek-chat"
-    assert config.llm.temperature == 0.1
-    assert config.llm.max_tokens == 2000
-    # RAG defaults
-    assert config.rag.chunk_size == 200
-    assert config.cli.tool_timeout_seconds == 60
+    assert config.rag_embedding_model == "openai-like"
+    assert config.rag_rerank_model == "api"
+    assert config.rag_chunk_size == 200
+    assert config.llm_model == "deepseek-chat"
+    assert config.llm_temperature == 0.1
+    assert config.llm_max_tokens == 2000
+    assert config.cli_tool_timeout_seconds == 60
 
 
 def test_environment_variable_override():
     """Test that environment variables override defaults."""
 
     with patch.dict(os.environ, {
-        'RAG_EMBEDDING_MODEL': 'custom-embedding',
-        'RAG_RERANK_MODEL': 'custom-reranker',
-        'LLM_MODEL': 'custom-model',
-        'LLM_TEMPERATURE': '0.5',
-        'RAG_CHUNK_SIZE': '123',
-        'CLI_TOOL_TIMEOUT_SECONDS': '75',
+        'EMBEDDING_MODEL': 'custom-embedding',
+        'RERANK_MODEL': 'custom-reranker',
+        'MODEL': 'custom-model',
+        'TEMPERATURE': '0.5',
+        'CHUNK_SIZE': '123',
+        'TOOL_TIMEOUT_SECONDS': '75',
     }):
         # Reload config to pick up environment variables
         config = reload_config()
 
         # Check that environment variables override defaults
-        assert config.rag.embedding_model == "custom-embedding"
-        assert config.rag.rerank_model == "custom-reranker"
-        assert config.llm.model == "custom-model"
-        assert config.llm.temperature == 0.5
-        assert config.rag.chunk_size == 123
-        assert config.cli.tool_timeout_seconds == 75
+        assert config.rag_embedding_model == "custom-embedding"
+        assert config.rag_rerank_model == "custom-reranker"
+        assert config.llm_model == "custom-model"
+        assert config.llm_temperature == 0.5
+        assert config.rag_chunk_size == 123
+        assert config.cli_tool_timeout_seconds == 75
+
+    # 恢复默认配置，避免影响其他测试
+    reload_config()
 
 
-def test_config_validation():
-    """Test that configuration validation works."""
-    # Default config should be valid
-    assert validate_config() == True
-    
+def test_invalid_environment_values_reset_to_default():
+    """Invalid env inputs should fall back to safe defaults."""
     with patch.dict(os.environ, {
-        'LLM_TEMPERATURE': 'not-a-number',
+        'TEMPERATURE': 'not-a-number',
+        'MAX_TOKENS': 'oops',
+        'CHUNK_SIZE': '-10',
+        'TOOL_TIMEOUT_SECONDS': '0',
+        'OPIK_ENABLED': 'maybe',
     }):
         config = reload_config()
-        assert config.llm.temperature == 0.1
-        assert validate_config() == True
+
+        assert config.llm_temperature == 0.1
+        assert config.llm_max_tokens == 2000
+        assert config.rag_chunk_size == 200
+        assert config.cli_tool_timeout_seconds == 60
+        assert config.llm_opik_enabled is True
+
+    reload_config()
 
 
 def test_config_reload():
     """Test that config reloading works correctly."""
     config1 = get_config()
-    original_embedding = config1.rag.embedding_model
-    original_chunk_size = config1.rag.chunk_size
+    original_embedding = config1.rag_embedding_model
+    original_chunk_size = config1.rag_chunk_size
 
     # Change environment and reload
     with patch.dict(os.environ, {
-        'RAG_EMBEDDING_MODEL': 'reloaded-embedding',
-        'RAG_CHUNK_SIZE': '321',
-        'CLI_TOOL_TIMEOUT_SECONDS': '120',
+        'EMBEDDING_MODEL': 'reloaded-embedding',
+        'CHUNK_SIZE': '321',
+        'TOOL_TIMEOUT_SECONDS': '120',
     }):
         config2 = reload_config()
 
@@ -106,43 +111,24 @@ def test_config_reload():
         assert config2 is get_config()
 
         # But values should be updated
-        assert config2.rag.embedding_model == "reloaded-embedding"
-        assert config2.rag.chunk_size == 321
-        assert config2.cli.tool_timeout_seconds == 120
+        assert config2.rag_embedding_model == "reloaded-embedding"
+        assert config2.rag_chunk_size == 321
+        assert config2.cli_tool_timeout_seconds == 120
 
     # Clean up environment and restore original config
     reload_config()
     cfg = get_config()
-    assert cfg.rag.embedding_model == original_embedding
-    assert cfg.rag.chunk_size == original_chunk_size
-
-
-def test_config_backward_compatibility():
-    """Test backward compatibility with old get_rag_config function."""
-    from configs.manager import get_rag_config
-
-    rag_config = get_rag_config()
-    main_config = get_config()
-
-    # Should return the same RAG config instance
-    assert rag_config is main_config.rag
-
-    # Should have the same values
-    assert rag_config.embedding_model == main_config.rag.embedding_model
-    assert rag_config.rerank_model == main_config.rag.rerank_model
+    assert cfg.rag_embedding_model == original_embedding
+    assert cfg.rag_chunk_size == original_chunk_size
 
 
 def test_config_serialization():
     """Test that config can be serialized to dict."""
     config = get_config()
     config_dict = config.to_dict()
-    assert config_dict['rag']['embedding_model'] == config.rag.embedding_model
-    assert config_dict['llm']['model'] == config.llm.model
-
-    recreated = AppConfig.from_dict(config_dict)
-    assert recreated.rag.embedding_model == config.rag.embedding_model
-    assert recreated.llm.model == config.llm.model
-    assert recreated.cli.tool_timeout_seconds == config.cli.tool_timeout_seconds
+    assert config_dict['rag_embedding_model'] == config.rag_embedding_model
+    assert config_dict['llm_model'] == config.llm_model
+    assert config_dict['cli_tool_timeout_seconds'] == config.cli_tool_timeout_seconds
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from rich.console import Console
 from rich.text import Text
 
-from core.emission import EmitEvent, OutputCallback
+from ui.emission import EmitEvent, OutputCallback
 _RICH_STYLE_MAP = {
     "assistant": "white",
     "assistant:planner": "white",

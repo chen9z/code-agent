@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Generator, List, Dict, Any
-from configs.manager import get_config
+from configs.config import get_config
 
 try:
     from opik.integrations.openai import track_openai
@@ -23,12 +23,10 @@ class BaseLLMClient:
 
     def create_with_tools(
             self,
-            *,
             model: str,
             messages: List[Dict[str, Any]],
             tools: List[Dict[str, Any]],
             tool_choice: str | Dict[str, Any] | None = None,
-            parallel_tool_calls: bool = True,
             temperature: float | None = None,
     ) -> Dict[str, Any]:
         raise NotImplementedError
@@ -117,10 +115,9 @@ def get_default_llm_client() -> BaseLLMClient:
     2) OPENAI_API_KEY / OPENAI_API_BASE environment variables (fallback)
     """
     cfg = get_config()
-    llm_cfg = cfg.llm
 
-    api_key = llm_cfg.api_key or os.getenv("OPENAI_API_KEY")
-    base_url = llm_cfg.api_base or os.getenv("OPENAI_API_BASE")
+    api_key = cfg.llm_api_key or os.getenv("OPENAI_API_KEY")
+    base_url = cfg.llm_api_base or os.getenv("OPENAI_API_BASE")
 
     if not api_key:
         raise RuntimeError(
@@ -129,9 +126,9 @@ def get_default_llm_client() -> BaseLLMClient:
     return OpenAICompatLLMClient(
         api_key=api_key,
         base_url=base_url,
-        temperature=llm_cfg.temperature or 0.0,
-        opik_project_name=llm_cfg.opik_project_name,
-        opik_enabled=llm_cfg.opik_enabled,
+        temperature=cfg.llm_temperature or 0.0,
+        opik_project_name=cfg.llm_opik_project_name,
+        opik_enabled=cfg.llm_opik_enabled,
     )
 
 

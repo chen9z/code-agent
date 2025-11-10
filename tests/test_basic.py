@@ -12,7 +12,7 @@ def test_package_import():
 def test_main_import():
     """Test that main modules can be imported."""
     import codebase_retrieval
-    from configs import manager as config_manager
+    from configs import config as config_manager
     from integrations import repository
 
     assert codebase_retrieval is not None

@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
-from core.emission import OutputCallback, OutputMessage, create_emit_event
+from ui.emission import OutputCallback, OutputMessage, create_emit_event
 
 from tools.registry import ToolRegistry, ToolSpec
 

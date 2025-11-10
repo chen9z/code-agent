@@ -1,5 +1,4 @@
-from core.prompt import compose_system_prompt
-from code_agent import build_code_agent_system_prompt, SECURITY_SYSTEM_PROMPT
+from configs.prompt import compose_system_prompt
 
 
 def test_compose_system_prompt_with_sections_and_env():

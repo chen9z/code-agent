@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from rich.console import Console
 
-from core.emission import create_emit_event
+from ui.emission import create_emit_event
 from cli import _handle_cli_command
 from ui.rich_output import create_rich_output
 

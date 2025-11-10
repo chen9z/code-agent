@@ -10,11 +10,11 @@ from cli import (
     run_cli_main as _run_cli_main,
     run_code_agent_cli as _run_code_agent_cli,
 )
-from core.emission import OutputCallback, OutputMessage, create_emit_event
+from ui.emission import OutputCallback, OutputMessage, create_emit_event
 from ui.rich_output import preview_payload as _preview_payload
 from clients.llm import get_default_llm_client
-from configs.manager import get_config
-from core.prompt import (
+from configs.config import get_config
+from configs.prompt import (
     SECURITY_SYSTEM_PROMPT,
     _BASE_SYSTEM_PROMPT,
     compose_system_prompt,
@@ -88,8 +88,8 @@ class CodeAgentSession:
         else:
             self.environment = None
         cfg = get_config()
-        self.model = cfg.llm.model
-        self.tool_timeout_seconds = float(cfg.cli.tool_timeout_seconds)
+        self.model = cfg.llm_model
+        self.tool_timeout_seconds = float(cfg.cli_tool_timeout_seconds)
         if system_prompt is None:
             resolved_prompt = build_code_agent_system_prompt(
                 base_prompt=_BASE_SYSTEM_PROMPT,
@@ -160,7 +160,6 @@ class CodeAgentSession:
             model=self.model,
             messages=messages,
             tools=tools,
-            parallel_tool_calls=True,
         )
         plan = self._parse_tool_response(response)
 

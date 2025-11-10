@@ -1,4 +1,4 @@
-from core.emission import EmitEvent, create_emit_event
+from ui.emission import EmitEvent, create_emit_event
 
 
 def test_emit_event_preserves_string_representation():

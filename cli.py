@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, P
 
 from rich.console import Console
 
-from core.emission import OutputCallback, create_emit_event
+from ui.emission import OutputCallback, create_emit_event
 from ui.rich_output import create_rich_output, stringify_payload
 
 
