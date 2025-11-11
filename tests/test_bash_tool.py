@@ -23,17 +23,19 @@ def clear_background_shells():
 def test_bash_sync_executes_command():
     result = BashTool().execute(command="echo hello")
 
-    assert result["exit_code"] == 0
-    assert result["stdout"].strip() == "hello"
-    assert result["timed_out"] is False
+    assert result["status"] == "success"
+    assert result["content"] == "hello"
+    assert result["data"]["exit_code"] == 0
+    assert result["data"]["stdout"].strip() == "hello"
+    assert result["data"]["timed_out"] is False
 
 
 def test_bash_background_and_output():
     script = "python -c \"import time; print('start'); time.sleep(0.1); print('done')\""
     start = BashTool().execute(command=script, run_in_background=True)
 
-    assert start["status"] == "running"
-    shell_id = start["shell_id"]
+    assert start["status"] == "success"
+    shell_id = start["data"]["shell_id"]
 
     collected = ""
     status = None
@@ -56,7 +58,7 @@ def test_bash_output_filter_consumes_non_matches():
         command="python -c \"print('alpha'); print('beta')\"",
         run_in_background=True,
     )
-    shell_id = start["shell_id"]
+    shell_id = start["data"]["shell_id"]
 
     filtered = None
     for _ in range(20):
@@ -81,7 +83,7 @@ def test_bash_output_invalid_regex():
         command="python -c \"print('line')\"",
         run_in_background=True,
     )
-    shell_id = start["shell_id"]
+    shell_id = start["data"]["shell_id"]
 
     time.sleep(0.05)
     result = BashOutputTool().execute(bash_id=shell_id, filter="[")
@@ -93,7 +95,7 @@ def test_kill_bash_terminates_process():
         command="python -c \"import time; print('begin'); time.sleep(5)\"",
         run_in_background=True,
     )
-    shell_id = start["shell_id"]
+    shell_id = start["data"]["shell_id"]
 
     time.sleep(0.2)
     kill_result = KillBashTool().execute(shell_id=shell_id)

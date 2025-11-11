@@ -16,12 +16,17 @@ def test_ls_lists_entries(tmp_path):
     create_sample_dir(tmp_path)
 
     result = LSTool().execute(path=str(tmp_path.resolve()))
+    print("LS content:", result["content"])
 
-    assert result["path"] == str(tmp_path.resolve())
-    assert result["entries"] == ["alpha/", "beta.txt", "gamma.log"]
-    assert result["directories"] == ["alpha/"]
-    assert sorted(result["files"]) == ["beta.txt", "gamma.log"]
-    assert result["count"] == 3
+    assert result["status"] == "success"
+    assert "alpha/" in result["content"]
+    assert "beta.txt" in result["content"]
+    assert "gamma.log" in result["content"]
+    assert result["data"]["path"] == str(tmp_path.resolve())
+    assert result["data"]["entries"] == ["alpha/", "beta.txt", "gamma.log"]
+    assert result["data"]["directories"] == ["alpha/"]
+    assert sorted(result["data"]["files"]) == ["beta.txt", "gamma.log"]
+    assert len(result["data"]["entries"]) == 3
 
 
 def test_ls_requires_absolute_path(tmp_path):
@@ -29,7 +34,9 @@ def test_ls_requires_absolute_path(tmp_path):
 
     result = LSTool().execute(path="relative/path")
 
-    assert result["error"] == "path must be an absolute path"
+    assert result["status"] == "error"
+    assert result["content"] == "path must be an absolute path"
+    assert result["data"]["error"] == "path must be an absolute path"
 
 
 def test_ls_handles_missing_directory(tmp_path):
@@ -37,7 +44,8 @@ def test_ls_handles_missing_directory(tmp_path):
 
     result = LSTool().execute(path=str(missing.resolve()))
 
-    assert result["error"].startswith("Directory does not exist")
+    assert result["status"] == "error"
+    assert result["content"].startswith("Directory does not exist")
 
 
 def test_ls_errors_on_file_path(tmp_path):
@@ -46,7 +54,8 @@ def test_ls_errors_on_file_path(tmp_path):
 
     result = LSTool().execute(path=str(file_path.resolve()))
 
-    assert result["error"].startswith("Path is not a directory")
+    assert result["status"] == "error"
+    assert result["content"].startswith("Path is not a directory")
 
 
 def test_ls_applies_ignore_patterns(tmp_path):
@@ -54,8 +63,9 @@ def test_ls_applies_ignore_patterns(tmp_path):
 
     result = LSTool().execute(path=str(tmp_path.resolve()), ignore=["*.log", "alpha"])
 
-    assert result["entries"] == ["beta.txt"]
-    assert result["ignore"] == ["*.log", "alpha"]
+    assert result["status"] == "success"
+    assert result["data"]["entries"] == ["beta.txt"]
+    assert result["data"]["ignore"] == ["*.log", "alpha"]
 
 
 def test_ls_rejects_non_string_ignore(tmp_path):
@@ -63,7 +73,8 @@ def test_ls_rejects_non_string_ignore(tmp_path):
 
     result = LSTool().execute(path=str(tmp_path.resolve()), ignore=[123])
 
-    assert result["error"] == "ignore patterns must be strings"
+    assert result["status"] == "error"
+    assert result["content"] == "ignore patterns must be strings"
 
 
 def test_ls_permission_denied(monkeypatch, tmp_path):
@@ -77,4 +88,5 @@ def test_ls_permission_denied(monkeypatch, tmp_path):
 
     result = LSTool().execute(path=str(directory))
 
-    assert result["error"].startswith("Permission denied listing directory")
+    assert result["status"] == "error"
+    assert result["content"].startswith("Permission denied listing directory")

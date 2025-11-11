@@ -87,13 +87,15 @@ class LSTool(BaseTool):
             result = "\n".join(entries) if entries else "[empty directory]"
 
             return {
-                "path": str(resolved),
-                "entries": entries,
-                "directories": directories,
-                "files": files,
-                "count": len(entries),
-                "ignore": ignore_patterns,
-                "result": result,
+                "status": "success",
+                "content": result,
+                "data": {
+                    "path": str(resolved),
+                    "entries": entries,
+                    "directories": directories,
+                    "files": files,
+                    "ignore": ignore_patterns,
+                },
             }
         except Exception as exc:  # pragma: no cover - errors exercised via tests
             error_payload: Dict[str, Any] = {
@@ -102,4 +104,8 @@ class LSTool(BaseTool):
             }
             if ignore is not None:
                 error_payload["ignore"] = list(ignore)
-            return error_payload
+            return {
+                "status": "error",
+                "content": str(exc),
+                "data": error_payload,
+            }
