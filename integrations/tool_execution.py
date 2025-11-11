@@ -25,26 +25,17 @@ class ToolOutput:
     arguments: Dict[str, Any]
     call_id: str
     label: str
-    result_status: Optional[str] = None
-    result_content: Optional[str] = None
-    result_data: Any = None
-    error: Optional[str] = None
+    status: str = "unknown"
+    content: str = ""
+    data: Any = None
 
     @property
     def id(self) -> str:
         return self.call_id
 
     @property
-    def status(self) -> str:
-        if self.result_status:
-            return self.result_status
-        if self.error:
-            return "error"
-        return "unknown"
-
-    @property
     def result_text(self) -> str:
-        return self.result_content or ""
+        return self.content or ""
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -55,13 +46,10 @@ class ToolOutput:
                 "label": self.label,
             },
             "result": {
-                "status": self.result_status,
-                "content": self.result_content,
-                "data": self.result_data,
-            }
-            if self.result_status or self.result_content or self.result_data is not None
-            else None,
-            "error": self.error,
+                "status": self.status,
+                "content": self.content,
+                "data": self.data,
+            },
         }
 
 class ToolExecutionRunner:
@@ -121,28 +109,28 @@ class ToolExecutionRunner:
             normalized_tool = str(tool_name).lower() if isinstance(tool_name, str) else ""
             is_bash_tool = normalized_tool == "bash"
             is_glob_tool = normalized_tool == "glob"
-            has_error = bool(result.error)
+            has_error = result.status != "success"
 
             console_preview = ""
             truncated_output = False
             full_output_text = ""
 
-            if not has_error and result.result_data is not None:
-                full_output_text = _stringify_tool_output(result.result_data)
+            if not has_error and result.data is not None:
+                full_output_text = _stringify_tool_output(result.data)
                 console_preview, truncated_output = _build_console_preview(full_output_text)
                 if (is_bash_tool or is_glob_tool) and console_preview:
                     history_content = _build_history_preview(console_preview)
                 else:
                     history_content = ""
-            elif not has_error and result.result_content:
-                full_output_text = result.result_content
+            elif not has_error and result.content:
+                full_output_text = result.content
                 console_preview, truncated_output = _build_console_preview(full_output_text)
                 if (is_bash_tool or is_glob_tool) and console_preview:
                     history_content = _build_history_preview(console_preview)
                 else:
                     history_content = ""
             elif has_error:
-                error_text = str(result.error or "")
+                error_text = str(result.content or "")
                 history_content = _truncate_text(
                     error_text,
                     max_chars=MAX_HISTORY_PREVIEW_CHARS,
@@ -165,8 +153,8 @@ class ToolExecutionRunner:
                 display.extend(
                     _build_tool_result_display_entries(
                         normalized_tool,
-                        result.result_data,
-                        result.result_content,
+                        result.data,
+                        result.content,
                         console_preview,
                         full_output_text,
                     )
@@ -178,6 +166,8 @@ class ToolExecutionRunner:
                     "tool_call_id": result.id,
                     "arguments": result.arguments,
                     "status": result.status,
+                    "content": result.content,
+                    "data": result.data,
                     "truncated_output": truncated_output,
                 }
                 if display:
@@ -192,7 +182,7 @@ class ToolExecutionRunner:
                 )
             else:
                 error_preview_text, trunc_err = _truncate_text(
-                    str(result.error or ""),
+                    str(result.content or ""),
                     max_chars=MAX_ERROR_PREVIEW_CHARS,
                     max_lines=MAX_ERROR_PREVIEW_LINES,
                 )
@@ -208,7 +198,9 @@ class ToolExecutionRunner:
                     "tool": tool_name,
                     "tool_call_id": result.id,
                     "arguments": result.arguments,
-                    "error": result.error,
+                    "status": result.status,
+                    "content": result.content,
+                    "data": result.data,
                 }
                 if display:
                     payload["display"] = display
@@ -252,7 +244,9 @@ class ToolExecutionRunner:
                 arguments=call.arguments,
                 call_id=call.call_id,
                 label=str(call.name),
-                error=str(exc),
+                status="error",
+                content=str(exc),
+                data=None,
             )
 
         effective_arguments = self._apply_timeout_default(call.name, call.arguments)
@@ -265,7 +259,9 @@ class ToolExecutionRunner:
                 arguments=effective_arguments,
                 call_id=call.call_id,
                 label=spec.name,
-                error=str(exc),
+                status="error",
+                content=str(exc),
+                data=None,
             )
 
         return ToolOutput(
@@ -273,10 +269,9 @@ class ToolExecutionRunner:
             arguments=effective_arguments,
             call_id=call.call_id,
             label=spec.name,
-            result_status="success",
-            result_content=_stringify_payload(output),
-            result_data=output,
-            error=None,
+            status="success",
+            content=_stringify_payload(output),
+            data=output,
         )
 
     def _apply_timeout_default(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -293,14 +288,13 @@ class ToolExecutionRunner:
 
 def _build_tool_result_display_entries(
     tool_key: str,
-    result_data: Any,
+    data: Any,
     result_content: Optional[str],
     console_preview: str,
     full_output_text: str,
 ) -> List[tuple[str, Optional[str]]]:
     entries: List[tuple[str, Optional[str]]] = []
     normalized = (tool_key or "").lower()
-    data = result_data
 
     if normalized == "read":
         summary = _format_read_summary(data)

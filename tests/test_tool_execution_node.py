@@ -122,8 +122,8 @@ def test_sequential_execution_updates_history(registry: ToolRegistry):
     assert isinstance(second, ToolOutput)
     assert first.status == "success"
     assert second.status == "success"
-    assert first.result_data["echo"] == {"value": 1}
-    assert second.result_data["echo"] == {"value": 2}
+    assert first.data["echo"] == {"value": 1}
+    assert second.data["echo"] == {"value": 2}
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
     assert history[-2]["content"] == ""
@@ -143,7 +143,7 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
     )
 
     assert len(results) == 2
-    statuses = {result.result_data["echo"]["value"] for result in results if result.result_data}
+    statuses = {result.data["echo"]["value"] for result in results if result.data}
     assert statuses == {"a", "b"}
     assert all(entry["role"] == "tool" for entry in history[-2:])
     assert all(entry["content"] == "" for entry in history[-2:])
@@ -173,7 +173,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
     result = results[0]
     assert isinstance(result, ToolOutput)
     assert result.status == "error"
-    assert result.error and "missing" in result.error.lower()
+    assert result.content and "missing" in result.content.lower()
 
 
 def test_truncates_long_tool_output_and_emits_preview():
