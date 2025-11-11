@@ -12,77 +12,54 @@ from tools.registry import ToolRegistry, ToolSpec
 
 @dataclass
 class ToolCall:
-    key: str
+    name: str
     arguments: Dict[str, Any]
     call_id: str
-    mode: str = "sequential"
-
-
-@dataclass
-class ToolInvocationInputs:
-    """Canonical inputs used when invoking a tool."""
-
-    key: str
-    arguments: Dict[str, Any]
-    call_id: str
-    label: str
-
-
-@dataclass
-class ToolResultPayload:
-    """Normalized result payload captured from a tool invocation."""
-
-    status: str
-    content: str
-    data: Any
 
 
 @dataclass
 class ToolOutput:
     """Standardized record for tool execution outcomes."""
 
-    inputs: ToolInvocationInputs
-    result: Optional[ToolResultPayload]
-    error: Optional[str]
-
-    @property
-    def key(self) -> str:
-        return self.inputs.key
+    name: str
+    arguments: Dict[str, Any]
+    call_id: str
+    label: str
+    result_status: Optional[str] = None
+    result_content: Optional[str] = None
+    result_data: Any = None
+    error: Optional[str] = None
 
     @property
     def id(self) -> str:
-        return self.inputs.call_id
+        return self.call_id
 
     @property
     def status(self) -> str:
-        if self.result and self.result.status:
-            return self.result.status
+        if self.result_status:
+            return self.result_status
         if self.error:
             return "error"
         return "unknown"
 
     @property
-    def arguments(self) -> Dict[str, Any]:
-        return self.inputs.arguments
-
-    @property
     def result_text(self) -> str:
-        return self.result.content if self.result else ""
+        return self.result_content or ""
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "inputs": {
-                "key": self.inputs.key,
-                "arguments": self.inputs.arguments,
-                "call_id": self.inputs.call_id,
-                "label": self.inputs.label,
+                "name": self.name,
+                "arguments": self.arguments,
+                "call_id": self.call_id,
+                "label": self.label,
             },
             "result": {
-                "status": self.result.status,
-                "content": self.result.content,
-                "data": self.result.data,
+                "status": self.result_status,
+                "content": self.result_content,
+                "data": self.result_data,
             }
-            if self.result
+            if self.result_status or self.result_content or self.result_data is not None
             else None,
             "error": self.error,
         }
@@ -124,8 +101,7 @@ class ToolExecutionRunner:
         if timeout_override is not None and timeout_override > 0:
             self.default_timeout_seconds = float(timeout_override)
 
-        raw_calls = list(tool_calls or [])
-        calls = [self._to_tool_call(raw, idx) for idx, raw in enumerate(raw_calls)]
+        calls = [self._to_tool_call(tool, idx) for idx, tool in enumerate(tool_calls)]
         if not calls:
             return []
 
@@ -140,19 +116,26 @@ class ToolExecutionRunner:
         output_callback: Optional[OutputCallback],
     ) -> None:
         for result in results:
-            key = result.key
-            label = result.inputs.label or (key.upper() if isinstance(key, str) else str(key))
-            tool_key = str(key).lower() if isinstance(key, str) else ""
-            is_bash_tool = tool_key == "bash"
-            is_glob_tool = tool_key == "glob"
+            tool_name = result.name
+            label = result.label or (tool_name.upper() if isinstance(tool_name, str) else str(tool_name))
+            normalized_tool = str(tool_name).lower() if isinstance(tool_name, str) else ""
+            is_bash_tool = normalized_tool == "bash"
+            is_glob_tool = normalized_tool == "glob"
             has_error = bool(result.error)
 
             console_preview = ""
             truncated_output = False
             full_output_text = ""
 
-            if not has_error and result.result is not None:
-                full_output_text = _stringify_tool_output(result.result.data)
+            if not has_error and result.result_data is not None:
+                full_output_text = _stringify_tool_output(result.result_data)
+                console_preview, truncated_output = _build_console_preview(full_output_text)
+                if (is_bash_tool or is_glob_tool) and console_preview:
+                    history_content = _build_history_preview(console_preview)
+                else:
+                    history_content = ""
+            elif not has_error and result.result_content:
+                full_output_text = result.result_content
                 console_preview, truncated_output = _build_console_preview(full_output_text)
                 if (is_bash_tool or is_glob_tool) and console_preview:
                     history_content = _build_history_preview(console_preview)
@@ -172,7 +155,7 @@ class ToolExecutionRunner:
                 {
                     "role": "tool",
                     "tool_call_id": result.id,
-                    "name": key,
+                    "name": tool_name,
                     "content": history_content,
                 }
             )
@@ -181,8 +164,9 @@ class ToolExecutionRunner:
                 display = [("status", result.status)]
                 display.extend(
                     _build_tool_result_display_entries(
-                        tool_key,
-                        result.result,
+                        normalized_tool,
+                        result.result_data,
+                        result.result_content,
                         console_preview,
                         full_output_text,
                     )
@@ -190,7 +174,7 @@ class ToolExecutionRunner:
                 if truncated_output:
                     display.append(("note", "preview truncated"))
                 payload = {
-                    "tool": key,
+                    "tool": tool_name,
                     "tool_call_id": result.id,
                     "arguments": result.arguments,
                     "status": result.status,
@@ -221,7 +205,7 @@ class ToolExecutionRunner:
                 if trunc_err:
                     display.append(("note", "preview truncated"))
                 payload = {
-                    "tool": key,
+                    "tool": tool_name,
                     "tool_call_id": result.id,
                     "arguments": result.arguments,
                     "error": result.error,
@@ -240,21 +224,14 @@ class ToolExecutionRunner:
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
             raise TypeError("Tool call specification must be a dictionary")
-        key = raw.get("key") or raw.get("tool")
-        if not key:
-            raise ValueError("Tool call is missing 'key'")
+        name = raw.get("name") or raw.get("key") or raw.get("tool")
+        if not name:
+            raise ValueError("Tool call is missing 'name'")
         arguments = raw.get("arguments") or raw.get("args") or {}
         if not isinstance(arguments, dict):
             raise TypeError("Tool call arguments must be a dictionary")
         call_id = raw.get("id") or f"call_{index}"
-        mode = raw.get("mode") or ("parallel" if raw.get("parallel") else "sequential")
-        return ToolCall(key=str(key), arguments=arguments, call_id=str(call_id), mode=str(mode))
-
-    def _run_sequential(self, calls: List[ToolCall]) -> List[ToolOutput]:
-        results: List[ToolOutput] = []
-        for call in calls:
-            results.append(self._execute_call(call))
-        return results
+        return ToolCall(name=str(name), arguments=arguments, call_id=str(call_id))
 
     def _run_parallel(self, calls: List[ToolCall]) -> List[ToolOutput]:
         # Execute concurrently but preserve original call order in the returned list.
@@ -268,38 +245,42 @@ class ToolExecutionRunner:
 
     def _execute_call(self, call: ToolCall) -> ToolOutput:
         try:
-            spec: ToolSpec = self.registry.get(call.key)
+            spec: ToolSpec = self.registry.get(call.name)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            inputs = ToolInvocationInputs(
-                key=call.key,
+            return ToolOutput(
+                name=call.name,
                 arguments=call.arguments,
                 call_id=call.call_id,
-                label=str(call.key),
+                label=str(call.name),
+                error=str(exc),
             )
-            return ToolOutput(inputs=inputs, result=None, error=str(exc))
 
-        effective_arguments = self._apply_timeout_default(call.key, call.arguments)
-
-        inputs = ToolInvocationInputs(
-            key=call.key,
-            arguments=effective_arguments,
-            call_id=call.call_id,
-            label=spec.name,
-        )
+        effective_arguments = self._apply_timeout_default(call.name, call.arguments)
 
         try:
             output = spec.tool.execute(**effective_arguments)
-            payload = ToolResultPayload(
-                status="success",
-                content=_stringify_payload(output),
-                data=output,
-            )
-            return ToolOutput(inputs=inputs, result=payload, error=None)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return ToolOutput(inputs=inputs, result=None, error=str(exc))
+            return ToolOutput(
+                name=call.name,
+                arguments=effective_arguments,
+                call_id=call.call_id,
+                label=spec.name,
+                error=str(exc),
+            )
 
-    def _apply_timeout_default(self, key: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        normalized = str(key).lower() if isinstance(key, str) else ""
+        return ToolOutput(
+            name=call.name,
+            arguments=effective_arguments,
+            call_id=call.call_id,
+            label=spec.name,
+            result_status="success",
+            result_content=_stringify_payload(output),
+            result_data=output,
+            error=None,
+        )
+
+    def _apply_timeout_default(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = str(name).lower() if isinstance(name, str) else ""
         if normalized not in _TIMEOUT_AWARE_TOOLS or self.default_timeout_seconds is None:
             return dict(arguments)
         if "timeout" in arguments and arguments["timeout"]:
@@ -312,13 +293,14 @@ class ToolExecutionRunner:
 
 def _build_tool_result_display_entries(
     tool_key: str,
-    tool_result: Optional[ToolResultPayload],
+    result_data: Any,
+    result_content: Optional[str],
     console_preview: str,
     full_output_text: str,
 ) -> List[tuple[str, Optional[str]]]:
     entries: List[tuple[str, Optional[str]]] = []
     normalized = (tool_key or "").lower()
-    data = tool_result.data if tool_result else None
+    data = result_data
 
     if normalized == "read":
         summary = _format_read_summary(data)
@@ -336,7 +318,7 @@ def _build_tool_result_display_entries(
         if entries:
             return entries
 
-    fallback = console_preview or (tool_result.content if tool_result and tool_result.content else full_output_text)
+    fallback = console_preview or (result_content if result_content else full_output_text)
     fallback = fallback.strip()
     if fallback:
         entries.append(("result", fallback))

@@ -11,7 +11,6 @@ from cli import (
     run_code_agent_cli as _run_code_agent_cli,
 )
 from ui.emission import OutputCallback, OutputMessage, create_emit_event
-from ui.rich_output import preview_payload as _preview_payload
 from clients.llm import get_default_llm_client
 from configs.config import get_config
 from configs.prompt import (
@@ -19,7 +18,7 @@ from configs.prompt import (
     _BASE_SYSTEM_PROMPT,
     compose_system_prompt,
 )
-from nodes.tool_execution import ToolExecutionRunner, ToolOutput
+from integrations.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.registry import ToolRegistry, create_default_registry
 
 if TYPE_CHECKING:
@@ -174,12 +173,12 @@ class CodeAgentSession:
                     "id": call.get("id"),
                     "type": "function",
                     "function": {
-                        "name": call.get("key", ""),
+                        "name": (call.get("name") or call.get("key") or ""),
                         "arguments": json.dumps(call.get("arguments", {}), ensure_ascii=False),
                     },
                 }
                 for call in tool_calls
-                if call.get("key")
+                if call.get("name") or call.get("key")
             ]
         messages.append(assistant_message)
         return plan
@@ -218,12 +217,12 @@ class CodeAgentSession:
                 normalized_calls.append(
                     {
                         "id": CodeAgentSession._get_attr(call, "id", f"call-{idx}"),
-                        "key": str(name) if name else "",
+                        "name": str(name) if name else "",
                         "arguments": arguments,
                     }
                 )
             return {
-                "tool_calls": [c for c in normalized_calls if c["key"]],
+                "tool_calls": [c for c in normalized_calls if c["name"]],
                 "content": content_text,
             }
 

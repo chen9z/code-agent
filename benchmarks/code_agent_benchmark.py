@@ -71,20 +71,22 @@ def save_transcript(transcript: Sequence[str], output_dir: Optional[Path], scena
     return str(log_path)
 
 
-def extract_tool_keys(tool_results: Optional[Sequence[Any]]) -> List[str]:
+def extract_tool_names(tool_results: Optional[Sequence[Any]]) -> List[str]:
     if not tool_results:
         return []
-    keys = []
+    names = []
     for entry in tool_results:
-        if hasattr(entry, "key"):
+        if hasattr(entry, "name"):
+            key = getattr(entry, "name")
+        elif hasattr(entry, "key"):
             key = getattr(entry, "key")
         elif isinstance(entry, Mapping):
-            key = entry.get("key")
+            key = entry.get("name") or entry.get("key")
         else:
             key = None
         if isinstance(key, str) and key:
-            keys.append(key)
-    return keys
+            names.append(key)
+    return names
 
 
 def run_validators(
@@ -174,7 +176,7 @@ def run_scenario(
     content = str(result.get("content") or (result.get("tool_plan") or {}).get("content") or "")
     tool_results = result.get("tool_results") or []
     tool_calls = len(tool_results)
-    tools_used = extract_tool_keys(tool_results)
+    tools_used = extract_tool_names(tool_results)
 
     validators = run_validators(
         scenario.get("validators", []),

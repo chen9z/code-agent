@@ -1,13 +1,12 @@
 """Tests for the ToolExecutionRunner sequential and parallel execution."""
 
-import json
 import threading
 import time
 from typing import Any
 
 import pytest
 
-from nodes.tool_execution import ToolExecutionRunner, ToolOutput
+from integrations.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -111,8 +110,8 @@ def test_sequential_execution_updates_history(registry: ToolRegistry):
 
     results = runner.run(
         [
-            {"key": "echo", "arguments": {"value": 1}},
-            {"key": "echo", "arguments": {"value": 2}},
+            {"name": "echo", "arguments": {"value": 1}},
+            {"name": "echo", "arguments": {"value": 2}},
         ],
         messages=history,
     )
@@ -123,8 +122,8 @@ def test_sequential_execution_updates_history(registry: ToolRegistry):
     assert isinstance(second, ToolOutput)
     assert first.status == "success"
     assert second.status == "success"
-    assert first.result and first.result.data["echo"] == {"value": 1}
-    assert second.result and second.result.data["echo"] == {"value": 2}
+    assert first.result_data["echo"] == {"value": 1}
+    assert second.result_data["echo"] == {"value": 2}
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
     assert history[-2]["content"] == ""
@@ -137,14 +136,14 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
 
     results = runner.run(
         [
-            {"key": "slow", "arguments": {"value": "a"}, "mode": "parallel"},
-            {"key": "slow", "arguments": {"value": "b"}, "mode": "parallel"},
+            {"name": "slow", "arguments": {"value": "a"}, "mode": "parallel"},
+            {"name": "slow", "arguments": {"value": "b"}, "mode": "parallel"},
         ],
         messages=history,
     )
 
     assert len(results) == 2
-    statuses = {result.result.data["echo"]["value"] for result in results if result.result}
+    statuses = {result.result_data["echo"]["value"] for result in results if result.result_data}
     assert statuses == {"a", "b"}
     assert all(entry["role"] == "tool" for entry in history[-2:])
     assert all(entry["content"] == "" for entry in history[-2:])
@@ -155,7 +154,7 @@ def test_history_preserves_falsy_output(registry: ToolRegistry):
     history: list[dict[str, Any]] = []
 
     runner.run(
-        [{"key": "empty", "arguments": {}, "mode": "sequential"}],
+        [{"name": "empty", "arguments": {}, "mode": "sequential"}],
         messages=history,
     )
 
@@ -167,7 +166,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
     history: list[dict[str, Any]] = []
 
     results = runner.run(
-        [{"key": "missing", "arguments": {}, "mode": "sequential"}],
+        [{"name": "missing", "arguments": {}, "mode": "sequential"}],
         messages=history,
     )
 
@@ -185,7 +184,7 @@ def test_truncates_long_tool_output_and_emits_preview():
     history: list[dict[str, Any]] = []
 
     runner.run(
-        [{"key": "long", "arguments": {}}],
+        [{"name": "long", "arguments": {}}],
         messages=history,
         output_callback=messages.append,
     )
@@ -203,7 +202,7 @@ def test_default_timeout_applies_to_bash_when_missing_argument():
     registry.register(bash_tool, key="bash")
     runner = ToolExecutionRunner(registry, default_timeout_seconds=42)
     runner.run(
-        [{"key": "bash", "arguments": {"command": "echo ok"}}],
+        [{"name": "bash", "arguments": {"command": "echo ok"}}],
         messages=[],
     )
 
@@ -218,7 +217,7 @@ def test_existing_timeout_is_preserved():
     registry.register(bash_tool, key="bash")
     runner = ToolExecutionRunner(registry, default_timeout_seconds=99)
     runner.run(
-        [{"key": "bash", "arguments": {"command": "echo ok", "timeout": 10}}],
+        [{"name": "bash", "arguments": {"command": "echo ok", "timeout": 10}}],
         messages=[],
     )
 

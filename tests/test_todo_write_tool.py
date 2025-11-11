@@ -1,7 +1,7 @@
 from tools.todo_write import TodoWriteTool
 
 
-def test_todo_write_formats_summary_and_counts():
+def test_todo_write_formats_summary():
     tool = TodoWriteTool()
     todos = [
         {"content": "Review code", "status": "in_progress", "activeForm": "Reviewing code"},
@@ -12,17 +12,8 @@ def test_todo_write_formats_summary_and_counts():
     result = tool.execute(todos=todos)
 
     assert "error" not in result
-    assert result["counts"] == {
-        "pending": 1,
-        "in_progress": 1,
-        "completed": 1,
-    }
+    assert "counts" not in result
     assert result["todos"] == todos
-
-    rendered = result["rendered"]
-    assert rendered["type"] == "todo_list"
-    assert rendered["sections"][0]["status"] == "in_progress"
-    assert rendered["sections"][0]["items"][0]["content"] == "Review code"
 
     summary_lines = result["result"].splitlines()
     assert summary_lines[0] == "In Progress (1):"
@@ -64,11 +55,8 @@ def test_todo_write_accepts_all_completed_snapshot():
     result = tool.execute(todos=todos)
 
     assert "error" not in result
-    assert result["counts"] == {
-        "pending": 0,
-        "in_progress": 0,
-        "completed": 2,
-    }
+    assert "counts" not in result
+    assert result["todos"] == todos
 
 
 def test_todo_write_rejects_zero_in_progress_with_pending_items():

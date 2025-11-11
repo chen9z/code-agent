@@ -67,14 +67,10 @@ class TodoWriteTool(BaseTool):
     def execute(self, *, todos: List[Dict[str, Any]]) -> Dict[str, Any]:
         try:
             normalized = self._validate_and_normalize(todos)
-            counts = self._summarize_counts(normalized)
             formatted = self._format_summary(normalized)
-            rendered = self._render_sections(normalized)
             return {
                 "todos": normalized,
-                "counts": counts,
                 "result": formatted,
-                "rendered": rendered,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
             return {"error": str(exc)}
@@ -140,13 +136,6 @@ class TodoWriteTool(BaseTool):
         )
 
     @staticmethod
-    def _summarize_counts(todos: List[Dict[str, str]]) -> Dict[str, int]:
-        counts = {key: 0 for key in _ALLOWED_STATUSES}
-        for todo in todos:
-            counts[todo["status"]] += 1
-        return counts
-
-    @staticmethod
     def _format_summary(todos: List[Dict[str, str]]) -> str:
         buckets: Dict[str, List[Dict[str, str]]] = {status: [] for status in _ALLOWED_STATUSES}
         for todo in todos:
@@ -163,30 +152,3 @@ class TodoWriteTool(BaseTool):
             for todo in items:
                 lines.append(f"- {todo['content']} ({todo['activeForm']})")
         return "\n".join(lines)
-
-    @staticmethod
-    def _render_sections(todos: List[Dict[str, str]]) -> Dict[str, Any]:
-        sections: List[Dict[str, Any]] = []
-        status_order = ["in_progress", "pending", "completed"]
-        for status in status_order:
-            title = status.replace("_", " ").title()
-            items = [
-                {
-                    "content": todo["content"],
-                    "activeForm": todo["activeForm"],
-                }
-                for todo in todos
-                if todo["status"] == status
-            ]
-            if not items:
-                continue
-            sections.append({
-                "status": status,
-                "title": title,
-                "items": items,
-            })
-
-        return {
-            "type": "todo_list",
-            "sections": sections,
-        }
