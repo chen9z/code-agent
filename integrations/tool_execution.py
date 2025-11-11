@@ -24,7 +24,6 @@ class ToolOutput:
     name: str
     arguments: Dict[str, Any]
     call_id: str
-    label: str
     status: str = "unknown"
     content: str = ""
     data: Any = None
@@ -43,7 +42,6 @@ class ToolOutput:
                 "name": self.name,
                 "arguments": self.arguments,
                 "call_id": self.call_id,
-                "label": self.label,
             },
             "result": {
                 "status": self.status,
@@ -100,12 +98,11 @@ class ToolExecutionRunner:
     def _record_results(
         self,
         results: List[ToolOutput],
-        history: List[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
         output_callback: Optional[OutputCallback],
     ) -> None:
         for result in results:
             tool_name = result.name
-            label = result.label or (tool_name.upper() if isinstance(tool_name, str) else str(tool_name))
             normalized_tool = str(tool_name).lower() if isinstance(tool_name, str) else ""
             is_bash_tool = normalized_tool == "bash"
             is_glob_tool = normalized_tool == "glob"
@@ -119,32 +116,32 @@ class ToolExecutionRunner:
                 full_output_text = _stringify_tool_output(result.data)
                 console_preview, truncated_output = _build_console_preview(full_output_text)
                 if (is_bash_tool or is_glob_tool) and console_preview:
-                    history_content = _build_history_preview(console_preview)
+                    result_content = _build_history_preview(console_preview)
                 else:
-                    history_content = ""
+                    result_content = ""
             elif not has_error and result.content:
                 full_output_text = result.content
                 console_preview, truncated_output = _build_console_preview(full_output_text)
                 if (is_bash_tool or is_glob_tool) and console_preview:
-                    history_content = _build_history_preview(console_preview)
+                    result_content = _build_history_preview(console_preview)
                 else:
-                    history_content = ""
+                    result_content = ""
             elif has_error:
                 error_text = str(result.content or "")
-                history_content = _truncate_text(
+                result_content = _truncate_text(
                     error_text,
                     max_chars=MAX_HISTORY_PREVIEW_CHARS,
                     max_lines=MAX_HISTORY_PREVIEW_LINES,
                 )[0]
             else:
-                history_content = ""
+                result_content = ""
 
-            history.append(
+            messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": result.id,
                     "name": tool_name,
-                    "content": history_content,
+                    "content": result_content,
                 }
             )
 
@@ -172,14 +169,14 @@ class ToolExecutionRunner:
                 }
                 if display:
                     payload["display"] = display
-                _emit(
-                    output_callback,
-                    create_emit_event(
-                        "tool",
-                        label,
-                        payload=payload,
-                    ),
-                )
+                    _emit(
+                        output_callback,
+                        create_emit_event(
+                            "tool",
+                            normalized_tool,
+                            payload=payload,
+                        ),
+                    )
             else:
                 error_preview_text, trunc_err = _truncate_text(
                     str(result.content or ""),
@@ -204,14 +201,14 @@ class ToolExecutionRunner:
                 }
                 if display:
                     payload["display"] = display
-                _emit(
-                    output_callback,
-                    create_emit_event(
-                        "tool",
-                        label,
-                        payload=payload,
-                    ),
-                )
+                    _emit(
+                        output_callback,
+                        create_emit_event(
+                            "tool",
+                            normalized_tool,
+                            payload=payload,
+                        ),
+                    )
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
@@ -243,7 +240,6 @@ class ToolExecutionRunner:
                 name=call.name,
                 arguments=call.arguments,
                 call_id=call.call_id,
-                label=str(call.name),
                 status="error",
                 content=str(exc),
                 data=None,
@@ -258,7 +254,6 @@ class ToolExecutionRunner:
                 name=call.name,
                 arguments=effective_arguments,
                 call_id=call.call_id,
-                label=spec.name,
                 status="error",
                 content=str(exc),
                 data=None,
@@ -268,7 +263,6 @@ class ToolExecutionRunner:
             name=call.name,
             arguments=effective_arguments,
             call_id=call.call_id,
-            label=spec.name,
             status="success",
             content=_stringify_payload(output),
             data=output,
