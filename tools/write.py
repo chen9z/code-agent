@@ -78,10 +78,11 @@ Usage:
             return {
                 "file_path": str(resolved),
                 "bytes_written": bytes_written,
-                "result": success_message,
+                "content": success_message,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
             return {
                 "error": str(exc),
                 "file_path": file_path,
+                "content": str(exc),
             }

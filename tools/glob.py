@@ -62,12 +62,13 @@ class GlobTool(BaseTool):
             return {
                 "matches": matches,
                 "search_path": str(resolved_dir),
-                "result": joined,
+                "content": joined,
                 "count": len(matches),
             }
         except Exception as exc:
             error_payload: Dict[str, Any] = {
                 "error": str(exc),
+                "content": str(exc),
             }
             if path:
                 error_payload["search_path"] = path

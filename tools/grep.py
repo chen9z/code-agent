@@ -140,7 +140,8 @@ Use the include or exclude patterns to filter the search scope by file type or s
         exclude_pattern: str | None = None,
     ) -> Dict[str, Any]:
         if not query:
-            return {"error": "query must be a non-empty string", "query": query}
+            message = "query must be a non-empty string"
+            return {"error": message, "query": query, "content": message}
 
         command: List[str] = [
             "rg",
@@ -175,7 +176,8 @@ Use the include or exclude patterns to filter the search scope by file type or s
                 errors="replace",
             )
         except FileNotFoundError:
-            return {"error": "ripgrep (rg) is not installed or not in PATH"}
+            message = "ripgrep (rg) is not installed or not in PATH"
+            return {"error": message, "content": message}
 
         matches: List[Dict[str, Any]] = []
         truncated = False
@@ -247,10 +249,12 @@ Use the include or exclude patterns to filter the search scope by file type or s
             exit_code = 0
 
         if exit_code not in (0, 1):
+            message = stderr_output.strip() or "ripgrep failed"
             return {
-                "error": stderr_output.strip() or "ripgrep failed",
+                "error": message,
                 "exit_code": exit_code,
                 "query": query,
+                "content": message,
             }
 
         formatted_output = _format_grouped_matches(grouped)
@@ -261,5 +265,5 @@ Use the include or exclude patterns to filter the search scope by file type or s
             "count": len(matches),
             "truncated": truncated or snippet_truncated,
             "stderr": stderr_output.strip(),
-            "result": formatted_output,
+            "content": formatted_output,
         }

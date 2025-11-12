@@ -15,7 +15,7 @@ def test_todo_write_formats_summary():
     assert "counts" not in result
     assert result["todos"] == todos
 
-    summary_lines = result["result"].splitlines()
+    summary_lines = result["content"].splitlines()
     assert summary_lines[0] == "In Progress (1):"
     assert summary_lines[1] == "- Review code (Reviewing code)"
     assert "Pending" in summary_lines[2]

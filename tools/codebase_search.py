@@ -76,12 +76,14 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
         target_directories: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         if not query or not isinstance(query, str) or not query.strip():
-            return {"error": "query must be a non-empty string", "query": query}
+            message = "query must be a non-empty string"
+            return {"error": message, "query": query, "content": message}
 
         try:
             limit_val = int(limit) if limit is not None else 5
         except (TypeError, ValueError):
-            return {"error": "limit must be an integer", "limit": limit}
+            message = "limit must be an integer"
+            return {"error": message, "limit": limit, "content": message}
         limit_val = max(1, min(limit_val, 20))
 
         candidate_root: Optional[str | Path]
@@ -94,9 +96,11 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
 
         root = Path(candidate_root).expanduser().resolve()
         if not root.exists():
-            return {"error": f"project_root does not exist: {root}"}
+            message = f"project_root does not exist: {root}"
+            return {"error": message, "content": message}
         if not root.is_dir():
-            return {"error": f"project_root is not a directory: {root}"}
+            message = f"project_root is not a directory: {root}"
+            return {"error": message, "content": message}
 
         try:
             hits, index = self._indexer.search(
@@ -107,7 +111,8 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
                 refresh_index=bool(refresh_index),
             )
         except Exception as exc:  # pragma: no cover - 网络/缓存异常
-            return {"error": f"Failed to execute semantic search: {exc}"}
+            message = f"Failed to execute semantic search: {exc}"
+            return {"error": message, "content": message}
 
         if not hits:
             return {
@@ -117,7 +122,7 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
                 "project_name": index.project_name,
                 "results": [],
                 "count": 0,
-                "result": "[no semantic matches]",
+                "content": "[no semantic matches]",
                 "index": self._indexer.index_metadata(index),
                 "target_directories": list(target_directories or []),
             }
@@ -131,7 +136,7 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             "project_name": index.project_name,
             "results": results,
             "count": len(results),
-            "result": formatted["summary"] or "[no semantic matches]",
+            "content": formatted["summary"] or "[no semantic matches]",
             "index": self._indexer.index_metadata(index),
             "target_directories": list(target_directories or []),
         }

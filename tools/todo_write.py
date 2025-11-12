@@ -70,10 +70,11 @@ class TodoWriteTool(BaseTool):
             formatted = self._format_summary(normalized)
             return {
                 "todos": normalized,
-                "result": formatted,
+                "content": formatted,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return {"error": str(exc)}
+            message = str(exc)
+            return {"error": message, "content": message}
 
     def _validate_and_normalize(self, todos: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         if not isinstance(todos, list):

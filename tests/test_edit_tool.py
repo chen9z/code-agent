@@ -26,7 +26,7 @@ def test_edit_succeeds_after_read(tmp_path):
         new_string="value = 2",
     )
 
-    assert result["result"] == "ok"
+    assert result["content"] == "ok"
     assert target.read_text() == "value = 2\n"
 
 
@@ -69,7 +69,7 @@ def test_edit_create_new_file(tmp_path):
         new_string="print('hi')\n",
     )
 
-    assert result["result"] == "ok"
+    assert result["content"] == "ok"
     assert target.read_text() == "print('hi')\n"
 
 

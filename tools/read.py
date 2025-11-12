@@ -134,7 +134,7 @@ class ReadTool(BaseTool):
                 "offset": start_line,
                 "limit": max_lines,
                 "count": lines_read,
-                "result": result,
+                "content": result,
                 "has_more": has_more,
                 "truncated": truncated,
             }
@@ -142,4 +142,5 @@ class ReadTool(BaseTool):
             return {
                 "error": str(exc),
                 "file_path": file_path,
+                "content": str(exc),
             }

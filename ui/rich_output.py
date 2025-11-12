@@ -170,7 +170,7 @@ def _format_display(metadata: Sequence[tuple[str, Optional[str]]]) -> List[Text]
         if normalized == "args":
             text_value = f"args: {value_text}"
             style = "dim"
-        elif normalized in {"output", "result", "match", "todo"}:
+        elif normalized in {"output", "result", "content", "match", "todo"}:
             text_value = value_text
             style = "white"
         elif normalized == "error":

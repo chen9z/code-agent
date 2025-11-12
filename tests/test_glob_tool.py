@@ -26,7 +26,7 @@ def test_glob_matches_mimic_find_output(tmp_path):
     ]
     assert result["search_path"] == str(tmp_path.resolve())
     assert result["count"] == 3
-    assert result["result"].splitlines() == [
+    assert result["content"].splitlines() == [
         str(tmp_path / "first.txt"),
         str(tmp_path / "nested" / "second.txt"),
         str(tmp_path / "third.txt"),
@@ -42,7 +42,7 @@ def test_glob_defaults_to_cwd(tmp_path, monkeypatch):
 
     assert result["matches"] == ["example.py"]
     assert result["search_path"] == str(tmp_path.resolve())
-    assert result["result"] == str(target)
+    assert result["content"] == str(target)
 
 
 def test_glob_returns_error_payload_for_missing_directory(tmp_path):

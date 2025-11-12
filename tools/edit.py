@@ -143,10 +143,11 @@ Usage:
             return {
                 "file_path": str(resolved),
                 "replacements": replacements,
-                "result": "ok",
+                "content": "ok",
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
             return {
                 "error": str(exc),
                 "file_path": file_path,
+                "content": str(exc),
             }

@@ -98,7 +98,6 @@ def create_default_registry(
     from tools.edit import EditTool
     from tools.glob import GlobTool
     from tools.grep import GrepSearchTool
-    from tools.multi_edit import MultiEditTool
     from tools.read import ReadTool
     from tools.todo_write import TodoWriteTool
     from tools.write import WriteTool
@@ -108,7 +107,6 @@ def create_default_registry(
         "edit": EditTool,
         "glob": GlobTool,
         "grep": GrepSearchTool,
-        "multi_edit": MultiEditTool,
         "read": ReadTool,
         "todo_write": TodoWriteTool,
         "write": WriteTool,

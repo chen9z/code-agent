@@ -35,7 +35,7 @@ class _RecorderTool(BaseTool):
             time.sleep(self.delay)
         with self._lock:
             self.calls.append(kwargs)
-        return {"echo": kwargs}
+        return {"content": f"{self._name}: {kwargs}", "echo": kwargs}
 
 
 class _EmptyTool(BaseTool):
@@ -52,7 +52,7 @@ class _EmptyTool(BaseTool):
         return {"type": "object", "properties": {}}
 
     def execute(self, **kwargs):
-        return []
+        return {"content": ""}
 
 
 class _LongOutputTool(BaseTool):
@@ -71,7 +71,7 @@ class _LongOutputTool(BaseTool):
     def execute(self, **kwargs):
         lines = [f"line {i}" for i in range(200)]
         payload = "\n".join(lines)
-        return {"stdout": payload, "command": "generate"}
+        return {"content": payload, "stdout": payload, "command": "generate"}
 
 
 class _TimeoutAwareTool(BaseTool):
@@ -92,7 +92,7 @@ class _TimeoutAwareTool(BaseTool):
 
     def execute(self, **kwargs):
         self.calls.append(kwargs)
-        return {"stdout": "done"}
+        return {"content": "done", "stdout": "done"}
 
 
 @pytest.fixture()

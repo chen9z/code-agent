@@ -350,7 +350,7 @@ Important:
             data = {
                 "shell_id": shell_id,
                 "status": "running",
-                "result": "started",
+                "content": "started",
                 "command": command,
             }
             return build_payload("success", f"Started background shell {shell_id}", data)
@@ -428,13 +428,15 @@ class BashOutputTool(BaseTool):
     def execute(self, *, bash_id: str, filter: str | None = None) -> Dict[str, Any]:
         shell = BACKGROUND_SHELLS.get(bash_id)
         if shell is None:
-            return {"error": f"No background shell found for id {bash_id}", "bash_id": bash_id}
+            message = f"No background shell found for id {bash_id}"
+            return {"error": message, "bash_id": bash_id, "content": message}
 
         if filter is not None:
             try:
                 re.compile(filter)
             except re.error as exc:
-                return {"error": f"Invalid filter regex: {exc}", "bash_id": bash_id}
+                message = f"Invalid filter regex: {exc}"
+                return {"error": message, "bash_id": bash_id, "content": message}
 
         try:
             shell.refresh()
@@ -446,15 +448,25 @@ class BashOutputTool(BaseTool):
             exit_code = shell.process.poll()
             if done and exit_code is not None and shell.stdout_buffer == "" and shell.stderr_buffer == "":
                 shell.close()
+            result_parts: List[str] = []
+            if stdout:
+                result_parts.append(stdout.rstrip("\n"))
+            if stderr:
+                result_parts.append(f"STDERR:\n{stderr.rstrip('\n')}")
+            result_text = "\n\n".join(part for part in result_parts if part)
+            if not result_text:
+                result_text = shell.status
             return {
                 "bash_id": bash_id,
                 "stdout": stdout,
                 "stderr": stderr,
                 "status": shell.status,
                 "exit_code": exit_code,
+                "content": result_text,
             }
         except ValueError as exc:
-            return {"error": str(exc), "bash_id": bash_id}
+            message = str(exc)
+            return {"error": message, "bash_id": bash_id, "content": message}
 
 
 class KillBashTool(BaseTool):
@@ -485,7 +497,8 @@ Use this tool when you need to terminate a long-running shell."""
     def execute(self, *, shell_id: str) -> Dict[str, Any]:
         shell = BACKGROUND_SHELLS.get(shell_id)
         if shell is None:
-            return {"error": f"No background shell found for id {shell_id}", "shell_id": shell_id}
+            message = f"No background shell found for id {shell_id}"
+            return {"error": message, "shell_id": shell_id, "content": message}
 
         if shell.status != "running":
             shell.close()
@@ -493,7 +506,7 @@ Use this tool when you need to terminate a long-running shell."""
             return {
                 "shell_id": shell_id,
                 "status": shell.status,
-                "result": "already finished",
+                "content": "already finished",
             }
 
         shell.process.terminate()
@@ -512,5 +525,5 @@ Use this tool when you need to terminate a long-running shell."""
             "status": "terminated",
             "stdout": shell.stdout_buffer,
             "stderr": shell.stderr_buffer,
-            "result": "killed",
+            "content": "killed",
         }

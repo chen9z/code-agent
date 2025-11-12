@@ -264,7 +264,7 @@ class ToolExecutionRunner:
             arguments=effective_arguments,
             call_id=call.call_id,
             status="success",
-            content=_stringify_payload(output),
+            content=output["content"],
             data=output,
         )
 
