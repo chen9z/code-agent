@@ -38,17 +38,17 @@ def test_bash_background_and_output():
     shell_id = start["data"]["shell_id"]
 
     collected = ""
-    status = None
+    shell_state = None
     for _ in range(40):
         chunk = BashOutputTool().execute(bash_id=shell_id)
-        assert "error" not in chunk
-        collected += chunk.get("stdout", "")
-        status = chunk.get("status")
-        if status == "completed":
+        assert chunk["status"] == "success"
+        collected += chunk["data"]["stdout"]
+        shell_state = chunk["data"]["shell_status"]
+        if shell_state == "completed":
             break
         time.sleep(0.05)
 
-    assert status == "completed"
+    assert shell_state == "completed"
     assert "start" in collected
     assert "done" in collected
 
@@ -63,19 +63,27 @@ def test_bash_output_filter_consumes_non_matches():
     filtered = None
     for _ in range(20):
         candidate = BashOutputTool().execute(bash_id=shell_id, filter="alpha")
-        assert "error" not in candidate
-        if candidate.get("stdout"):
+        assert candidate["status"] == "success"
+        if candidate["data"]["stdout"]:
             filtered = candidate
             break
         time.sleep(0.05)
 
     assert filtered is not None
-    assert filtered["stdout"].strip() == "alpha"
+    assert filtered["data"]["stdout"].strip() == "alpha"
 
-    remaining = BashOutputTool().execute(bash_id=shell_id)
-    assert "error" not in remaining
-    assert remaining["stdout"] == ""
-    assert remaining["status"] == "completed"
+    remaining = None
+    for _ in range(20):
+        probe = BashOutputTool().execute(bash_id=shell_id)
+        assert probe["status"] == "success"
+        if probe["data"]["shell_status"] == "completed" and probe["data"]["stdout"] == "":
+            remaining = probe
+            break
+        time.sleep(0.05)
+
+    assert remaining is not None
+    assert remaining["data"]["stdout"] == ""
+    assert remaining["data"]["shell_status"] == "completed"
 
 
 def test_bash_output_invalid_regex():
@@ -87,7 +95,7 @@ def test_bash_output_invalid_regex():
 
     time.sleep(0.05)
     result = BashOutputTool().execute(bash_id=shell_id, filter="[")
-    assert "error" in result
+    assert result["status"] == "error"
 
 
 def test_kill_bash_terminates_process():
@@ -100,12 +108,12 @@ def test_kill_bash_terminates_process():
     time.sleep(0.2)
     kill_result = KillBashTool().execute(shell_id=shell_id)
 
-    assert "error" not in kill_result
-    assert kill_result["status"] == "terminated"
-    assert "stdout" in kill_result
+    assert kill_result["status"] == "success"
+    assert kill_result["data"]["shell_status"] == "terminated"
+    assert "stdout" in kill_result["data"]
     assert shell_id not in BACKGROUND_SHELLS
 
 
 def test_kill_bash_unknown_id():
     result = KillBashTool().execute(shell_id="missing")
-    assert "error" in result
+    assert result["status"] == "error"

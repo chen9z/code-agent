@@ -3,7 +3,7 @@ from __future__ import annotations
 """Semantic code search tool backed by a shared embedding indexer."""
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from integrations.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
 from tools.base import BaseTool
@@ -77,13 +77,13 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
     ) -> Dict[str, Any]:
         if not query or not isinstance(query, str) or not query.strip():
             message = "query must be a non-empty string"
-            return {"error": message, "query": query, "content": message}
+            return _error_response(message, {"query": query})
 
         try:
             limit_val = int(limit) if limit is not None else 5
         except (TypeError, ValueError):
             message = "limit must be an integer"
-            return {"error": message, "limit": limit, "content": message}
+            return _error_response(message, {"limit": limit})
         limit_val = max(1, min(limit_val, 20))
 
         candidate_root: Optional[str | Path]
@@ -97,10 +97,10 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
         root = Path(candidate_root).expanduser().resolve()
         if not root.exists():
             message = f"project_root does not exist: {root}"
-            return {"error": message, "content": message}
+            return _error_response(message)
         if not root.is_dir():
             message = f"project_root is not a directory: {root}"
-            return {"error": message, "content": message}
+            return _error_response(message)
 
         try:
             hits, index = self._indexer.search(
@@ -112,31 +112,56 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             )
         except Exception as exc:  # pragma: no cover - 网络/缓存异常
             message = f"Failed to execute semantic search: {exc}"
-            return {"error": message, "content": message}
+            return _error_response(message)
 
         if not hits:
-            return {
-                "status": "success",
+            data = {
                 "query": query,
                 "project_root": str(root),
                 "project_name": index.project_name,
                 "results": [],
                 "count": 0,
-                "content": "[no semantic matches]",
                 "index": self._indexer.index_metadata(index),
                 "target_directories": list(target_directories or []),
             }
+            return _success_response("[no semantic matches]", data)
 
         formatted = self._indexer.format_hits(hits)
         results = formatted.get("results", [])
-        return {
-            "status": "success",
+        data = {
             "query": query,
             "project_root": str(root),
             "project_name": index.project_name,
             "results": results,
             "count": len(results),
-            "content": formatted["summary"] or "[no semantic matches]",
             "index": self._indexer.index_metadata(index),
             "target_directories": list(target_directories or []),
         }
+        return _success_response(formatted["summary"] or "[no semantic matches]", data)
+
+
+def _error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries
+
+
+def _error_response(message: str, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    payload = dict(extra or {})
+    payload["error"] = message
+    payload["display"] = _error_display(message)
+    return {
+        "status": "error",
+        "content": message,
+        "data": payload,
+    }
+
+
+def _success_response(content: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "status": "success",
+        "content": content,
+        "data": data,
+    }

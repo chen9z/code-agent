@@ -91,10 +91,13 @@ def _success_response(
 
 
 def _error_response(*, message: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    payload = dict(data)
+    payload.setdefault("display", _build_error_display(message))
+    payload.setdefault("error", message)
     return {
         "status": "error",
         "content": message,
-        "data": data,
+        "data": payload,
     }
 
 
@@ -126,6 +129,14 @@ def _build_display_matches(
     if truncated:
         entries.append(("note", "results truncated"))
 
+    return entries
+
+
+def _build_error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
     return entries
 
 

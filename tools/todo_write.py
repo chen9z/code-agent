@@ -33,6 +33,14 @@ def _build_display_entries(todos: List[Dict[str, str]]) -> List[tuple[str, str]]
     return entries
 
 
+def _error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries
+
+
 class TodoWriteTool(BaseTool):
     """Structured todo list tool for tracking coding tasks during a session."""
 
@@ -107,7 +115,10 @@ class TodoWriteTool(BaseTool):
             return {
                 "status": "error",
                 "content": message,
-                "data": {"error": message},
+                "data": {
+                    "error": message,
+                    "display": _error_display(message),
+                },
             }
 
     def _validate_and_normalize(self, todos: List[Dict[str, Any]]) -> List[Dict[str, str]]:

@@ -12,6 +12,40 @@ from tools.base import BaseTool
 MAX_TIMEOUT_MS = 600_000
 
 
+def _build_error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries
+
+
+def _build_success_display(data: Dict[str, Any], fallback: str) -> List[tuple[str, str]]:
+    entries: List[tuple[str, str]] = []
+
+    shell_id = data.get("shell_id")
+    shell_status = data.get("status") or data.get("shell_status")
+    if isinstance(shell_id, str) and shell_id.strip():
+        label = shell_id.strip()
+        if isinstance(shell_status, str) and shell_status.strip():
+            label = f"{label} ({shell_status.strip()})"
+        entries.append(("result", label))
+        return entries
+
+    stdout = data.get("stdout")
+    text = stdout if isinstance(stdout, str) and stdout.strip() else fallback
+    if text:
+        entries.append(("result", _preview(text)))
+    return entries
+
+
+def _preview(text: str, max_chars: int = 160) -> str:
+    cleaned = " ".join(text.strip().split())
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return f"{cleaned[: max_chars - 1]}…"
+
+
 def _set_nonblocking(pipe) -> None:
     if pipe is None:
         return
@@ -295,11 +329,18 @@ Important:
                 payload["description"] = description_text
             if dangerouslyDisableSandbox:
                 payload["dangerouslyDisableSandbox"] = bool(dangerouslyDisableSandbox)
-            return {
+            response: Dict[str, Any] = {
                 "status": status,
                 "content": content,
                 "data": payload,
             }
+            if status == "error":
+                response["display"] = _build_error_display(content)
+            else:
+                success_display = _build_success_display(payload, content)
+                if success_display:
+                    response["display"] = success_display
+            return response
 
         def summarize_output(stdout: str, stderr: str, fallback: str) -> str:
             for candidate in (stdout.strip(), stderr.strip()):
@@ -429,14 +470,30 @@ class BashOutputTool(BaseTool):
         shell = BACKGROUND_SHELLS.get(bash_id)
         if shell is None:
             message = f"No background shell found for id {bash_id}"
-            return {"error": message, "bash_id": bash_id, "content": message}
+            return {
+                "status": "error",
+                "content": message,
+                "data": {
+                    "error": message,
+                    "bash_id": bash_id,
+                    "display": _build_error_display(message),
+                },
+            }
 
         if filter is not None:
             try:
                 re.compile(filter)
             except re.error as exc:
                 message = f"Invalid filter regex: {exc}"
-                return {"error": message, "bash_id": bash_id, "content": message}
+                return {
+                    "status": "error",
+                    "content": message,
+                    "data": {
+                        "error": message,
+                        "bash_id": bash_id,
+                        "display": _build_error_display(message),
+                    },
+                }
 
         try:
             shell.refresh()
@@ -456,17 +513,29 @@ class BashOutputTool(BaseTool):
             result_text = "\n\n".join(part for part in result_parts if part)
             if not result_text:
                 result_text = shell.status
-            return {
+            data = {
                 "bash_id": bash_id,
                 "stdout": stdout,
                 "stderr": stderr,
-                "status": shell.status,
+                "shell_status": shell.status,
                 "exit_code": exit_code,
+            }
+            return {
+                "status": "success",
                 "content": result_text,
+                "data": data,
             }
         except ValueError as exc:
             message = str(exc)
-            return {"error": message, "bash_id": bash_id, "content": message}
+            return {
+                "status": "error",
+                "content": message,
+                "data": {
+                    "error": message,
+                    "bash_id": bash_id,
+                    "display": _build_error_display(message),
+                },
+            }
 
 
 class KillBashTool(BaseTool):
@@ -498,15 +567,26 @@ Use this tool when you need to terminate a long-running shell."""
         shell = BACKGROUND_SHELLS.get(shell_id)
         if shell is None:
             message = f"No background shell found for id {shell_id}"
-            return {"error": message, "shell_id": shell_id, "content": message}
+            return {
+                "status": "error",
+                "content": message,
+                "data": {
+                    "error": message,
+                    "shell_id": shell_id,
+                    "display": _build_error_display(message),
+                },
+            }
 
         if shell.status != "running":
             shell.close()
             BACKGROUND_SHELLS.pop(shell_id, None)
             return {
-                "shell_id": shell_id,
-                "status": shell.status,
+                "status": "success",
                 "content": "already finished",
+                "data": {
+                    "shell_id": shell_id,
+                    "shell_status": shell.status,
+                },
             }
 
         shell.process.terminate()
@@ -520,10 +600,14 @@ Use this tool when you need to terminate a long-running shell."""
         shell.close()
         BACKGROUND_SHELLS.pop(shell_id, None)
 
-        return {
+        data = {
             "shell_id": shell_id,
-            "status": "terminated",
+            "shell_status": shell.status,
             "stdout": shell.stdout_buffer,
             "stderr": shell.stderr_buffer,
+        }
+        return {
+            "status": "success",
             "content": "killed",
+            "data": data,
         }

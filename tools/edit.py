@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from tools.base import BaseTool
 from tools.read import clear_read_record, get_last_read_mtime
@@ -140,14 +140,31 @@ Usage:
 
             clear_read_record(resolved)
 
-            return {
+            data = {
                 "file_path": str(resolved),
                 "replacements": replacements,
+            }
+            return {
+                "status": "success",
                 "content": "ok",
+                "data": data,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
+            message = str(exc)
             return {
-                "error": str(exc),
-                "file_path": file_path,
-                "content": str(exc),
+                "status": "error",
+                "content": message,
+                "data": {
+                    "error": message,
+                    "file_path": file_path,
+                    "display": _build_error_display(message),
+                },
             }
+
+
+def _build_error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries

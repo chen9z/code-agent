@@ -46,11 +46,12 @@ def test_codebase_search_ranks_matches(tmp_path, monkeypatch):
     result = tool.execute(query="Find foo helper")
 
     assert result["status"] == "success"
-    assert result["count"] >= 2
-    assert len(result["results"]) >= 2
-    assert result["results"][0]["path"].endswith("foo.py")
-    assert result["results"][0]["score"] >= result["results"][1]["score"]
-    assert "foo" in result["results"][0]["snippet"].lower()
+    data = result["data"]
+    assert data["count"] >= 2
+    assert len(data["results"]) >= 2
+    assert data["results"][0]["path"].endswith("foo.py")
+    assert data["results"][0]["score"] >= data["results"][1]["score"]
+    assert "foo" in data["results"][0]["snippet"].lower()
     assert len(client.calls) == 2  # one for indexing, one for query
 
 
@@ -82,16 +83,16 @@ def test_codebase_search_refresh_index(tmp_path, monkeypatch):
     tool = CodebaseSearchTool(embedding_client=client, batch_size=4)
 
     initial = tool.execute(query="Where is foo?")
-    assert initial["results"][0]["path"].endswith("lib.py")
+    assert initial["data"]["results"][0]["path"].endswith("lib.py")
 
     # Update file with new dominant token and refresh index
     write_file(target, "def bar():\n    foo()\n")
 
     stale = tool.execute(query="Where is foo?")
-    assert stale["results"][0]["path"].endswith("lib.py")
+    assert stale["data"]["results"][0]["path"].endswith("lib.py")
     refreshed = tool.execute(query="Where is bar?", refresh_index=True)
-    assert refreshed["results"][0]["path"].endswith("lib.py")
-    assert "bar" in refreshed["results"][0]["snippet"].lower()
+    assert refreshed["data"]["results"][0]["path"].endswith("lib.py")
+    assert "bar" in refreshed["data"]["results"][0]["snippet"].lower()
 
 
 def test_codebase_search_target_directories_filters_results(tmp_path, monkeypatch):
@@ -106,11 +107,13 @@ def test_codebase_search_target_directories_filters_results(tmp_path, monkeypatc
 
     result = tool.execute(query="helper", target_directories=["foo"])
 
-    assert result["count"] >= 1
-    paths = {entry["path"] for entry in result["results"]}
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["count"] >= 1
+    paths = {entry["path"] for entry in data["results"]}
     assert any(path.endswith("foo/alpha.py") for path in paths)
     assert not any(path.endswith("bar/beta.py") for path in paths)
-    assert result["target_directories"] == ["foo"]
+    assert data["target_directories"] == ["foo"]
 
 
 def test_codebase_search_rejects_empty_query(tmp_path, monkeypatch):
@@ -123,4 +126,5 @@ def test_codebase_search_rejects_empty_query(tmp_path, monkeypatch):
     tool = CodebaseSearchTool(embedding_client=client)
 
     result = tool.execute(query="   ")
-    assert "error" in result
+    assert result["status"] == "error"
+    assert "query" in result["data"]

@@ -9,6 +9,14 @@ MAX_LINE_LENGTH = 2000
 DEFAULT_LIMIT = 2000
 
 
+def _error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries
+
+
 def format_line_with_arrow(line_number: int, content: str) -> str:
     """Return a formatted line using a fixed-width number and arrow delimiter."""
     return f"{line_number:6}→{content}"
@@ -154,5 +162,6 @@ class ReadTool(BaseTool):
                 "data": {
                     "error": message,
                     "file_path": file_path,
+                    "display": _error_display(message),
                 },
             }

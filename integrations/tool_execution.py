@@ -176,19 +176,29 @@ class ToolExecutionRunner:
                         ),
                     )
             else:
-                error_preview_text, trunc_err = _truncate_text(
-                    str(result.content or ""),
-                    max_chars=MAX_ERROR_PREVIEW_CHARS,
-                    max_lines=MAX_ERROR_PREVIEW_LINES,
-                )
-                error_inline = error_preview_text.replace("\n", " ")
-                display = [("status", "error")]
-                if error_inline:
-                    display.append(("error", error_inline))
-                if error_preview_text:
-                    display.append(("output", error_preview_text))
-                if trunc_err:
-                    display.append(("note", "preview truncated"))
+                tool_display: List[tuple[str, Optional[str]]] = []
+                if isinstance(result.data, Mapping):
+                    tool_display.extend(_normalize_display_items(result.data.get("display")))
+                    nested_data = result.data.get("data") if isinstance(result.data, Mapping) else None
+                    if not tool_display and isinstance(nested_data, Mapping):
+                        tool_display.extend(_normalize_display_items(nested_data.get("display")))
+
+                if tool_display:
+                    display = tool_display
+                else:
+                    error_preview_text, trunc_err = _truncate_text(
+                        str(result.content or ""),
+                        max_chars=MAX_ERROR_PREVIEW_CHARS,
+                        max_lines=MAX_ERROR_PREVIEW_LINES,
+                    )
+                    error_inline = error_preview_text.replace("\n", " ")
+                    display = []
+                    if error_inline:
+                        display.append(("error", error_inline))
+                    if error_preview_text:
+                        display.append(("output", error_preview_text))
+                    if trunc_err:
+                        display.append(("note", "preview truncated"))
                 payload = {
                     "tool": tool_name,
                     "tool_call_id": result.id,
@@ -257,12 +267,20 @@ class ToolExecutionRunner:
                 data=None,
             )
 
+        tool_status = str(output.get("status", "success")).lower()
+        if tool_status not in {"success", "error"}:
+            tool_status = "success"
+
+        content_value = output.get("content")
+        if content_value is None:
+            content_value = ""
+
         return ToolOutput(
             name=call.name,
             arguments=effective_arguments,
             call_id=call.call_id,
-            status="success",
-            content=output["content"],
+            status=tool_status,
+            content=str(content_value),
             data=output,
         )
 

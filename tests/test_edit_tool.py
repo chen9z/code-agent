@@ -12,7 +12,8 @@ def test_edit_requires_read(tmp_path):
         new_string="there",
     )
 
-    assert result["error"].startswith("File must be read")
+    assert result["status"] == "error"
+    assert result["content"].startswith("File must be read")
 
 
 def test_edit_succeeds_after_read(tmp_path):
@@ -26,6 +27,7 @@ def test_edit_succeeds_after_read(tmp_path):
         new_string="value = 2",
     )
 
+    assert result["status"] == "success"
     assert result["content"] == "ok"
     assert target.read_text() == "value = 2\n"
 
@@ -41,7 +43,8 @@ def test_edit_requires_unique_match(tmp_path):
         new_string="qux",
     )
 
-    assert result["error"].startswith("old_string matched multiple times")
+    assert result["status"] == "error"
+    assert result["content"].startswith("old_string matched multiple times")
 
 
 def test_edit_replace_all(tmp_path):
@@ -56,7 +59,8 @@ def test_edit_replace_all(tmp_path):
         replace_all=True,
     )
 
-    assert result["replacements"] == 4
+    assert result["status"] == "success"
+    assert result["data"]["replacements"] == 4
     assert "total = total" in target.read_text()
 
 
@@ -69,6 +73,7 @@ def test_edit_create_new_file(tmp_path):
         new_string="print('hi')\n",
     )
 
+    assert result["status"] == "success"
     assert result["content"] == "ok"
     assert target.read_text() == "print('hi')\n"
 
@@ -92,4 +97,5 @@ def test_edit_clears_read_state(tmp_path):
         new_string="gamma",
     )
 
-    assert second["error"].startswith("File must be read")
+    assert second["status"] == "error"
+    assert second["content"].startswith("File must be read")

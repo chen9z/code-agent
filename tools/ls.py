@@ -104,8 +104,17 @@ class LSTool(BaseTool):
             }
             if ignore is not None:
                 error_payload["ignore"] = list(ignore)
+            error_payload["display"] = _build_error_display(str(exc))
             return {
                 "status": "error",
                 "content": str(exc),
                 "data": error_payload,
             }
+
+
+def _build_error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries

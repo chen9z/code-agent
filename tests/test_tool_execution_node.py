@@ -118,6 +118,27 @@ class _DisplayTool(BaseTool):
         }
 
 
+class _ReportedErrorTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "ReportedError"
+
+    @property
+    def description(self) -> str:
+        return "reports error status in payload"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def execute(self, **kwargs):
+        return {
+            "status": "error",
+            "content": "simulated failure",
+            "data": {"detail": "boom"},
+        }
+
+
 @pytest.fixture()
 def registry() -> ToolRegistry:
     reg = ToolRegistry()
@@ -232,6 +253,22 @@ def test_runner_uses_tool_display_entries():
     )
 
     assert any("custom display" in message for message in emitted), "Expected custom display text"
+
+
+def test_runner_honors_tool_reported_status():
+    registry = ToolRegistry()
+    registry.register(_ReportedErrorTool(), key="reported_error")
+    runner = ToolExecutionRunner(registry)
+    emitted: list[str] = []
+
+    results = runner.run(
+        [{"name": "reported_error", "arguments": {}}],
+        messages=[],
+        output_callback=emitted.append,
+    )
+
+    assert results[0].status == "error"
+    assert any("simulated failure" in message for message in emitted)
 
 
 def test_default_timeout_applies_to_bash_when_missing_argument():

@@ -19,6 +19,14 @@ def _build_display(matches: List[str]) -> List[tuple[str, str]]:
     return entries
 
 
+def _error_display(message: str) -> List[tuple[str, str]]:
+    text = str(message or "").strip()
+    entries: List[tuple[str, str]] = []
+    if text:
+        entries.append(("error", text))
+    return entries
+
+
 class GlobTool(BaseTool):
     """Tool that performs glob-based path searches inside a directory."""
 
@@ -89,6 +97,7 @@ class GlobTool(BaseTool):
             message = str(exc)
             error_payload: Dict[str, Any] = {
                 "error": message,
+                "display": _error_display(message),
             }
             if path:
                 error_payload["search_path"] = path
