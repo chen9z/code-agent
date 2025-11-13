@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ui.emission import OutputCallback, OutputMessage, create_emit_event
 
@@ -102,10 +102,9 @@ class ToolExecutionRunner:
         output_callback: Optional[OutputCallback],
     ) -> None:
         for result in results:
-            tool_name = result.name
-            normalized_tool = str(tool_name).lower() if isinstance(tool_name, str) else ""
-            is_bash_tool = normalized_tool == "bash"
-            is_glob_tool = normalized_tool == "glob"
+            tool_name = str(result.name).lower()
+            is_bash_tool = tool_name == "bash"
+            is_glob_tool = tool_name == "glob"
             has_error = result.status != "success"
 
             console_preview = ""
@@ -148,8 +147,7 @@ class ToolExecutionRunner:
             if not has_error:
                 display = [("status", result.status)]
                 display.extend(
-                    _build_tool_result_display_entries(
-                        normalized_tool,
+                    _extract_display_entries(
                         result.data,
                         result.content,
                         console_preview,
@@ -173,7 +171,7 @@ class ToolExecutionRunner:
                         output_callback,
                         create_emit_event(
                             "tool",
-                            normalized_tool,
+                            tool_name,
                             payload=payload,
                         ),
                     )
@@ -205,7 +203,7 @@ class ToolExecutionRunner:
                         output_callback,
                         create_emit_event(
                             "tool",
-                            normalized_tool,
+                            tool_name,
                             payload=payload,
                         ),
                     )
@@ -278,104 +276,6 @@ class ToolExecutionRunner:
         updated = dict(arguments)
         updated["timeout"] = timeout_ms
         return updated
-
-
-def _build_tool_result_display_entries(
-    tool_key: str,
-    data: Any,
-    result_content: Optional[str],
-    console_preview: str,
-    full_output_text: str,
-) -> List[tuple[str, Optional[str]]]:
-    entries: List[tuple[str, Optional[str]]] = []
-    normalized = (tool_key or "").lower()
-
-    if normalized == "read":
-        summary = _format_read_summary(data)
-        if summary:
-            entries.append(("result", summary))
-            return entries
-
-    if normalized == "grep":
-        entries.extend(_format_grep_matches(data))
-        if entries:
-            return entries
-
-    if normalized == "todo_write":
-        entries.extend(_format_todo_markdown(data))
-        if entries:
-            return entries
-
-    fallback = console_preview or (result_content if result_content else full_output_text)
-    fallback = fallback.strip()
-    if fallback:
-        entries.append(("result", fallback))
-    return entries
-
-
-def _format_read_summary(data: Any) -> Optional[str]:
-    if not isinstance(data, dict):
-        return None
-    count = data.get("count")
-    if isinstance(count, (int, float)):
-        return f"Read {int(count)} lines"
-    return "Read file"
-
-
-def _format_grep_matches(data: Any) -> List[tuple[str, Optional[str]]]:
-    entries: List[tuple[str, Optional[str]]] = []
-    if not isinstance(data, dict):
-        return entries
-    matches = data.get("matches")
-    if not isinstance(matches, list) or not matches:
-        entries.append(("result", "No matches"))
-        return entries
-
-    display_limit = MAX_GREP_DISPLAY_MATCHES
-    for match in matches[:display_limit]:
-        if not isinstance(match, dict):
-            continue
-        path = match.get("path") or "[unknown path]"
-        line_no = match.get("line")
-        location = f"{path}:{line_no}" if isinstance(line_no, int) else str(path)
-        snippet = (match.get("line_text") or "").strip()
-        entry_value = f"{location} {snippet}".strip()
-        entries.append(("match", entry_value))
-
-    total = data.get("count")
-    if isinstance(total, int) and total > display_limit:
-        entries.append(("note", f"+{total - display_limit} more matches"))
-
-    return entries
-
-
-def _format_todo_markdown(data: Any) -> List[tuple[str, Optional[str]]]:
-    entries: List[tuple[str, Optional[str]]] = []
-    if not isinstance(data, dict):
-        return entries
-    todos = data.get("todos")
-    if not isinstance(todos, list) or not todos:
-        return entries
-
-    lines: List[str] = []
-    for todo in todos:
-        if not isinstance(todo, dict):
-            continue
-        status = str(todo.get("status") or "").lower()
-        if status == "completed":
-            marker = "[x]"
-        elif status == "in_progress":
-            marker = "[-]"
-        else:
-            marker = "[ ]"
-        content = str(todo.get("content") or "").strip()
-        active_form = str(todo.get("activeForm") or "").strip()
-        suffix = f" ({active_form})" if active_form else ""
-        lines.append(f"- {marker} {content}{suffix}".rstrip())
-
-    if lines:
-        entries.append(("todo", "\n".join(lines)))
-    return entries
 
 
 def _stringify_payload(value: Any) -> str:
@@ -458,6 +358,73 @@ def _build_history_preview(preview_text: str) -> str:
         max_lines=MAX_HISTORY_PREVIEW_LINES,
     )
     return trimmed
+
+
+def _extract_display_entries(
+    data: Any,
+    result_content: Optional[str],
+    console_preview: str,
+    full_output_text: str,
+) -> List[tuple[str, Optional[str]]]:
+    entries: List[tuple[str, Optional[str]]] = []
+    if isinstance(data, Mapping):
+        raw_display = data.get("display")
+        if raw_display is None:
+            nested = data.get("data")
+            if isinstance(nested, Mapping):
+                raw_display = nested.get("display")
+        entries.extend(_normalize_display_items(raw_display))
+    if entries:
+        return entries
+
+    fallback = console_preview or (result_content if result_content else full_output_text)
+    fallback = fallback.strip()
+    if fallback:
+        entries.append(("result", fallback))
+    return entries
+
+
+def _normalize_display_items(source: Any) -> List[tuple[str, Optional[str]]]:
+    if source is None:
+        return []
+
+    def _append(target: List[tuple[str, Optional[str]]], key: Any, value: Any) -> None:
+        name = str(key or "").strip()
+        if not name:
+            return
+        if value is None:
+            target.append((name, None))
+            return
+        text = str(value).strip()
+        if text:
+            target.append((name, text))
+        else:
+            target.append((name, None))
+
+    normalized: List[tuple[str, Optional[str]]] = []
+    candidates: Sequence[Any]
+    if isinstance(source, Mapping):
+        candidates = list(source.items())
+    elif isinstance(source, Sequence) and not isinstance(source, (str, bytes)):
+        candidates = source
+    else:
+        candidates = (source,)
+
+    for entry in candidates:
+        if isinstance(entry, Mapping):
+            for key, value in entry.items():
+                _append(normalized, key, value)
+            continue
+        if isinstance(entry, Sequence) and not isinstance(entry, (str, bytes)):
+            if not entry:
+                continue
+            key = entry[0]
+            value = entry[1] if len(entry) > 1 else None
+            _append(normalized, key, value)
+            continue
+        _append(normalized, entry, None)
+
+    return normalized
 MAX_TOOL_PREVIEW_CHARS = 4000
 MAX_TOOL_PREVIEW_LINES = 80
 MAX_HISTORY_PREVIEW_CHARS = 800
@@ -465,4 +432,3 @@ MAX_HISTORY_PREVIEW_LINES = 8
 MAX_ERROR_PREVIEW_CHARS = 800
 MAX_ERROR_PREVIEW_LINES = 12
 _TIMEOUT_AWARE_TOOLS = {"bash"}
-MAX_GREP_DISPLAY_MATCHES = 5

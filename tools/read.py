@@ -129,18 +129,30 @@ class ReadTool(BaseTool):
             if not formatted_lines:
                 result = "[empty output]"
 
-            return {
+            display_summary = f"Read {lines_read} lines" if isinstance(lines_read, int) else "Read file"
+
+            metadata = {
                 "file_path": str(resolved_path),
                 "offset": start_line,
                 "limit": max_lines,
                 "count": lines_read,
-                "content": result,
                 "has_more": has_more,
                 "truncated": truncated,
+                "display": [("result", display_summary)],
+            }
+
+            return {
+                "status": "success",
+                "content": result,
+                "data": metadata,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
+            message = str(exc)
             return {
-                "error": str(exc),
-                "file_path": file_path,
-                "content": str(exc),
+                "status": "error",
+                "content": message,
+                "data": {
+                    "error": message,
+                    "file_path": file_path,
+                },
             }

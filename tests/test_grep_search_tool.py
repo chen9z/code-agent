@@ -17,16 +17,24 @@ def test_grep_search_basic(tmp_path, monkeypatch):
 
     result = GrepSearchTool().execute(query="foo")
 
-    assert result["count"] == 1
-    assert result["matches"][0]["path"].endswith("a.py")
-    assert result["matches"][0]["line"] == 1
-    assert result["matches"][0]["match"] == "foo"
-    assert result["truncated"] is False
+    assert result["status"] == "success"
+    matches = result["data"]["matches"]
+    assert len(matches) == 1
+    assert matches[0]["path"].endswith("a.py")
+    assert matches[0]["line"] == 1
+    assert matches[0]["match"] == "foo"
     assert result["content"].splitlines() == [
         str(tmp_path / "a.py"),
         "       1→def foo():",
         "             ^^^",
     ]
+    labels = [entry[0] for entry in result["data"].get("display", [])]
+    assert "match" in labels
+    assert any(
+        "a.py" in (entry[1] or "")
+        for entry in result["data"].get("display", [])
+        if entry[0] == "match"
+    )
 
 
 def test_grep_search_case_insensitive(tmp_path, monkeypatch):
@@ -36,7 +44,7 @@ def test_grep_search_case_insensitive(tmp_path, monkeypatch):
 
     result = GrepSearchTool().execute(query="alpha", case_sensitive=False)
 
-    assert result["count"] == 1
+    assert len(result["data"]["matches"]) == 1
     assert "Alpha" in result["content"]
 
 
@@ -52,8 +60,8 @@ def test_grep_search_include_exclude(tmp_path, monkeypatch):
         exclude_pattern="ignore/**",
     )
 
-    assert result["count"] == 1
-    assert result["matches"][0]["path"].endswith("keep/file.txt")
+    assert len(result["data"]["matches"]) == 1
+    assert result["data"]["matches"][0]["path"].endswith("keep/file.txt")
     assert result["content"].splitlines()[0] == str(tmp_path / "keep" / "file.txt")
 
 
@@ -65,9 +73,12 @@ def test_grep_search_truncates_results(tmp_path, monkeypatch):
 
     result = GrepSearchTool().execute(query="match")
 
-    assert result["count"] == MAX_MATCHES
-    assert result["truncated"] is True
+    assert len(result["data"]["matches"]) == MAX_MATCHES
     assert "match" in result["content"]
+    assert any(
+        item == ("note", "results truncated")
+        for item in result["data"].get("display", [])
+    )
 
 
 def test_grep_search_invalid_regex(tmp_path, monkeypatch):
@@ -76,8 +87,8 @@ def test_grep_search_invalid_regex(tmp_path, monkeypatch):
 
     result = GrepSearchTool().execute(query="(")
 
-    assert "error" in result
-    assert "regex" in result["error"].lower()
+    assert result["status"] == "error"
+    assert "regex" in result["content"].lower()
 
 
 def test_grep_search_no_matches(tmp_path, monkeypatch):
@@ -86,7 +97,7 @@ def test_grep_search_no_matches(tmp_path, monkeypatch):
 
     result = GrepSearchTool().execute(query="missing")
 
-    assert result["count"] == 0
-    assert result["matches"] == []
-    assert result["truncated"] is False
+    assert len(result["data"]["matches"]) == 0
+    assert result["data"]["matches"] == []
     assert result["content"] == "[no matches]"
+    assert result["data"].get("display") == [("result", "No matches")]

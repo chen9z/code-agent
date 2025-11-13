@@ -6,6 +6,19 @@ from typing import Any, Dict, List
 from tools.base import BaseTool
 
 
+MAX_DISPLAY_MATCHES = 5
+
+
+def _build_display(matches: List[str]) -> List[tuple[str, str]]:
+    if not matches:
+        return [("result", "No matches")]
+
+    entries: List[tuple[str, str]] = [("match", match) for match in matches[:MAX_DISPLAY_MATCHES]]
+    if len(matches) > MAX_DISPLAY_MATCHES:
+        entries.append(("note", f"+{len(matches) - MAX_DISPLAY_MATCHES} more"))
+    return entries
+
+
 class GlobTool(BaseTool):
     """Tool that performs glob-based path searches inside a directory."""
 
@@ -58,18 +71,29 @@ class GlobTool(BaseTool):
             matched_paths.sort(key=lambda p: str(p))
             matches = [str(p.relative_to(resolved_dir)) for p in matched_paths]
             joined = "\n".join(str(p) for p in matched_paths)
+            content_text = joined if joined else "[no matches]"
 
-            return {
+            data = {
                 "matches": matches,
                 "search_path": str(resolved_dir),
-                "content": joined,
                 "count": len(matches),
+                "display": _build_display(matches),
+            }
+
+            return {
+                "status": "success",
+                "content": content_text,
+                "data": data,
             }
         except Exception as exc:
+            message = str(exc)
             error_payload: Dict[str, Any] = {
-                "error": str(exc),
-                "content": str(exc),
+                "error": message,
             }
             if path:
                 error_payload["search_path"] = path
-            return error_payload
+            return {
+                "status": "error",
+                "content": message,
+                "data": error_payload,
+            }

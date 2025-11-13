@@ -8,6 +8,31 @@ from tools.base import BaseTool
 _ALLOWED_STATUSES = {"pending", "in_progress", "completed"}
 
 
+def _build_display_entries(todos: List[Dict[str, str]]) -> List[tuple[str, str]]:
+    entries: List[tuple[str, str]] = []
+    if not todos:
+        return entries
+
+    lines: List[str] = []
+    for todo in todos:
+        status = todo.get("status", "").lower()
+        if status == "completed":
+            marker = "[x]"
+        elif status == "in_progress":
+            marker = "[-]"
+        else:
+            marker = "[ ]"
+        content = todo.get("content", "").strip()
+        active_form = todo.get("activeForm", "").strip()
+        suffix = f" ({active_form})" if active_form else ""
+        line = f"- {marker} {content}{suffix}".rstrip()
+        lines.append(line)
+
+    if lines:
+        entries.append(("todo", "\n".join(lines)))
+    return entries
+
+
 class TodoWriteTool(BaseTool):
     """Structured todo list tool for tracking coding tasks during a session."""
 
@@ -68,13 +93,22 @@ class TodoWriteTool(BaseTool):
         try:
             normalized = self._validate_and_normalize(todos)
             formatted = self._format_summary(normalized)
-            return {
+            data = {
                 "todos": normalized,
+                "display": _build_display_entries(normalized),
+            }
+            return {
+                "status": "success",
                 "content": formatted,
+                "data": data,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
             message = str(exc)
-            return {"error": message, "content": message}
+            return {
+                "status": "error",
+                "content": message,
+                "data": {"error": message},
+            }
 
     def _validate_and_normalize(self, todos: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         if not isinstance(todos, list):

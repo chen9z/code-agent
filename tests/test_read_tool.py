@@ -15,10 +15,12 @@ def test_read_tool_basic(tmp_path):
 
     result = ReadTool().execute(file_path=str(file_path))
 
-    assert result["file_path"] == str(file_path.resolve())
-    assert result["offset"] == 1
-    assert result["limit"] == 2000
-    assert result["count"] == 3
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["file_path"] == str(file_path.resolve())
+    assert data["offset"] == 1
+    assert data["limit"] == 2000
+    assert data["count"] == 3
     assert result["content"] == "\n".join(
         [
             "     1→alpha",
@@ -26,8 +28,9 @@ def test_read_tool_basic(tmp_path):
             "     3→gamma",
         ]
     )
-    assert result["has_more"] is False
-    assert result["truncated"] is False
+    assert data["has_more"] is False
+    assert data["truncated"] is False
+    assert data["display"] == [("result", "Read 3 lines")]
 
 
 def test_read_tool_offset_and_limit(tmp_path):
@@ -36,12 +39,14 @@ def test_read_tool_offset_and_limit(tmp_path):
 
     result = ReadTool().execute(file_path=str(file_path), offset=2, limit=2)
 
-    assert result["count"] == 2
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["count"] == 2
     assert result["content"].splitlines() == [
         "     2→line2",
         "     3→line3",
     ]
-    assert result["has_more"] is True
+    assert data["has_more"] is True
 
 
 def test_read_tool_default_limit_enforced(tmp_path):
@@ -51,8 +56,9 @@ def test_read_tool_default_limit_enforced(tmp_path):
 
     result = ReadTool().execute(file_path=str(file_path))
 
-    assert result["count"] == 2000
-    assert result["has_more"] is True
+    data = result["data"]
+    assert data["count"] == 2000
+    assert data["has_more"] is True
     assert result["content"].splitlines()[0] == "     1→line 1"
     assert result["content"].splitlines()[-1] == "  2000→line 2000"
 
@@ -64,8 +70,9 @@ def test_read_tool_truncates_long_lines(tmp_path):
 
     result = ReadTool().execute(file_path=str(file_path))
 
-    assert result["count"] == 1
-    assert result["truncated"] is True
+    data = result["data"]
+    assert data["count"] == 1
+    assert data["truncated"] is True
     assert result["content"].endswith("a" * 2000 + "… (truncated)")
 
 
@@ -75,8 +82,9 @@ def test_read_tool_errors_on_relative_path(tmp_path):
 
     result = ReadTool().execute(file_path="relative/path.txt")
 
-    assert "error" in result
-    assert result["error"] == "file_path must be an absolute path"
+    assert result["status"] == "error"
+    assert result["content"] == "file_path must be an absolute path"
+    assert result["data"]["error"] == "file_path must be an absolute path"
 
 
 def test_read_tool_missing_file(tmp_path):
@@ -84,4 +92,5 @@ def test_read_tool_missing_file(tmp_path):
 
     result = ReadTool().execute(file_path=str(file_path))
 
-    assert result["error"].startswith("File does not exist")
+    assert result["status"] == "error"
+    assert result["content"].startswith("File does not exist")

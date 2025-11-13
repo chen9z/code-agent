@@ -19,13 +19,15 @@ def test_glob_matches_mimic_find_output(tmp_path):
 
     result = tool.execute(pattern="**/*.txt", path=str(tmp_path))
 
-    assert result["matches"] == [
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["matches"] == [
         "first.txt",
         "nested/second.txt",
         "third.txt",
     ]
-    assert result["search_path"] == str(tmp_path.resolve())
-    assert result["count"] == 3
+    assert data["search_path"] == str(tmp_path.resolve())
+    assert data["count"] == 3
     assert result["content"].splitlines() == [
         str(tmp_path / "first.txt"),
         str(tmp_path / "nested" / "second.txt"),
@@ -40,8 +42,9 @@ def test_glob_defaults_to_cwd(tmp_path, monkeypatch):
 
     result = GlobTool().execute(pattern="*.py")
 
-    assert result["matches"] == ["example.py"]
-    assert result["search_path"] == str(tmp_path.resolve())
+    data = result["data"]
+    assert data["matches"] == ["example.py"]
+    assert data["search_path"] == str(tmp_path.resolve())
     assert result["content"] == str(target)
 
 
@@ -50,5 +53,6 @@ def test_glob_returns_error_payload_for_missing_directory(tmp_path):
 
     result = GlobTool().execute(pattern="*.py", path=str(missing))
 
-    assert result["error"].startswith("Search directory does not exist")
-    assert result["search_path"] == str(missing)
+    assert result["status"] == "error"
+    assert result["content"].startswith("Search directory does not exist")
+    assert result["data"]["search_path"] == str(missing)

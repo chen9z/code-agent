@@ -95,6 +95,29 @@ class _TimeoutAwareTool(BaseTool):
         return {"content": "done", "stdout": "done"}
 
 
+class _DisplayTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "Display"
+
+    @property
+    def description(self) -> str:
+        return "emits custom display"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def execute(self, **kwargs):
+        return {
+            "status": "success",
+            "content": "",
+            "data": {
+                "display": [("result", "custom display")],
+            },
+        }
+
+
 @pytest.fixture()
 def registry() -> ToolRegistry:
     reg = ToolRegistry()
@@ -194,6 +217,21 @@ def test_truncates_long_tool_output_and_emits_preview():
     assert preview_messages, "Expected a tool message"
     assert any("preview truncated" in msg for msg in preview_messages)
     assert any("line 0" in msg for msg in preview_messages)
+
+
+def test_runner_uses_tool_display_entries():
+    registry = ToolRegistry()
+    registry.register(_DisplayTool(), key="display")
+    runner = ToolExecutionRunner(registry)
+    emitted: list[str] = []
+
+    runner.run(
+        [{"name": "display", "arguments": {}}],
+        messages=[],
+        output_callback=emitted.append,
+    )
+
+    assert any("custom display" in message for message in emitted), "Expected custom display text"
 
 
 def test_default_timeout_applies_to_bash_when_missing_argument():

@@ -10,6 +10,7 @@ from tools.base import BaseTool
 
 MAX_MATCHES = 50
 MAX_CONTEXT_CHARS = 400
+MAX_DISPLAY_MATCHES = 5
 
 
 def _sanitize_line_text(text: str) -> Tuple[str, bool]:
@@ -71,6 +72,61 @@ def _format_grouped_matches(
         formatted_lines.pop()
 
     return "\n".join(formatted_lines) if formatted_lines else "[no matches]"
+
+
+def _success_response(
+    *,
+    content: str,
+    data: Dict[str, Any],
+    display: Optional[List[tuple[str, str]]] = None,
+) -> Dict[str, Any]:
+    payload_data = dict(data)
+    if display:
+        payload_data["display"] = display
+    return {
+        "status": "success",
+        "content": content,
+        "data": payload_data,
+    }
+
+
+def _error_response(*, message: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "status": "error",
+        "content": message,
+        "data": data,
+    }
+
+
+def _build_display_matches(
+    matches: List[Dict[str, Any]],
+    *,
+    truncated: bool,
+) -> List[tuple[str, str]]:
+    entries: List[tuple[str, str]] = []
+    if not matches:
+        entries.append(("result", "No matches"))
+        if truncated:
+            entries.append(("note", "results truncated"))
+        return entries
+
+    preview = matches[:MAX_DISPLAY_MATCHES]
+    for match in preview:
+        if not isinstance(match, dict):
+            continue
+        path = match.get("path") or "[unknown path]"
+        line_no = match.get("line")
+        location = f"{path}:{line_no}" if isinstance(line_no, int) else str(path)
+        snippet = (match.get("line_text") or "").strip()
+        combined = f"{location} {snippet}".strip()
+        entries.append(("match", combined))
+
+    if len(matches) > len(preview):
+        entries.append(("note", f"+{len(matches) - len(preview)} more matches"))
+    if truncated:
+        entries.append(("note", "results truncated"))
+
+    return entries
 
 
 class GrepSearchTool(BaseTool):
@@ -141,7 +197,7 @@ Use the include or exclude patterns to filter the search scope by file type or s
     ) -> Dict[str, Any]:
         if not query:
             message = "query must be a non-empty string"
-            return {"error": message, "query": query, "content": message}
+            return _error_response(message=message, data={"query": query})
 
         command: List[str] = [
             "rg",
@@ -177,7 +233,7 @@ Use the include or exclude patterns to filter the search scope by file type or s
             )
         except FileNotFoundError:
             message = "ripgrep (rg) is not installed or not in PATH"
-            return {"error": message, "content": message}
+            return _error_response(message=message, data={"query": query})
 
         matches: List[Dict[str, Any]] = []
         truncated = False
@@ -250,20 +306,19 @@ Use the include or exclude patterns to filter the search scope by file type or s
 
         if exit_code not in (0, 1):
             message = stderr_output.strip() or "ripgrep failed"
-            return {
-                "error": message,
-                "exit_code": exit_code,
-                "query": query,
-                "content": message,
-            }
+            return _error_response(
+                message=message,
+                data={"query": query, "exit_code": exit_code},
+            )
 
         formatted_output = _format_grouped_matches(grouped)
+        display_entries = _build_display_matches(matches, truncated=truncated or snippet_truncated)
 
-        return {
-            "query": query,
-            "matches": matches,
-            "count": len(matches),
-            "truncated": truncated or snippet_truncated,
-            "stderr": stderr_output.strip(),
-            "content": formatted_output,
-        }
+        return _success_response(
+            content=formatted_output,
+            data={
+                "query": query,
+                "matches": matches,
+            },
+            display=display_entries,
+        )

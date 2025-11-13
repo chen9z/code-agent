@@ -11,9 +11,9 @@ def test_todo_write_formats_summary():
 
     result = tool.execute(todos=todos)
 
-    assert "error" not in result
-    assert "counts" not in result
-    assert result["todos"] == todos
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["todos"] == todos
 
     summary_lines = result["content"].splitlines()
     assert summary_lines[0] == "In Progress (1):"
@@ -21,6 +21,8 @@ def test_todo_write_formats_summary():
     assert "Pending" in summary_lines[2]
     assert summary_lines[-2] == "Completed (1):"
     assert summary_lines[-1] == "- Write tests (Writing tests)"
+    assert data["display"][0][0] == "todo"
+    assert "- [-] Review code" in data["display"][0][1]
 
 
 def test_todo_write_requires_single_in_progress():
@@ -32,8 +34,8 @@ def test_todo_write_requires_single_in_progress():
 
     result = tool.execute(todos=todos)
 
-    assert "error" in result
-    assert "in_progress" in result["error"]
+    assert result["status"] == "error"
+    assert "in_progress" in result["content"]
 
 
 def test_todo_write_validates_required_fields():
@@ -41,8 +43,8 @@ def test_todo_write_validates_required_fields():
 
     result = tool.execute(todos=[{"content": "Task", "status": "in_progress"}])
 
-    assert "error" in result
-    assert "activeForm" in result["error"]
+    assert result["status"] == "error"
+    assert "activeForm" in result["content"]
 
 
 def test_todo_write_accepts_all_completed_snapshot():
@@ -54,9 +56,8 @@ def test_todo_write_accepts_all_completed_snapshot():
 
     result = tool.execute(todos=todos)
 
-    assert "error" not in result
-    assert "counts" not in result
-    assert result["todos"] == todos
+    assert result["status"] == "success"
+    assert result["data"]["todos"] == todos
 
 
 def test_todo_write_rejects_zero_in_progress_with_pending_items():
@@ -68,5 +69,5 @@ def test_todo_write_rejects_zero_in_progress_with_pending_items():
 
     result = tool.execute(todos=todos)
 
-    assert "error" in result
-    assert "Exactly one todo" in result["error"]
+    assert result["status"] == "error"
+    assert "Exactly one todo" in result["content"]

@@ -75,14 +75,22 @@ Usage:
             bytes_written = len(content.encode("utf-8"))
             success_message = f"File created successfully at: {resolved}"
 
-            return {
+            data = {
                 "file_path": str(resolved),
                 "bytes_written": bytes_written,
+            }
+            return {
+                "status": "success",
                 "content": success_message,
+                "data": data,
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
+            message = str(exc)
             return {
-                "error": str(exc),
-                "file_path": file_path,
-                "content": str(exc),
+                "status": "error",
+                "content": message,
+                "data": {
+                    "error": message,
+                    "file_path": file_path,
+                },
             }
