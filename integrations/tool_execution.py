@@ -5,9 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
-from ui.emission import OutputCallback, OutputMessage, create_emit_event
-
 from tools.registry import ToolRegistry, ToolSpec
+from ui.emission import OutputCallback, OutputMessage, create_emit_event
 
 
 @dataclass
@@ -50,15 +49,16 @@ class ToolOutput:
             },
         }
 
+
 class ToolExecutionRunner:
     """Executes tool calls and streams console-friendly output."""
 
     def __init__(
-        self,
-        registry: ToolRegistry,
-        max_parallel_workers: int = 4,
-        *,
-        default_timeout_seconds: Optional[float] = None,
+            self,
+            registry: ToolRegistry,
+            max_parallel_workers: int = 4,
+            *,
+            default_timeout_seconds: Optional[float] = None,
     ) -> None:
         if max_parallel_workers < 1:
             raise ValueError("max_parallel_workers must be at least 1")
@@ -77,12 +77,12 @@ class ToolExecutionRunner:
             self.default_timeout_seconds = float(seconds)
 
     def run(
-        self,
-        tool_calls: Iterable[Mapping[str, Any]],
-        *,
-        messages: List[Dict[str, Any]],
-        output_callback: Optional[OutputCallback] = None,
-        timeout_override: Optional[float] = None,
+            self,
+            tool_calls: Iterable[Mapping[str, Any]],
+            *,
+            messages: List[Dict[str, Any]],
+            output_callback: Optional[OutputCallback] = None,
+            timeout_override: Optional[float] = None,
     ) -> List[ToolOutput]:
         if timeout_override is not None and timeout_override > 0:
             self.default_timeout_seconds = float(timeout_override)
@@ -96,113 +96,39 @@ class ToolExecutionRunner:
         return results
 
     def _record_results(
-        self,
-        results: List[ToolOutput],
-        messages: List[Dict[str, Any]],
-        output_callback: Optional[OutputCallback],
+            self,
+            results: List[ToolOutput],
+            messages: List[Dict[str, Any]],
+            output_callback: Optional[OutputCallback],
     ) -> None:
         for result in results:
             tool_name = str(result.name).lower()
-            is_bash_tool = tool_name == "bash"
-            is_glob_tool = tool_name == "glob"
-            has_error = result.status != "success"
-
-            console_preview = ""
-            full_output_text = ""
-
-            if not has_error and result.data is not None:
-                full_output_text = _stringify_tool_output(result.data)
-                console_preview = full_output_text
-                if (is_bash_tool or is_glob_tool) and console_preview:
-                    result_content = console_preview
-                else:
-                    result_content = ""
-            elif not has_error and result.content:
-                full_output_text = result.content
-                console_preview = full_output_text
-                if (is_bash_tool or is_glob_tool) and console_preview:
-                    result_content = console_preview
-                else:
-                    result_content = ""
-            elif has_error:
-                error_text = str(result.content or "")
-                result_content = error_text
-            else:
-                result_content = ""
-
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": result.id,
                     "name": tool_name,
-                    "content": result_content,
+                    "content": result.content,
                 }
             )
 
-            if not has_error:
-                display = [("status", result.status)]
-                display.extend(
-                    _extract_display_entries(
-                        result.data,
-                        result.content,
-                        console_preview,
-                        full_output_text,
-                    )
-                )
-                payload = {
-                    "tool": tool_name,
-                    "tool_call_id": result.id,
-                    "arguments": result.arguments,
-                    "status": result.status,
-                    "content": result.content,
-                    "data": result.data,
-                }
-                if display:
-                    payload["display"] = display
-                    _emit(
-                        output_callback,
-                        create_emit_event(
-                            "tool",
-                            tool_name,
-                            payload=payload,
-                        ),
-                    )
-            else:
-                tool_display: List[tuple[str, Optional[str]]] = []
-                if isinstance(result.data, Mapping):
-                    tool_display.extend(_normalize_display_items(result.data.get("display")))
-                    nested_data = result.data.get("data") if isinstance(result.data, Mapping) else None
-                    if not tool_display and isinstance(nested_data, Mapping):
-                        tool_display.extend(_normalize_display_items(nested_data.get("display")))
-
-                if tool_display:
-                    display = tool_display
-                else:
-                    error_preview_text = str(result.content or "")
-                    error_inline = error_preview_text.replace("\n", " ")
-                    display = []
-                    if error_inline:
-                        display.append(("error", error_inline))
-                    if error_preview_text:
-                        display.append(("output", error_preview_text))
-                payload = {
-                    "tool": tool_name,
-                    "tool_call_id": result.id,
-                    "arguments": result.arguments,
-                    "status": result.status,
-                    "content": result.content,
-                    "data": result.data,
-                }
-                if display:
-                    payload["display"] = display
-                    _emit(
-                        output_callback,
-                        create_emit_event(
-                            "tool",
-                            tool_name,
-                            payload=payload,
-                        ),
-                    )
+            payload = {
+                "tool": tool_name,
+                "tool_call_id": result.id,
+                "arguments": result.arguments,
+                "status": result.status,
+                "content": result.content,
+                "data": result.data,
+                "display": result.data['data']['display']
+            }
+            _emit(
+                output_callback,
+                create_emit_event(
+                    "tool",
+                    tool_name,
+                    payload=payload,
+                ),
+            )
 
     def _to_tool_call(self, raw: Dict[str, Any], index: int) -> ToolCall:
         if not isinstance(raw, dict):
@@ -295,86 +221,5 @@ def _emit(output_callback: Optional[OutputCallback], message: OutputMessage) -> 
     if callable(output_callback):
         output_callback(message)
 
-def _stringify_tool_output(data: Any) -> str:
-    if isinstance(data, dict):
-        stdout = data.get("stdout")
-        stderr = data.get("stderr")
-        if isinstance(stdout, str) or isinstance(stderr, str):
-            segments: List[str] = []
-            if isinstance(stdout, str) and stdout:
-                segments.append(stdout.rstrip("\n"))
-            if isinstance(stderr, str) and stderr:
-                header = "STDERR:"
-                segments.append(f"{header}\n{stderr.rstrip('\n')}")
-            if segments:
-                return "\n\n".join(seg for seg in segments if seg)
-        return json.dumps(data, ensure_ascii=False, indent=2)
-    return _stringify_payload(data)
 
-
-def _extract_display_entries(
-    data: Any,
-    result_content: Optional[str],
-    console_preview: str,
-    full_output_text: str,
-) -> List[tuple[str, Optional[str]]]:
-    entries: List[tuple[str, Optional[str]]] = []
-    if isinstance(data, Mapping):
-        raw_display = data.get("display")
-        if raw_display is None:
-            nested = data.get("data")
-            if isinstance(nested, Mapping):
-                raw_display = nested.get("display")
-        entries.extend(_normalize_display_items(raw_display))
-    if entries:
-        return entries
-
-    fallback = console_preview or (result_content if result_content else full_output_text)
-    fallback = fallback.strip()
-    if fallback:
-        entries.append(("result", fallback))
-    return entries
-
-
-def _normalize_display_items(source: Any) -> List[tuple[str, Optional[str]]]:
-    if source is None:
-        return []
-
-    def _append(target: List[tuple[str, Optional[str]]], key: Any, value: Any) -> None:
-        name = str(key or "").strip()
-        if not name:
-            return
-        if value is None:
-            target.append((name, None))
-            return
-        text = str(value).strip()
-        if text:
-            target.append((name, text))
-        else:
-            target.append((name, None))
-
-    normalized: List[tuple[str, Optional[str]]] = []
-    candidates: Sequence[Any]
-    if isinstance(source, Mapping):
-        candidates = list(source.items())
-    elif isinstance(source, Sequence) and not isinstance(source, (str, bytes)):
-        candidates = source
-    else:
-        candidates = (source,)
-
-    for entry in candidates:
-        if isinstance(entry, Mapping):
-            for key, value in entry.items():
-                _append(normalized, key, value)
-            continue
-        if isinstance(entry, Sequence) and not isinstance(entry, (str, bytes)):
-            if not entry:
-                continue
-            key = entry[0]
-            value = entry[1] if len(entry) > 1 else None
-            _append(normalized, key, value)
-            continue
-        _append(normalized, entry, None)
-
-    return normalized
 _TIMEOUT_AWARE_TOOLS = {"bash"}
