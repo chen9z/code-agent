@@ -220,7 +220,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
     assert result.content and "missing" in result.content.lower()
 
 
-def test_truncates_long_tool_output_and_emits_preview():
+def test_emits_full_tool_output_without_truncation():
     registry = ToolRegistry()
     registry.register(_LongOutputTool(), key="long")
     messages: list[str] = []
@@ -236,8 +236,9 @@ def test_truncates_long_tool_output_and_emits_preview():
     preview_messages = [msg for msg in messages if msg.startswith("[tool]")]
 
     assert preview_messages, "Expected a tool message"
-    assert any("preview truncated" in msg for msg in preview_messages)
+    assert all("preview truncated" not in msg for msg in preview_messages)
     assert any("line 0" in msg for msg in preview_messages)
+    assert any("line 199" in msg for msg in preview_messages)
 
 
 def test_runner_uses_tool_display_entries():

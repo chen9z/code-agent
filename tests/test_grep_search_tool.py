@@ -75,10 +75,9 @@ def test_grep_search_truncates_results(tmp_path, monkeypatch):
 
     assert len(result["data"]["matches"]) == MAX_MATCHES
     assert "match" in result["content"]
-    assert any(
-        item == ("note", "results truncated")
-        for item in result["data"].get("display", [])
-    )
+    notes = [item for item in result["data"].get("display", []) if item[0] == "note"]
+    assert any("more matches" in (note[1] or "") for note in notes)
+    assert all("results truncated" not in (note[1] or "") for note in notes)
 
 
 def test_grep_search_invalid_regex(tmp_path, monkeypatch):

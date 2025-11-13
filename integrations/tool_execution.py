@@ -108,30 +108,25 @@ class ToolExecutionRunner:
             has_error = result.status != "success"
 
             console_preview = ""
-            truncated_output = False
             full_output_text = ""
 
             if not has_error and result.data is not None:
                 full_output_text = _stringify_tool_output(result.data)
-                console_preview, truncated_output = _build_console_preview(full_output_text)
+                console_preview = full_output_text
                 if (is_bash_tool or is_glob_tool) and console_preview:
-                    result_content = _build_history_preview(console_preview)
+                    result_content = console_preview
                 else:
                     result_content = ""
             elif not has_error and result.content:
                 full_output_text = result.content
-                console_preview, truncated_output = _build_console_preview(full_output_text)
+                console_preview = full_output_text
                 if (is_bash_tool or is_glob_tool) and console_preview:
-                    result_content = _build_history_preview(console_preview)
+                    result_content = console_preview
                 else:
                     result_content = ""
             elif has_error:
                 error_text = str(result.content or "")
-                result_content = _truncate_text(
-                    error_text,
-                    max_chars=MAX_HISTORY_PREVIEW_CHARS,
-                    max_lines=MAX_HISTORY_PREVIEW_LINES,
-                )[0]
+                result_content = error_text
             else:
                 result_content = ""
 
@@ -154,8 +149,6 @@ class ToolExecutionRunner:
                         full_output_text,
                     )
                 )
-                if truncated_output:
-                    display.append(("note", "preview truncated"))
                 payload = {
                     "tool": tool_name,
                     "tool_call_id": result.id,
@@ -163,7 +156,6 @@ class ToolExecutionRunner:
                     "status": result.status,
                     "content": result.content,
                     "data": result.data,
-                    "truncated_output": truncated_output,
                 }
                 if display:
                     payload["display"] = display
@@ -186,19 +178,13 @@ class ToolExecutionRunner:
                 if tool_display:
                     display = tool_display
                 else:
-                    error_preview_text, trunc_err = _truncate_text(
-                        str(result.content or ""),
-                        max_chars=MAX_ERROR_PREVIEW_CHARS,
-                        max_lines=MAX_ERROR_PREVIEW_LINES,
-                    )
+                    error_preview_text = str(result.content or "")
                     error_inline = error_preview_text.replace("\n", " ")
                     display = []
                     if error_inline:
                         display.append(("error", error_inline))
                     if error_preview_text:
                         display.append(("output", error_preview_text))
-                    if trunc_err:
-                        display.append(("note", "preview truncated"))
                 payload = {
                     "tool": tool_name,
                     "tool_call_id": result.id,
@@ -305,31 +291,9 @@ def _stringify_payload(value: Any) -> str:
         return repr(value)
 
 
-def _preview_payload(value: Any, limit: int) -> str:
-    text = _stringify_payload(value)
-    if limit <= 3 or len(text) <= limit:
-        return text[:limit]
-    return f"{text[: limit - 3]}..."
-
-
 def _emit(output_callback: Optional[OutputCallback], message: OutputMessage) -> None:
     if callable(output_callback):
         output_callback(message)
-
-def _truncate_text(text: str, *, max_chars: int, max_lines: int) -> tuple[str, bool]:
-    if not text:
-        return "", False
-    lines = text.splitlines()
-    truncated = False
-    if len(lines) > max_lines:
-        truncated = True
-        lines = lines[:max_lines]
-    joined = "\n".join(lines)
-    if len(joined) > max_chars:
-        truncated = True
-        joined = joined[: max_chars - 3] + "..."
-    return joined, truncated
-
 
 def _stringify_tool_output(data: Any) -> str:
     if isinstance(data, dict):
@@ -345,37 +309,7 @@ def _stringify_tool_output(data: Any) -> str:
             if segments:
                 return "\n\n".join(seg for seg in segments if seg)
         return json.dumps(data, ensure_ascii=False, indent=2)
-    if isinstance(data, list):
-        preview = ", ".join(str(item) for item in data[:20])
-        if len(data) > 20:
-            preview += f", ... (+{len(data) - 20} more)"
-        return preview
     return _stringify_payload(data)
-
-
-def _build_console_preview(full_output: str) -> tuple[str, bool]:
-    preview, truncated = _truncate_text(
-        full_output,
-        max_chars=MAX_TOOL_PREVIEW_CHARS,
-        max_lines=MAX_TOOL_PREVIEW_LINES,
-    )
-    if not preview and not truncated:
-        return "", False
-    if truncated:
-        if preview:
-            preview = f"{preview}\n... (output truncated)"
-        else:
-            preview = "... (output truncated)"
-    return preview, truncated
-
-
-def _build_history_preview(preview_text: str) -> str:
-    trimmed, _ = _truncate_text(
-        preview_text,
-        max_chars=MAX_HISTORY_PREVIEW_CHARS,
-        max_lines=MAX_HISTORY_PREVIEW_LINES,
-    )
-    return trimmed
 
 
 def _extract_display_entries(
@@ -443,10 +377,4 @@ def _normalize_display_items(source: Any) -> List[tuple[str, Optional[str]]]:
         _append(normalized, entry, None)
 
     return normalized
-MAX_TOOL_PREVIEW_CHARS = 4000
-MAX_TOOL_PREVIEW_LINES = 80
-MAX_HISTORY_PREVIEW_CHARS = 800
-MAX_HISTORY_PREVIEW_LINES = 8
-MAX_ERROR_PREVIEW_CHARS = 800
-MAX_ERROR_PREVIEW_LINES = 12
 _TIMEOUT_AWARE_TOOLS = {"bash"}

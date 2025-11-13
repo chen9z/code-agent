@@ -101,16 +101,10 @@ def _error_response(*, message: str, data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_display_matches(
-    matches: List[Dict[str, Any]],
-    *,
-    truncated: bool,
-) -> List[tuple[str, str]]:
+def _build_display_matches(matches: List[Dict[str, Any]]) -> List[tuple[str, str]]:
     entries: List[tuple[str, str]] = []
     if not matches:
         entries.append(("result", "No matches"))
-        if truncated:
-            entries.append(("note", "results truncated"))
         return entries
 
     preview = matches[:MAX_DISPLAY_MATCHES]
@@ -126,8 +120,6 @@ def _build_display_matches(
 
     if len(matches) > len(preview):
         entries.append(("note", f"+{len(matches) - len(preview)} more matches"))
-    if truncated:
-        entries.append(("note", "results truncated"))
 
     return entries
 
@@ -323,7 +315,7 @@ Use the include or exclude patterns to filter the search scope by file type or s
             )
 
         formatted_output = _format_grouped_matches(grouped)
-        display_entries = _build_display_matches(matches, truncated=truncated or snippet_truncated)
+        display_entries = _build_display_matches(matches)
 
         return _success_response(
             content=formatted_output,
