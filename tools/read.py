@@ -9,39 +9,17 @@ MAX_LINE_LENGTH = 2000
 DEFAULT_LIMIT: int | None = None
 
 
-def _error_display(message: str) -> List[tuple[str, str]]:
+def _error_display(message: str) -> str | None:
     text = str(message or "").strip()
-    entries: List[tuple[str, str]] = []
-    if text:
-        entries.append(("error", text))
-    return entries
+    return text or None
+
+
+LINE_NUMBER_WIDTH = 8
 
 
 def format_line_with_arrow(line_number: int, content: str) -> str:
     """Return a formatted line using a fixed-width number and arrow delimiter."""
-    return f"{line_number:6}→{content}"
-
-
-# Tracks files that have been read along with their modification timestamps.
-READ_REGISTRY: Dict[str, float] = {}
-
-
-def register_read_path(path: Path) -> None:
-    """Record that a file was read, storing its current modification time."""
-    try:
-        READ_REGISTRY[str(path)] = path.stat().st_mtime
-    except FileNotFoundError:
-        READ_REGISTRY.pop(str(path), None)
-
-
-def get_last_read_mtime(path: Path) -> float | None:
-    """Retrieve the recorded modification time for a previously read file."""
-    return READ_REGISTRY.get(str(path))
-
-
-def clear_read_record(path: Path) -> None:
-    """Remove any stored read record for the given file."""
-    READ_REGISTRY.pop(str(path), None)
+    return f"{line_number:{LINE_NUMBER_WIDTH}}→{content}"
 
 
 class ReadTool(BaseTool):
@@ -121,7 +99,6 @@ Usage:
             resolved_path = path.resolve()
             formatted_lines: List[str] = []
             lines_read = 0
-            truncated = False
 
             end_line = start_line + max_lines - 1
             has_more = False
@@ -137,12 +114,9 @@ Usage:
                     stripped = raw_line.rstrip("\n")
                     if len(stripped) > MAX_LINE_LENGTH:
                         stripped = stripped[:MAX_LINE_LENGTH] + "… (truncated)"
-                        truncated = True
 
                     formatted_lines.append(format_line_with_arrow(line_number, stripped))
                     lines_read += 1
-
-            register_read_path(resolved_path)
 
             result = "\n".join(formatted_lines)
 
@@ -157,8 +131,7 @@ Usage:
                 "limit": max_lines,
                 "count": lines_read,
                 "has_more": has_more,
-                "truncated": truncated,
-                "display": [("result", display_summary)],
+                "display": display_summary,
             }
 
             return {

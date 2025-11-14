@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from tools.base import BaseTool
-from tools.read import clear_read_record, get_last_read_mtime
 
 
 class EditTool(BaseTool):
@@ -19,7 +18,6 @@ class EditTool(BaseTool):
         return """Performs exact string replacements in files.
 
 Usage:
-- You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: spaces + line number + tab. Everything after that tab is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
@@ -86,13 +84,6 @@ Usage:
                 raise IsADirectoryError(f"Cannot edit a directory: {resolved}")
 
             if file_exists:
-                recorded_mtime = get_last_read_mtime(resolved)
-                current_mtime = resolved.stat().st_mtime
-                if recorded_mtime is None or recorded_mtime != current_mtime:
-                    raise PermissionError(
-                        "File must be read with the Read tool before editing the existing file."
-                    )
-
                 if old_string == "":
                     raise ValueError("old_string must not be empty when editing an existing file")
 
@@ -137,8 +128,6 @@ Usage:
 
             with resolved.open("w", encoding="utf-8") as handle:
                 handle.write(updated_content)
-
-            clear_read_record(resolved)
 
             data = {
                 "file_path": str(resolved),

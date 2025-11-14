@@ -4,11 +4,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from tools.base import BaseTool
-from tools.read import clear_read_record, get_last_read_mtime
 
 
 class WriteTool(BaseTool):
-    """Tool that writes file contents while enforcing prior reads."""
+    """Tool that writes file contents to disk."""
 
     @property
     def name(self) -> str:
@@ -20,7 +19,6 @@ class WriteTool(BaseTool):
 
 Usage:
 - This tool will overwrite the existing file if there is one at the provided path.
-- If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
 - Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked."""
@@ -59,18 +57,8 @@ Usage:
             if resolved.exists() and resolved.is_dir():
                 raise IsADirectoryError(f"Cannot write to a directory: {resolved}")
 
-            if resolved.exists():
-                recorded_mtime = get_last_read_mtime(resolved)
-                current_mtime = resolved.stat().st_mtime
-                if recorded_mtime is None or recorded_mtime != current_mtime:
-                    raise PermissionError(
-                        "File must be read with the Read tool before writing to an existing file."
-                    )
-
             with resolved.open("w", encoding="utf-8") as handle:
                 handle.write(content)
-
-            clear_read_record(resolved)
 
             bytes_written = len(content.encode("utf-8"))
             success_message = f"File created successfully at: {resolved}"

@@ -1,4 +1,3 @@
-from tools.read import ReadTool
 from tools.write import WriteTool
 
 
@@ -20,42 +19,14 @@ def test_write_requires_absolute_path(tmp_path):
     assert result["content"] == "file_path must be an absolute path"
 
 
-def test_write_requires_read_before_overwrite(tmp_path):
+def test_write_overwrites_existing_file_without_prior_read(tmp_path):
     target = tmp_path / "sample.txt"
     target.write_text("first\n")
 
     result = WriteTool().execute(file_path=str(target.resolve()), content="second")
 
-    assert result["status"] == "error"
-    assert result["content"].startswith("File must be read")
-
-
-def test_write_succeeds_after_read(tmp_path):
-    target = tmp_path / "sample.txt"
-    target.write_text("initial\n")
-    reader = ReadTool()
-    reader.execute(file_path=str(target.resolve()))
-
-    result = WriteTool().execute(file_path=str(target.resolve()), content="updated")
-
     assert result["status"] == "success"
-    assert result["content"].startswith("File created successfully at:")
-    assert target.read_text() == "updated"
-
-
-def test_write_detects_changes_since_read(tmp_path):
-    target = tmp_path / "sample.txt"
-    target.write_text("initial\n")
-    reader = ReadTool()
-    reader.execute(file_path=str(target.resolve()))
-
-    # External modification after read
-    target.write_text("changed\n")
-
-    result = WriteTool().execute(file_path=str(target.resolve()), content="updated")
-
-    assert result["status"] == "error"
-    assert result["content"].startswith("File must be read")
+    assert target.read_text() == "second"
 
 
 def test_write_requires_existing_parent(tmp_path):
@@ -77,16 +48,14 @@ def test_write_rejects_directory(tmp_path):
     assert result["content"].startswith("Cannot write to a directory")
 
 
-def test_write_requires_reread_after_write(tmp_path):
+def test_write_allows_sequential_overwrites(tmp_path):
     target = tmp_path / "sample.txt"
     target.write_text("initial\n")
-    reader = ReadTool()
-    reader.execute(file_path=str(target.resolve()))
 
     writer = WriteTool()
-    writer.execute(file_path=str(target.resolve()), content="updated")
+    first = writer.execute(file_path=str(target.resolve()), content="updated")
+    second = writer.execute(file_path=str(target.resolve()), content="again")
 
-    result = writer.execute(file_path=str(target.resolve()), content="again")
-
-    assert result["status"] == "error"
-    assert result["content"].startswith("File must be read")
+    assert first["status"] == "success"
+    assert second["status"] == "success"
+    assert target.read_text() == "again"

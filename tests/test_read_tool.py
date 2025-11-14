@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.read import ReadTool
+from tools.read import ReadTool, format_line_with_arrow
 
 
 def create_file(path: Path, lines: list[str]) -> None:
@@ -19,18 +19,17 @@ def test_read_tool_basic(tmp_path):
     data = result["data"]
     assert data["file_path"] == str(file_path.resolve())
     assert data["offset"] == 1
-    assert data["limit"] == 2000
+    assert data["limit"] is None
     assert data["count"] == 3
     assert result["content"] == "\n".join(
         [
-            "     1→alpha",
-            "     2→beta",
-            "     3→gamma",
+            format_line_with_arrow(1, "alpha"),
+            format_line_with_arrow(2, "beta"),
+            format_line_with_arrow(3, "gamma"),
         ]
     )
     assert data["has_more"] is False
-    assert data["truncated"] is False
-    assert data["display"] == [("result", "Read 3 lines")]
+    assert data["display"] == "Read 3 lines"
 
 
 def test_read_tool_offset_and_limit(tmp_path):
@@ -43,13 +42,13 @@ def test_read_tool_offset_and_limit(tmp_path):
     data = result["data"]
     assert data["count"] == 2
     assert result["content"].splitlines() == [
-        "     2→line2",
-        "     3→line3",
+        format_line_with_arrow(2, "line2"),
+        format_line_with_arrow(3, "line3"),
     ]
     assert data["has_more"] is True
 
 
-def test_read_tool_default_limit_enforced(tmp_path):
+def test_read_tool_reads_entire_file_by_default(tmp_path):
     file_path = tmp_path / "many.txt"
     lines = [f"line {i}" for i in range(1, 2105)]
     create_file(file_path, lines)
@@ -57,10 +56,10 @@ def test_read_tool_default_limit_enforced(tmp_path):
     result = ReadTool().execute(file_path=str(file_path))
 
     data = result["data"]
-    assert data["count"] == 2000
-    assert data["has_more"] is True
-    assert result["content"].splitlines()[0] == "     1→line 1"
-    assert result["content"].splitlines()[-1] == "  2000→line 2000"
+    assert data["count"] == len(lines)
+    assert data["has_more"] is False
+    assert result["content"].splitlines()[0] == format_line_with_arrow(1, "line 1")
+    assert result["content"].splitlines()[-1] == format_line_with_arrow(len(lines), f"line {len(lines)}")
 
 
 def test_read_tool_truncates_long_lines(tmp_path):
@@ -72,7 +71,6 @@ def test_read_tool_truncates_long_lines(tmp_path):
 
     data = result["data"]
     assert data["count"] == 1
-    assert data["truncated"] is True
     assert result["content"].endswith("a" * 2000 + "… (truncated)")
 
 
