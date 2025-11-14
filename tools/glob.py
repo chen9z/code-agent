@@ -36,7 +36,7 @@ class GlobTool(BaseTool):
     def description(self) -> str:
         return '''- Fast file pattern matching tool that works with any codebase size
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
-- Returns matching file paths sorted by modification time
+- Returns matching file paths sorted by modification time (newest first)
 - Use this tool when you need to find files by name patterns
 - When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead
 - You can call multiple tools in a single response. It is always better to speculatively perform multiple searches in parallel if they are potentially useful.'''
@@ -67,24 +67,24 @@ class GlobTool(BaseTool):
                 raise NotADirectoryError(f"Search path is not a directory: {search_dir}")
 
             resolved_dir = search_dir.resolve()
-            matched_paths: List[Path] = []
+            matched_paths: List[tuple[Path, float]] = []
             for match in resolved_dir.glob(pattern):
                 try:
-                    match.stat()
+                    stat_result = match.stat()
                 except FileNotFoundError:
                     # File could disappear between glob and stat; skip it
                     continue
-                matched_paths.append(match)
+                matched_paths.append((match, stat_result.st_mtime))
 
-            matched_paths.sort(key=lambda p: str(p))
-            matches = [str(p.relative_to(resolved_dir)) for p in matched_paths]
-            joined = "\n".join(str(p) for p in matched_paths)
+            matched_paths.sort(key=lambda item: item[1], reverse=True)
+            ordered_paths = [entry[0] for entry in matched_paths]
+            matches = [str(p.relative_to(resolved_dir)) for p in ordered_paths]
+            joined = "\n".join(str(p) for p in ordered_paths)
             content_text = joined if joined else "[no matches]"
 
             data = {
                 "matches": matches,
                 "search_path": str(resolved_dir),
-                "count": len(matches),
                 "display": _build_display(matches),
             }
 

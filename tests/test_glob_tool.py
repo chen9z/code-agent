@@ -1,4 +1,4 @@
-from pathlib import Path
+import os
 
 import pytest
 
@@ -17,21 +17,25 @@ def test_glob_matches_mimic_find_output(tmp_path):
     third = tmp_path / "third.txt"
     third.write_text("third")
 
+    os.utime(first, (1, 1))
+    os.utime(second, (2, 2))
+    os.utime(third, (3, 3))
+
     result = tool.execute(pattern="**/*.txt", path=str(tmp_path))
 
     assert result["status"] == "success"
     data = result["data"]
     assert data["matches"] == [
-        "first.txt",
-        "nested/second.txt",
         "third.txt",
+        "nested/second.txt",
+        "first.txt",
     ]
     assert data["search_path"] == str(tmp_path.resolve())
-    assert data["count"] == 3
+    assert "count" not in data
     assert result["content"].splitlines() == [
-        str(tmp_path / "first.txt"),
-        str(tmp_path / "nested" / "second.txt"),
         str(tmp_path / "third.txt"),
+        str(tmp_path / "nested" / "second.txt"),
+        str(tmp_path / "first.txt"),
     ]
 
 
