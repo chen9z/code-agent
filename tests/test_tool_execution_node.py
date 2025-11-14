@@ -35,7 +35,13 @@ class _RecorderTool(BaseTool):
             time.sleep(self.delay)
         with self._lock:
             self.calls.append(kwargs)
-        return {"content": f"{self._name}: {kwargs}", "echo": kwargs}
+        return {
+            "content": f"{self._name}: {kwargs}",
+            "data": {
+                "echo": kwargs,
+                "display": [("result", f"{self._name}: {kwargs}")],
+            },
+        }
 
 
 class _EmptyTool(BaseTool):
@@ -52,7 +58,12 @@ class _EmptyTool(BaseTool):
         return {"type": "object", "properties": {}}
 
     def execute(self, **kwargs):
-        return {"content": ""}
+        return {
+            "content": "",
+            "data": {
+                "display": [("result", "(empty)")],
+            },
+        }
 
 
 class _LongOutputTool(BaseTool):
@@ -71,7 +82,14 @@ class _LongOutputTool(BaseTool):
     def execute(self, **kwargs):
         lines = [f"line {i}" for i in range(200)]
         payload = "\n".join(lines)
-        return {"content": payload, "stdout": payload, "command": "generate"}
+        return {
+            "content": payload,
+            "data": {
+                "stdout": payload,
+                "command": "generate",
+                "display": [("result", payload)],
+            },
+        }
 
 
 class _TimeoutAwareTool(BaseTool):
@@ -92,7 +110,13 @@ class _TimeoutAwareTool(BaseTool):
 
     def execute(self, **kwargs):
         self.calls.append(kwargs)
-        return {"content": "done", "stdout": "done"}
+        return {
+            "content": "done",
+            "data": {
+                "stdout": "done",
+                "display": [("result", "done")],
+            },
+        }
 
 
 class _DisplayTool(BaseTool):
@@ -135,7 +159,10 @@ class _ReportedErrorTool(BaseTool):
         return {
             "status": "error",
             "content": "simulated failure",
-            "data": {"detail": "boom"},
+            "data": {
+                "detail": "boom",
+                "display": [("error", "simulated failure")],
+            },
         }
 
 
@@ -170,8 +197,8 @@ def test_sequential_execution_updates_history(registry: ToolRegistry):
     assert second.data["echo"] == {"value": 2}
     assert history[-2]["role"] == "tool"
     assert history[-1]["role"] == "tool"
-    assert history[-2]["content"] == ""
-    assert history[-1]["content"] == ""
+    assert history[-2]["content"] == "Echo: {'value': 1}"
+    assert history[-1]["content"] == "Echo: {'value': 2}"
 
 
 def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
@@ -190,7 +217,10 @@ def test_parallel_execution_runs_all_calls(registry: ToolRegistry):
     statuses = {result.data["echo"]["value"] for result in results if result.data}
     assert statuses == {"a", "b"}
     assert all(entry["role"] == "tool" for entry in history[-2:])
-    assert all(entry["content"] == "" for entry in history[-2:])
+    assert {entry["content"] for entry in history[-2:]} == {
+        "Slow: {'value': 'a'}",
+        "Slow: {'value': 'b'}",
+    }
 
 
 def test_history_preserves_falsy_output(registry: ToolRegistry):

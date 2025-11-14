@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from tools.registry import ToolRegistry, ToolSpec
 from ui.emission import OutputCallback, OutputMessage, create_emit_event
@@ -112,15 +111,16 @@ class ToolExecutionRunner:
                 }
             )
 
-            payload = {
+            payload: Dict[str, Any] = {
                 "tool": tool_name,
                 "tool_call_id": result.id,
                 "arguments": result.arguments,
                 "status": result.status,
                 "content": result.content,
                 "data": result.data,
-                "display": result.data['data']['display']
+                "display": result.data["display"]
             }
+
             _emit(
                 output_callback,
                 create_emit_event(
@@ -179,21 +179,13 @@ class ToolExecutionRunner:
                 data=None,
             )
 
-        tool_status = str(output.get("status", "success")).lower()
-        if tool_status not in {"success", "error"}:
-            tool_status = "success"
-
-        content_value = output.get("content")
-        if content_value is None:
-            content_value = ""
-
         return ToolOutput(
             name=call.name,
             arguments=effective_arguments,
             call_id=call.call_id,
-            status=tool_status,
-            content=str(content_value),
-            data=output,
+            status=output.get("status"),
+            content=output.get("content"),
+            data=output.get("data"),
         )
 
     def _apply_timeout_default(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -206,15 +198,6 @@ class ToolExecutionRunner:
         updated = dict(arguments)
         updated["timeout"] = timeout_ms
         return updated
-
-
-def _stringify_payload(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except TypeError:
-        return repr(value)
 
 
 def _emit(output_callback: Optional[OutputCallback], message: OutputMessage) -> None:
