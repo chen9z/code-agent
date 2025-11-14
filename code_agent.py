@@ -45,9 +45,9 @@ def _emit(output_callback: Optional[OutputCallback], message: OutputMessage) -> 
 
 
 def _prepare_messages(
-    existing_history: Optional[Iterable[Mapping[str, Any]]],
-    system_prompt: str,
-    user_input: str,
+        existing_history: Optional[Iterable[Mapping[str, Any]]],
+        system_prompt: str,
+        user_input: str,
 ) -> List[Dict[str, Any]]:
     cloned_history = [dict(message) for message in (existing_history or [])]
 
@@ -67,14 +67,14 @@ class CodeAgentSession:
     """In-memory conversation session for the Code Agent CLI."""
 
     def __init__(
-        self,
-        *,
-        registry: Optional[ToolRegistry] = None,
-        llm_client: Any = None,
-        max_iterations: int = 25,
-        system_prompt: Optional[str] = None,
-        environment: Optional[Mapping[str, Any]] = None,
-        workspace: Optional[str | Path] = None,
+            self,
+            *,
+            registry: Optional[ToolRegistry] = None,
+            llm_client: Any = None,
+            max_iterations: int = 25,
+            system_prompt: Optional[str] = None,
+            environment: Optional[Mapping[str, Any]] = None,
+            workspace: Optional[str | Path] = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
         self.registry = registry or create_default_registry(project_root=self.workspace)
@@ -104,10 +104,10 @@ class CodeAgentSession:
         self.messages: List[Dict[str, Any]] = []
 
     def run_turn(
-        self,
-        user_input: str,
-        *,
-        output_callback: Optional[OutputCallback] = None,
+            self,
+            user_input: str,
+            *,
+            output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
@@ -119,11 +119,10 @@ class CodeAgentSession:
 
         final_content: Optional[str] = None
         while True:
-            response = self._call_llm(messages, output_callback)
+            response = self._call_llm(messages)
             assistant_content = response.get("content")
             if assistant_content:
                 _emit(output_callback, create_emit_event("assistant", assistant_content))
-            tool_plan = response
             tool_calls = response.get("tool_calls")
             if not tool_calls:
                 final_content = assistant_content
@@ -142,16 +141,14 @@ class CodeAgentSession:
         result = {
             "content": final_content,
             "tool_results": list(tool_results),
-            "tool_plan": tool_plan,
-            "history": list(messages),
+            "messages": list(messages),
         }
         self.messages = [msg for msg in messages if self._is_valid_message(msg)]
         return result
 
     def _call_llm(
-        self,
-        messages: List[Dict[str, Any]],
-        output_callback: Optional[OutputCallback] = None,
+            self,
+            messages: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         tools = list(self.registry.to_openai_tools())
         response = self.llm_client.create_with_tools(
@@ -173,12 +170,12 @@ class CodeAgentSession:
                     "id": call.get("id"),
                     "type": "function",
                     "function": {
-                        "name": (call.get("name") or call.get("key") or ""),
+                        "name": call.get("name"),
                         "arguments": json.dumps(call.get("arguments", {}), ensure_ascii=False),
                     },
                 }
                 for call in tool_calls
-                if call.get("name") or call.get("key")
+                if call.get("name")
             ]
         messages.append(assistant_message)
         return plan

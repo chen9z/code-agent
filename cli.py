@@ -138,7 +138,7 @@ def _emit_result(result: Mapping[str, Any], output_callback: OutputCallback) -> 
     if not final:
         return
 
-    history = result.get("history")
+    history = result.get("messages") or result.get("history")
     already_emitted = False
     if isinstance(history, list):
         for message in reversed(history):
