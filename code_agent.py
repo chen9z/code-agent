@@ -258,7 +258,7 @@ class CodeAgentSession:
         if content is None:
             return None
         if isinstance(content, str):
-            return content.strip()
+            return content
         if isinstance(content, list):
             parts: List[str] = []
             for item in content:
@@ -266,7 +266,7 @@ class CodeAgentSession:
                     parts.append(str(item.get("text", "")))
                 else:
                     parts.append(str(item))
-            return "".join(parts).strip()
+            return "".join(parts)
         return str(content)
 
     @staticmethod
