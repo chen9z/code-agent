@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.read import ReadTool, format_line_with_arrow
+from tools.read import DEFAULT_LIMIT, MAX_LINE_LENGTH, ReadTool, format_line_with_arrow
 
 
 def create_file(path: Path, lines: list[str]) -> None:
@@ -19,7 +19,7 @@ def test_read_tool_basic(tmp_path):
     data = result["data"]
     assert data["file_path"] == str(file_path.resolve())
     assert data["offset"] == 1
-    assert data["limit"] is None
+    assert data["limit"] == DEFAULT_LIMIT
     assert data["count"] == 3
     assert result["content"] == "\n".join(
         [
@@ -56,10 +56,9 @@ def test_read_tool_reads_entire_file_by_default(tmp_path):
     result = ReadTool().execute(file_path=str(file_path))
 
     data = result["data"]
-    assert data["count"] == len(lines)
-    assert data["has_more"] is False
+    assert data["has_more"] is True
     assert result["content"].splitlines()[0] == format_line_with_arrow(1, "line 1")
-    assert result["content"].splitlines()[-1] == format_line_with_arrow(len(lines), f"line {len(lines)}")
+    assert result["content"].splitlines()[-1] == format_line_with_arrow(DEFAULT_LIMIT, f"line {DEFAULT_LIMIT}")
 
 
 def test_read_tool_truncates_long_lines(tmp_path):
