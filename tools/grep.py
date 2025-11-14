@@ -137,79 +137,51 @@ class GrepSearchTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return """A powerful search tool built on ripgrep
+        return r"""### Instructions:
+This is best for finding exact text matches or regex patterns.
+This is preferred over semantic search when we know the exact symbol/function name/etc. to search in some set of directories/file types.
 
-  Usage:
-  - ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
-  - Supports full regex syntax (e.g., "log.*Error", "function\s+\w+")
-  - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
-  - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
-  - Use Task tool for open-ended searches requiring multiple rounds
-  - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\{\}` to find `interface{}` in Go code)
-  - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \{[\s\S]*?field`, use `multiline: true`"""
+Use this tool to run fast, exact regex searches over text files using the `ripgrep` engine.
+To avoid overwhelming output, the results are capped at 50 matches.
+Use the include or exclude patterns to filter the search scope by file type or specific paths.
+
+- Always escape special regex characters: ( ) [ ] { } + * ? ^ $ | . \
+- Use `\` to escape any of these characters when they appear in your search string.
+- Do NOT perform fuzzy or semantic matches.
+- Return only a valid regex pattern string.
+
+### Examples:
+| Literal               | Regex Pattern            |
+|-----------------------|--------------------------|
+| function(             | function\(              |
+| value[index]          | value\[index\]         |
+| file.txt               | file\.txt                |
+| user|admin            | user\|admin             |
+| path\to\file         | path\\to\\file        |
+| hello world           | hello world              |
+| foo\(bar\)          | foo\\(bar\\)         |"""
 
     @property
     def parameters(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "-A": {
-                    "type": "number",
-                    "description": "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise."
+                "query": {
+                    "type": "string",
+                    "description": "The regex pattern to search for",
                 },
-                "-B": {
-                    "type": "number",
-                    "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise."
-                },
-                "-C": {
-                    "type": "number",
-                    "description": "Number of lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise."
-                },
-                "-i": {
+                "case_sensitive": {
                     "type": "boolean",
-                    "description": "Case insensitive search (rg -i)"
+                    "description": "Whether the search should be case sensitive",
                 },
-                "-n": {
-                    "type": "boolean",
-                    "description": "Show line numbers in output (rg -n). Requires output_mode: \"content\", ignored otherwise. Defaults to true."
-                },
-                "glob": {
+                "include_pattern": {
                     "type": "string",
-                    "description": "Glob pattern to filter files (e.g. \"*.js\", \"*.{ts,tsx}\") - maps to rg --glob"
+                    "description": "Glob pattern for files to include (e.g. '*.ts' for TypeScript files)",
                 },
-                "path": {
+                "exclude_pattern": {
                     "type": "string",
-                    "description": "File or directory to search in (rg PATH). Defaults to current working directory."
+                    "description": "Glob pattern for files to exclude",
                 },
-                "type": {
-                    "type": "string",
-                    "description": "File type to search (rg --type). Common types: js, py, rust, go, java, etc. More efficient than include for standard file types."
-                },
-                "offset": {
-                    "type": "number",
-                    "description": "Skip first N lines/entries before applying head_limit, equivalent to \"| tail -n +N | head -N\". Works across all output modes. Defaults to 0."
-                },
-                "pattern": {
-                    "type": "string",
-                    "description": "The regular expression pattern to search for in file contents"
-                },
-                "multiline": {
-                    "type": "boolean",
-                    "description": "Enable multiline mode where . matches newlines and patterns can span lines (rg -U --multiline-dotall). Default: false."
-                },
-                "head_limit": {
-                    "type": "number",
-                    "description": "Limit output to first N lines/entries, equivalent to \"| head -N\". Works across all output modes: content (limits output lines), files_with_matches (limits file paths), count (limits count entries). Defaults based on \"cap\" experiment value: 0 (unlimited), 20, or 100."
-                },
-                "output_mode": {
-                    "enum": [
-                        "content",
-                        "files_with_matches",
-                        "count"
-                    ],
-                    "type": "string",
-                    "description": "Output mode: \"content\" shows matching lines (supports -A/-B/-C context, -n line numbers, head_limit), \"files_with_matches\" shows file paths (supports head_limit), \"count\" shows match counts (supports head_limit). Defaults to \"files_with_matches\"."
-                }
             },
             "required": ["query"],
         }
