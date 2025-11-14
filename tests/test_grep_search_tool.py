@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.grep import GrepSearchTool, MAX_MATCHES
+from tools.grep import GrepSearchTool, MAX_DISPLAY_MATCHES, MAX_MATCHES
 
 
 def write_file(path: Path, content: str) -> None:
@@ -28,13 +28,9 @@ def test_grep_search_basic(tmp_path, monkeypatch):
         "       1→def foo():",
         "             ^^^",
     ]
-    labels = [entry[0] for entry in result["data"].get("display", [])]
-    assert "match" in labels
-    assert any(
-        "a.py" in (entry[1] or "")
-        for entry in result["data"].get("display", [])
-        if entry[0] == "match"
-    )
+    display_text = result["data"].get("display", "")
+    assert isinstance(display_text, str)
+    assert "a.py" in display_text
 
 
 def test_grep_search_case_insensitive(tmp_path, monkeypatch):
@@ -75,9 +71,10 @@ def test_grep_search_truncates_results(tmp_path, monkeypatch):
 
     assert len(result["data"]["matches"]) == MAX_MATCHES
     assert "match" in result["content"]
-    notes = [item for item in result["data"].get("display", []) if item[0] == "note"]
-    assert any("more matches" in (note[1] or "") for note in notes)
-    assert all("results truncated" not in (note[1] or "") for note in notes)
+    display_text = result["data"].get("display", "")
+    assert isinstance(display_text, str)
+    assert "+{} more matches".format(MAX_MATCHES - MAX_DISPLAY_MATCHES) in display_text
+    assert "results truncated" not in display_text
 
 
 def test_grep_search_invalid_regex(tmp_path, monkeypatch):
@@ -99,4 +96,4 @@ def test_grep_search_no_matches(tmp_path, monkeypatch):
     assert len(result["data"]["matches"]) == 0
     assert result["data"]["matches"] == []
     assert result["content"] == "[no matches]"
-    assert result["data"].get("display") == [("result", "No matches")]
+    assert result["data"].get("display") == "No matches"

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Semantic code search tool backed by a shared embedding indexer."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from integrations.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
 from tools.base import BaseTool
@@ -140,12 +140,9 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
         return _success_response(formatted["summary"] or "[no semantic matches]", data)
 
 
-def _error_display(message: str) -> List[tuple[str, str]]:
+def _error_display(message: str) -> str:
     text = str(message or "").strip()
-    entries: List[tuple[str, str]] = []
-    if text:
-        entries.append(("error", text))
-    return entries
+    return text or "Unknown error"
 
 
 def _error_response(message: str, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -12,31 +12,23 @@ from tools.base import BaseTool
 MAX_TIMEOUT_MS = 600_000
 
 
-def _build_error_display(message: str) -> List[tuple[str, str]]:
+def _build_error_display(message: str) -> str:
     text = str(message or "").strip()
-    entries: List[tuple[str, str]] = []
-    if text:
-        entries.append(("error", text))
-    return entries
+    return text or "Unknown error"
 
 
-def _build_success_display(data: Dict[str, Any], fallback: str) -> List[tuple[str, str]]:
-    entries: List[tuple[str, str]] = []
-
+def _build_success_display(data: Dict[str, Any], fallback: str) -> str:
     shell_id = data.get("shell_id")
     shell_status = data.get("status") or data.get("shell_status")
     if isinstance(shell_id, str) and shell_id.strip():
         label = shell_id.strip()
         if isinstance(shell_status, str) and shell_status.strip():
             label = f"{label} ({shell_status.strip()})"
-        entries.append(("result", label))
-        return entries
+        return label
 
     stdout = data.get("stdout")
     text = stdout if isinstance(stdout, str) and stdout.strip() else fallback
-    if text:
-        entries.append(("result", _preview(text)))
-    return entries
+    return _preview(text)
 
 
 def _preview(text: str, max_chars: int = 160) -> str:
@@ -276,7 +268,6 @@ Important:
     def parameters(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "$schema": "http://json-schema.org/draft-07/schema#",
             "required": ["command"],
             "properties": {
                 "command": {
@@ -289,13 +280,7 @@ Important:
                 },
                 "description": {
                     "type": "string",
-                    "description": (
-                        "Clear, concise description of what this command does in 5-10 words, in active voice. Examples:\n"
-                        "Input: ls\nOutput: List files in current directory\n\n"
-                        "Input: git status\nOutput: Show working tree status\n\n"
-                        "Input: npm install\nOutput: Install package dependencies\n\n"
-                        "Input: mkdir foo\nOutput: Create directory 'foo'"
-                    ),
+                    "description": '''Clear, concise description of what this command does in 5-10 words, in active voice. Examples:\nInput: ls\nOutput: List files in current directory\n\nInput: git status\nOutput: Show working tree status\n\nInput: npm install\nOutput: Install package dependencies\n\nInput: mkdir foo\nOutput: Create directory 'foo' '''
                 },
                 "run_in_background": {
                     "type": "boolean",
@@ -334,12 +319,15 @@ Important:
                 "content": content,
                 "data": payload,
             }
+            display_text: str | None = None
             if status == "error":
-                response["display"] = _build_error_display(content)
+                display_text = _build_error_display(content)
             else:
                 success_display = _build_success_display(payload, content)
-                if success_display:
-                    response["display"] = success_display
+                display_text = success_display
+            if display_text:
+                payload["display"] = display_text
+                response["display"] = display_text
             return response
 
         def summarize_output(stdout: str, stderr: str, fallback: str) -> str:

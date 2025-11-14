@@ -112,8 +112,22 @@ class ToolExecutionRunner:
                 }
             )
 
-            if not result.data or not result.data.get("display"):
+            data_payload: Dict[str, Any] = {}
+            if isinstance(result.data, dict):
+                data_payload = result.data
+            elif result.data is None:
+                data_payload = {}
+                result.data = data_payload
+            else:
+                data_payload = {"raw": result.data}
+                result.data = data_payload
+
+            display_value = data_payload.get("display")
+            if not display_value:
                 logging.error(f"Tool {tool_name} did not return display data: {result.data}")
+                fallback_display = result.content or result.status or tool_name
+                display_value = str(fallback_display or tool_name)
+                data_payload["display"] = display_value
 
             payload: Dict[str, Any] = {
                 "tool": tool_name,
@@ -122,7 +136,7 @@ class ToolExecutionRunner:
                 "status": result.status,
                 "content": result.content,
                 "data": result.data,
-                "display": result.data["display"]
+                "display": data_payload["display"]
             }
 
             _emit(

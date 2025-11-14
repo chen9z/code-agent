@@ -9,22 +9,20 @@ from tools.base import BaseTool
 MAX_DISPLAY_MATCHES = 5
 
 
-def _build_display(matches: List[str]) -> List[tuple[str, str]]:
+def _build_display(matches: List[str]) -> str:
     if not matches:
-        return [("result", "No matches")]
+        return "No matches"
 
-    entries: List[tuple[str, str]] = [("match", match) for match in matches[:MAX_DISPLAY_MATCHES]]
+    visible_matches = matches[:MAX_DISPLAY_MATCHES]
+    entries = [f"- {match}" for match in visible_matches]
     if len(matches) > MAX_DISPLAY_MATCHES:
-        entries.append(("note", f"+{len(matches) - MAX_DISPLAY_MATCHES} more"))
-    return entries
+        entries.append(f"+{len(matches) - MAX_DISPLAY_MATCHES} more")
+    return "\n".join(entries)
 
 
-def _error_display(message: str) -> List[tuple[str, str]]:
+def _error_display(message: str) -> str:
     text = str(message or "").strip()
-    entries: List[tuple[str, str]] = []
-    if text:
-        entries.append(("error", text))
-    return entries
+    return text or "Unknown error"
 
 
 class GlobTool(BaseTool):
@@ -36,7 +34,12 @@ class GlobTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return """Fast file pattern matching tool that supports glob patterns like '**/*.js' or 'src/**/*.ts'. Returns matches sorted by modification time (newest first)."""
+        return '''- Fast file pattern matching tool that works with any codebase size
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time
+- Use this tool when you need to find files by name patterns
+- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead
+- You can call multiple tools in a single response. It is always better to speculatively perform multiple searches in parallel if they are potentially useful.'''
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -46,10 +49,7 @@ class GlobTool(BaseTool):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": (
-                        "Directory to search. Omit to use the current working directory. Must "
-                        "exist and be a directory if provided."
-                    ),
+                    "description": '''The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided.''',
                 },
                 "pattern": {
                     "type": "string",

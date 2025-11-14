@@ -36,10 +36,11 @@ class _RecorderTool(BaseTool):
         with self._lock:
             self.calls.append(kwargs)
         return {
+            "status": "success",
             "content": f"{self._name}: {kwargs}",
             "data": {
                 "echo": kwargs,
-                "display": [("result", f"{self._name}: {kwargs}")],
+                "display": f"{self._name}: {kwargs}",
             },
         }
 
@@ -59,9 +60,10 @@ class _EmptyTool(BaseTool):
 
     def execute(self, **kwargs):
         return {
+            "status": "success",
             "content": "",
             "data": {
-                "display": [("result", "(empty)")],
+                "display": "(empty)",
             },
         }
 
@@ -83,11 +85,12 @@ class _LongOutputTool(BaseTool):
         lines = [f"line {i}" for i in range(200)]
         payload = "\n".join(lines)
         return {
+            "status": "success",
             "content": payload,
             "data": {
                 "stdout": payload,
                 "command": "generate",
-                "display": [("result", payload)],
+                "display": payload,
             },
         }
 
@@ -111,10 +114,11 @@ class _TimeoutAwareTool(BaseTool):
     def execute(self, **kwargs):
         self.calls.append(kwargs)
         return {
+            "status": "success",
             "content": "done",
             "data": {
                 "stdout": "done",
-                "display": [("result", "done")],
+                "display": "done",
             },
         }
 
@@ -137,7 +141,7 @@ class _DisplayTool(BaseTool):
             "status": "success",
             "content": "",
             "data": {
-                "display": [("result", "custom display")],
+                "display": "custom display",
             },
         }
 
@@ -161,7 +165,7 @@ class _ReportedErrorTool(BaseTool):
             "content": "simulated failure",
             "data": {
                 "detail": "boom",
-                "display": [("error", "simulated failure")],
+                "display": "simulated failure",
             },
         }
 

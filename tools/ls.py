@@ -112,9 +112,6 @@ class LSTool(BaseTool):
             }
 
 
-def _build_error_display(message: str) -> List[tuple[str, str]]:
+def _build_error_display(message: str) -> str:
     text = str(message or "").strip()
-    entries: List[tuple[str, str]] = []
-    if text:
-        entries.append(("error", text))
-    return entries
+    return text or "Unknown error"

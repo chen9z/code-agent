@@ -21,8 +21,9 @@ def test_todo_write_formats_summary():
     assert "Pending" in summary_lines[2]
     assert summary_lines[-2] == "Completed (1):"
     assert summary_lines[-1] == "- Write tests (Writing tests)"
-    assert data["display"][0][0] == "todo"
-    assert "- [-] Review code" in data["display"][0][1]
+    display_text = data["display"]
+    assert isinstance(display_text, str)
+    assert "- [-] Review code" in display_text
 
 
 def test_todo_write_requires_single_in_progress():

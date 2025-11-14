@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from tools.base import BaseTool
 
@@ -151,9 +151,6 @@ Usage:
             }
 
 
-def _build_error_display(message: str) -> List[tuple[str, str]]:
+def _build_error_display(message: str) -> str:
     text = str(message or "").strip()
-    entries: List[tuple[str, str]] = []
-    if text:
-        entries.append(("error", text))
-    return entries
+    return text or "Unknown error"

@@ -24,10 +24,7 @@ def test_rich_output_renders_tool_header_with_args():
         payload={
             "tool": "bash",
             "arguments": {"command": "ls"},
-            "display": [
-                ("status", "success"),
-                ("result", "preview text"),
-            ]
+            "display": "status: success | preview text",
         },
     )
     emit(event)
@@ -46,7 +43,7 @@ def test_rich_output_handles_structured_events():
         "Echo",
         payload={
             "hello": "world",
-            "display": [("status", "success"), ("args", "value: 1")],
+            "display": "status: success | args: value: 1",
         },
     )
     emit(event)
@@ -65,10 +62,7 @@ def test_rich_output_renders_todo_markdown():
         "TodoWrite",
         payload={
             "tool": "todo_write",
-            "display": [
-                ("status", "success"),
-                ("todo", "- [ ] draft plan\n- [x] fix bug"),
-            ],
+            "display": "- [ ] draft plan\n- [x] fix bug",
         },
     )
     emit(event)

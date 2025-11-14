@@ -95,6 +95,8 @@ def _extract_display(payload: Any) -> Tuple[DisplayItem, ...]:
 
     if isinstance(raw_display, Mapping):
         candidates = raw_display.items()
+    elif isinstance(raw_display, str):
+        candidates = (("result", raw_display),)
     elif isinstance(raw_display, Sequence) and not isinstance(raw_display, (str, bytes)):
         candidates = raw_display
     else:
