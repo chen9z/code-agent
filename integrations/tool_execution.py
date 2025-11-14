@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional
@@ -110,6 +111,9 @@ class ToolExecutionRunner:
                     "content": result.content,
                 }
             )
+
+            if not result.data or not result.data.get("display"):
+                logging.error(f"Tool {tool_name} did not return display data: {result.data}")
 
             payload: Dict[str, Any] = {
                 "tool": tool_name,

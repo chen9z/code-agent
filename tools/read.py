@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 from tools.base import BaseTool
 
 MAX_LINE_LENGTH = 2000
-DEFAULT_LIMIT = 2000
+DEFAULT_LIMIT: int | None = None
 
 
 def _error_display(message: str) -> List[tuple[str, str]]:
@@ -53,7 +53,19 @@ class ReadTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return """Reads a file from the local filesystem using cat -n formatted output. Supports optional line offset and limit for large files."""
+        return '''Reads a file from the local filesystem. You can access any file directly by using this tool.
+Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+
+Usage:
+- The file_path parameter must be an absolute path, not a relative path
+- By default, it reads up to 2000 lines starting from the beginning of the file
+- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
+- Any lines longer than 2000 characters will be truncated
+- Results are returned using cat -n format, with line numbers starting at 1
+- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
+- You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
+- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
+- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.'''
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -64,13 +76,13 @@ class ReadTool(BaseTool):
                 "limit": {
                     "type": "number",
                     "description": (
-                        "Number of lines to read (default 2000). Provide to paginate very large files."
+                        "The number of lines to read. Only provide if the file is too large to read at once"
                     ),
                 },
                 "offset": {
                     "type": "number",
                     "description": (
-                        "1-based line number to start reading from. Provide to paginate very large files."
+                        "The line number to start reading from. Only provide if the file is too large to read at once"
                     ),
                 },
                 "file_path": {
@@ -81,11 +93,11 @@ class ReadTool(BaseTool):
         }
 
     def execute(
-        self,
-        *,
-        file_path: str,
-        limit: float | int | None = None,
-        offset: float | int | None = None,
+            self,
+            *,
+            file_path: str,
+            limit: float | int | None = None,
+            offset: float | int | None = None,
     ) -> Dict[str, Any]:
         try:
             path = Path(file_path)
