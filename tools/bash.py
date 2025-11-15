@@ -32,7 +32,7 @@ def _build_success_display(data: Dict[str, Any], fallback: str) -> str:
 
 
 def _preview(text: str, max_chars: int = 160) -> str:
-    cleaned = text.strip()
+    cleaned = " ".join(text.strip().split())
     if len(cleaned) <= max_chars:
         return cleaned
     return f"{cleaned[: max_chars - 1]}…"

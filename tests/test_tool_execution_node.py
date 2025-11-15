@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from integrations.tool_execution import ToolExecutionRunner, ToolResult
+from integrations.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -193,8 +193,8 @@ def test_sequential_execution_updates_history(registry: ToolRegistry):
 
     assert len(results) == 2
     first, second = results
-    assert isinstance(first, ToolResult)
-    assert isinstance(second, ToolResult)
+    assert isinstance(first, ToolOutput)
+    assert isinstance(second, ToolOutput)
     assert first.status == "success"
     assert second.status == "success"
     assert first.data["echo"] == {"value": 1}
@@ -249,7 +249,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
     )
 
     result = results[0]
-    assert isinstance(result, ToolResult)
+    assert isinstance(result, ToolOutput)
     assert result.status == "error"
     assert result.content and "missing" in result.content.lower()
 

@@ -18,7 +18,7 @@ from configs.prompt import (
     _BASE_SYSTEM_PROMPT,
     compose_system_prompt,
 )
-from integrations.tool_execution import ToolExecutionRunner, ToolResult
+from integrations.tool_execution import ToolExecutionRunner, ToolOutput
 from tools.registry import ToolRegistry, create_default_registry
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ class CodeAgentSession:
             *,
             registry: Optional[ToolRegistry] = None,
             llm_client: Any = None,
-            max_iterations: int = 100,
+            max_iterations: int = 25,
             system_prompt: Optional[str] = None,
             environment: Optional[Mapping[str, Any]] = None,
             workspace: Optional[str | Path] = None,
@@ -90,13 +90,13 @@ class CodeAgentSession:
         self.model = cfg.llm_model
         self.tool_timeout_seconds = float(cfg.cli_tool_timeout_seconds)
         if system_prompt is None:
-            final_prompt = build_code_agent_system_prompt(
+            resolved_prompt = build_code_agent_system_prompt(
                 base_prompt=_BASE_SYSTEM_PROMPT,
                 environment=self.environment,
             )
         else:
-            final_prompt = system_prompt
-        self.system_prompt = final_prompt
+            resolved_prompt = system_prompt
+        self.system_prompt = resolved_prompt
         self.executor = ToolExecutionRunner(
             self.registry,
             default_timeout_seconds=self.tool_timeout_seconds,
@@ -114,7 +114,7 @@ class CodeAgentSession:
         messages = _prepare_messages(self.messages, self.system_prompt, user_input)
         _emit(output_callback, create_emit_event("user", user_input))
 
-        tool_results: List[ToolResult] = []
+        tool_results: List[ToolOutput] = []
         iterations = 0
 
         final_content: Optional[str] = None

@@ -9,6 +9,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency guard
     track_openai = None  # type: ignore[assignment]
 
+
 class BaseLLMClient:
     def get_response(
             self,
@@ -37,7 +38,7 @@ class OpenAICompatLLMClient(BaseLLMClient):
             api_key: str,
             base_url: str | None = None,
             *,
-            temperature: float = 0.7,
+            temperature: float = 0.0,
             opik_project_name: str | None = None,
             opik_enabled: bool = True,
     ):
@@ -125,7 +126,7 @@ def get_default_llm_client() -> BaseLLMClient:
     return OpenAICompatLLMClient(
         api_key=api_key,
         base_url=base_url,
-        temperature=cfg.llm_temperature or 0.7,
+        temperature=cfg.llm_temperature or 0.0,
         opik_project_name=cfg.llm_opik_project_name,
         opik_enabled=cfg.llm_opik_enabled,
     )

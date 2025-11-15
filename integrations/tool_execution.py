@@ -17,7 +17,7 @@ class ToolCall:
 
 
 @dataclass
-class ToolResult:
+class ToolOutput:
     """Standardized record for tool execution outcomes."""
 
     name: str
@@ -83,7 +83,7 @@ class ToolExecutionRunner:
             messages: List[Dict[str, Any]],
             output_callback: Optional[OutputCallback] = None,
             timeout_override: Optional[float] = None,
-    ) -> List[ToolResult]:
+    ) -> List[ToolOutput]:
         if timeout_override is not None and timeout_override > 0:
             self.default_timeout_seconds = float(timeout_override)
 
@@ -91,17 +91,17 @@ class ToolExecutionRunner:
         if not calls:
             return []
 
-        tool_results = self._run_parallel(calls)
-        self._record_results(tool_results, messages, output_callback)
-        return tool_results
+        results = self._run_parallel(calls)
+        self._record_results(results, messages, output_callback)
+        return results
 
     def _record_results(
             self,
-            tool_results: List[ToolResult],
+            results: List[ToolOutput],
             messages: List[Dict[str, Any]],
             output_callback: Optional[OutputCallback],
     ) -> None:
-        for result in tool_results:
+        for result in results:
             tool_name = str(result.name).lower()
             messages.append(
                 {
@@ -112,8 +112,9 @@ class ToolExecutionRunner:
                 }
             )
 
+            data_payload: Dict[str, Any] = {}
             if isinstance(result.data, dict):
-                data_payload: Dict[str, Any] = result.data
+                data_payload = result.data
             elif result.data is None:
                 data_payload = {}
                 result.data = data_payload
@@ -123,6 +124,7 @@ class ToolExecutionRunner:
 
             display_value = data_payload.get("display")
             if not display_value:
+                logging.error(f"Tool {tool_name} did not return display data: {result.data}")
                 fallback_display = result.content or result.status or tool_name
                 display_value = str(fallback_display or tool_name)
                 data_payload["display"] = display_value
@@ -134,7 +136,7 @@ class ToolExecutionRunner:
                 "status": result.status,
                 "content": result.content,
                 "data": result.data,
-                "display": data_payload["display"],
+                "display": data_payload["display"]
             }
 
             _emit(
@@ -158,9 +160,9 @@ class ToolExecutionRunner:
         call_id = raw.get("id") or f"call_{index}"
         return ToolCall(name=str(name), arguments=arguments, call_id=str(call_id))
 
-    def _run_parallel(self, calls: List[ToolCall]) -> List[ToolResult]:
+    def _run_parallel(self, calls: List[ToolCall]) -> List[ToolOutput]:
         # Execute concurrently but preserve original call order in the returned list.
-        ordered: List[Optional[ToolResult]] = [None] * len(calls)
+        ordered: List[Optional[ToolOutput]] = [None] * len(calls)
         with ThreadPoolExecutor(max_workers=min(self.max_parallel_workers, len(calls))) as executor:
             future_map = {executor.submit(self._execute_call, call): idx for idx, call in enumerate(calls)}
             for future in as_completed(future_map):
@@ -168,11 +170,11 @@ class ToolExecutionRunner:
                 ordered[idx] = future.result()
         return [res for res in ordered if res is not None]
 
-    def _execute_call(self, call: ToolCall) -> ToolResult:
+    def _execute_call(self, call: ToolCall) -> ToolOutput:
         try:
             spec: ToolSpec = self.registry.get(call.name)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return ToolResult(
+            return ToolOutput(
                 name=call.name,
                 arguments=call.arguments,
                 call_id=call.call_id,
@@ -184,9 +186,9 @@ class ToolExecutionRunner:
         effective_arguments = self._apply_timeout_default(call.name, call.arguments)
 
         try:
-            tool_result = spec.tool.execute(**effective_arguments)
+            output = spec.tool.execute(**effective_arguments)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return ToolResult(
+            return ToolOutput(
                 name=call.name,
                 arguments=effective_arguments,
                 call_id=call.call_id,
@@ -195,13 +197,13 @@ class ToolExecutionRunner:
                 data=None,
             )
 
-        return ToolResult(
+        return ToolOutput(
             name=call.name,
             arguments=effective_arguments,
             call_id=call.call_id,
-            status=tool_result.get("status"),
-            content=tool_result.get("content"),
-            data=tool_result.get("data"),
+            status=output.get("status"),
+            content=output.get("content"),
+            data=output.get("data"),
         )
 
     def _apply_timeout_default(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
