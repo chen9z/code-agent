@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from tools.registry import ToolRegistry, ToolSpec
@@ -20,16 +20,10 @@ class ToolCall:
 class ToolResult:
     """Standardized record for tool execution outcomes."""
 
-    name: str
-    arguments: Dict[str, Any]
-    call_id: str
+    tool_call: ToolCall
     status: str = "unknown"
     content: str = ""
-    data: Any = None
-
-    @property
-    def id(self) -> str:
-        return self.call_id
+    data: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def result_text(self) -> str:
@@ -38,9 +32,9 @@ class ToolResult:
     def as_dict(self) -> Dict[str, Any]:
         return {
             "inputs": {
-                "name": self.name,
-                "arguments": self.arguments,
-                "call_id": self.call_id,
+                "name": self.tool_call.name,
+                "arguments": self.tool_call.arguments,
+                "call_id": self.tool_call.call_id,
             },
             "result": {
                 "status": self.status,
@@ -102,11 +96,12 @@ class ToolExecutionRunner:
             output_callback: Optional[OutputCallback],
     ) -> None:
         for tool_result in tool_results:
-            tool_name = str(tool_result.name).lower()
+            tool_name = str(tool_result.tool_call.name).lower()
+            call_id = tool_result.tool_call.call_id
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": tool_result.id,
+                    "tool_call_id": call_id,
                     "name": tool_name,
                     "content": tool_result.content,
                 }
@@ -121,8 +116,8 @@ class ToolExecutionRunner:
 
             payload: Dict[str, Any] = {
                 "tool": tool_name,
-                "tool_call_id": tool_result.id,
-                "arguments": tool_result.arguments,
+                "tool_call_id": call_id,
+                "arguments": tool_result.tool_call.arguments,
                 "status": tool_result.status,
                 "content": tool_result.content,
                 "data": tool_result.data,
@@ -165,12 +160,10 @@ class ToolExecutionRunner:
             spec: ToolSpec = self.registry.get(call.name)
         except Exception as exc:  # pragma: no cover - exercised via tests
             return ToolResult(
-                name=call.name,
-                arguments=call.arguments,
-                call_id=call.call_id,
+                tool_call=call,
                 status="error",
                 content=str(exc),
-                data=None,
+                data={},
             )
 
         effective_arguments = self._apply_timeout_default(call.name, call.arguments)
@@ -179,18 +172,14 @@ class ToolExecutionRunner:
             output = spec.tool.execute(**effective_arguments)
         except Exception as exc:  # pragma: no cover - exercised via tests
             return ToolResult(
-                name=call.name,
-                arguments=effective_arguments,
-                call_id=call.call_id,
+                tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
                 status="error",
                 content=str(exc),
-                data=None,
+                data={},
             )
 
         return ToolResult(
-            name=call.name,
-            arguments=effective_arguments,
-            call_id=call.call_id,
+            tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
             status=output.get("status"),
             content=output.get("content"),
             data=output.get("data"),

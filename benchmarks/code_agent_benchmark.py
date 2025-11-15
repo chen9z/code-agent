@@ -76,7 +76,11 @@ def extract_tool_names(tool_results: Optional[Sequence[Any]]) -> List[str]:
         return []
     names = []
     for entry in tool_results:
-        if hasattr(entry, "name"):
+        key: Optional[str] = None
+        if hasattr(entry, "tool_call"):
+            tool_call = getattr(entry, "tool_call")
+            key = getattr(tool_call, "name", None)
+        elif hasattr(entry, "name"):
             key = getattr(entry, "name")
         elif hasattr(entry, "key"):
             key = getattr(entry, "key")
