@@ -17,7 +17,7 @@ class ToolCall:
 
 
 @dataclass
-class ToolOutput:
+class ToolResult:
     """Standardized record for tool execution outcomes."""
 
     name: str
@@ -83,7 +83,7 @@ class ToolExecutionRunner:
             messages: List[Dict[str, Any]],
             output_callback: Optional[OutputCallback] = None,
             timeout_override: Optional[float] = None,
-    ) -> List[ToolOutput]:
+    ) -> List[ToolResult]:
         if timeout_override is not None and timeout_override > 0:
             self.default_timeout_seconds = float(timeout_override)
 
@@ -91,52 +91,42 @@ class ToolExecutionRunner:
         if not calls:
             return []
 
-        results = self._run_parallel(calls)
-        self._record_results(results, messages, output_callback)
-        return results
+        tool_results = self._run_parallel(calls)
+        self._record_results(tool_results, messages, output_callback)
+        return tool_results
 
     def _record_results(
             self,
-            results: List[ToolOutput],
+            tool_results: List[ToolResult],
             messages: List[Dict[str, Any]],
             output_callback: Optional[OutputCallback],
     ) -> None:
-        for result in results:
-            tool_name = str(result.name).lower()
+        for tool_result in tool_results:
+            tool_name = str(tool_result.name).lower()
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": result.id,
+                    "tool_call_id": tool_result.id,
                     "name": tool_name,
-                    "content": result.content,
+                    "content": tool_result.content,
                 }
             )
 
-            data_payload: Dict[str, Any] = {}
-            if isinstance(result.data, dict):
-                data_payload = result.data
-            elif result.data is None:
-                data_payload = {}
-                result.data = data_payload
-            else:
-                data_payload = {"raw": result.data}
-                result.data = data_payload
-
-            display_value = data_payload.get("display")
+            display_value = tool_result.data.get("display")
             if not display_value:
-                logging.error(f"Tool {tool_name} did not return display data: {result.data}")
-                fallback_display = result.content or result.status or tool_name
+                logging.error(f"Tool {tool_name} did not return display data: {tool_result.data}")
+                fallback_display = tool_result.content or tool_result.status or tool_name
                 display_value = str(fallback_display or tool_name)
-                data_payload["display"] = display_value
+                tool_result.data["display"] = display_value
 
             payload: Dict[str, Any] = {
                 "tool": tool_name,
-                "tool_call_id": result.id,
-                "arguments": result.arguments,
-                "status": result.status,
-                "content": result.content,
-                "data": result.data,
-                "display": data_payload["display"]
+                "tool_call_id": tool_result.id,
+                "arguments": tool_result.arguments,
+                "status": tool_result.status,
+                "content": tool_result.content,
+                "data": tool_result.data,
+                "display": tool_result.data["display"]
             }
 
             _emit(
@@ -160,9 +150,9 @@ class ToolExecutionRunner:
         call_id = raw.get("id") or f"call_{index}"
         return ToolCall(name=str(name), arguments=arguments, call_id=str(call_id))
 
-    def _run_parallel(self, calls: List[ToolCall]) -> List[ToolOutput]:
+    def _run_parallel(self, calls: List[ToolCall]) -> List[ToolResult]:
         # Execute concurrently but preserve original call order in the returned list.
-        ordered: List[Optional[ToolOutput]] = [None] * len(calls)
+        ordered: List[Optional[ToolResult]] = [None] * len(calls)
         with ThreadPoolExecutor(max_workers=min(self.max_parallel_workers, len(calls))) as executor:
             future_map = {executor.submit(self._execute_call, call): idx for idx, call in enumerate(calls)}
             for future in as_completed(future_map):
@@ -170,11 +160,11 @@ class ToolExecutionRunner:
                 ordered[idx] = future.result()
         return [res for res in ordered if res is not None]
 
-    def _execute_call(self, call: ToolCall) -> ToolOutput:
+    def _execute_call(self, call: ToolCall) -> ToolResult:
         try:
             spec: ToolSpec = self.registry.get(call.name)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return ToolOutput(
+            return ToolResult(
                 name=call.name,
                 arguments=call.arguments,
                 call_id=call.call_id,
@@ -188,7 +178,7 @@ class ToolExecutionRunner:
         try:
             output = spec.tool.execute(**effective_arguments)
         except Exception as exc:  # pragma: no cover - exercised via tests
-            return ToolOutput(
+            return ToolResult(
                 name=call.name,
                 arguments=effective_arguments,
                 call_id=call.call_id,
@@ -197,7 +187,7 @@ class ToolExecutionRunner:
                 data=None,
             )
 
-        return ToolOutput(
+        return ToolResult(
             name=call.name,
             arguments=effective_arguments,
             call_id=call.call_id,

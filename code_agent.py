@@ -18,7 +18,7 @@ from configs.prompt import (
     _BASE_SYSTEM_PROMPT,
     compose_system_prompt,
 )
-from integrations.tool_execution import ToolExecutionRunner, ToolOutput
+from integrations.tool_execution import ToolExecutionRunner, ToolResult
 from tools.registry import ToolRegistry, create_default_registry
 
 if TYPE_CHECKING:
@@ -114,7 +114,7 @@ class CodeAgentSession:
         messages = _prepare_messages(self.messages, self.system_prompt, user_input)
         _emit(output_callback, create_emit_event("user", user_input))
 
-        tool_results: List[ToolOutput] = []
+        tool_results: List[ToolResult] = []
         iterations = 0
 
         final_content: Optional[str] = None

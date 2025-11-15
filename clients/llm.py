@@ -4,10 +4,7 @@ import os
 from typing import Generator, List, Dict, Any
 from configs.config import get_config
 
-try:
-    from opik.integrations.openai import track_openai
-except ImportError:  # pragma: no cover - optional dependency guard
-    track_openai = None  # type: ignore[assignment]
+from opik.integrations.openai import track_openai
 
 
 class BaseLLMClient:
@@ -46,7 +43,7 @@ class OpenAICompatLLMClient(BaseLLMClient):
 
         client = OpenAI(api_key=api_key, base_url=base_url)
 
-        if track_openai and opik_enabled:
+        if opik_enabled:
             opik_url_override = os.getenv("OPIK_URL_OVERRIDE")
             opik_base_url = os.getenv("OPIK_BASE_URL")
             if not opik_url_override and opik_base_url:
@@ -65,16 +62,15 @@ class OpenAICompatLLMClient(BaseLLMClient):
             model: str,
             messages: List[Dict[str, str]],
             *,
-            temperature: float | None = None,
+            temperature=0.7,
             stream: bool = False,
     ) -> Generator[str, None, None]:
-        resolved_temp = self.default_temperature if temperature is None else temperature
         if stream:
             r = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
                 stream=True,
-                temperature=resolved_temp,
+                temperature=temperature,
             )
             for chunk in r:
                 delta = getattr(getattr(chunk, "choices", [{}])[0], "delta", None)
@@ -84,7 +80,7 @@ class OpenAICompatLLMClient(BaseLLMClient):
             r = self.client.chat.completions.create(
                 model=model,
                 messages=messages,
-                temperature=resolved_temp,
+                temperature=temperature,
             )
             yield r.choices[0].message.content
 
@@ -126,7 +122,7 @@ def get_default_llm_client() -> BaseLLMClient:
     return OpenAICompatLLMClient(
         api_key=api_key,
         base_url=base_url,
-        temperature=cfg.llm_temperature or 0.0,
+        temperature=cfg.llm_temperature or 0.7,
         opik_project_name=cfg.llm_opik_project_name,
         opik_enabled=cfg.llm_opik_enabled,
     )
