@@ -5,14 +5,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from tools.base import BaseTool
+from tools.codebase_search import CodebaseSearchTool
 
 
 @dataclass(frozen=True)
 class ToolSpec:
     """Immutable metadata describing a tool instance."""
 
-    key: str
-    name: str
+    name: str  # Canonical, normalized name used for registration + execution
     description: str
     parameters: Dict[str, Any]
     tool: BaseTool
@@ -22,7 +22,7 @@ class ToolSpec:
         return {
             "type": "function",
             "function": {
-                "name": self.key,
+                "name": self.name,
                 "description": self.description,
                 "parameters": self.parameters,
             },
@@ -35,14 +35,13 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._registry: Dict[str, ToolSpec] = {}
 
-    def register(self, tool: BaseTool, key: Optional[str] = None) -> ToolSpec:
+    def register(self, tool: BaseTool, name: Optional[str] = None) -> ToolSpec:
         """Register a tool instance under a normalized key."""
-        candidate_key = self._normalize_key(key) if key else self._normalize_key(tool.name)
+        candidate_key = self._normalize_key(name) if name else self._normalize_key(tool.name)
         if candidate_key in self._registry:
             raise ValueError(f"Tool '{candidate_key}' is already registered")
         spec = ToolSpec(
-            key=candidate_key,
-            name=tool.name,
+            name=candidate_key,
             description=tool.description,
             parameters=tool.parameters,
             tool=tool,
@@ -72,8 +71,8 @@ class ToolRegistry:
         for spec in self.list():
             descriptors.append(
                 {
-                    "key": spec.key,
                     "name": spec.name,
+                    "display_name": spec.tool.name,
                     "description": spec.description,
                     "parameters": spec.parameters,
                 }
@@ -94,7 +93,6 @@ def create_default_registry(
 ) -> ToolRegistry:
     """Construct a registry with the built-in tool implementations."""
     from tools.bash import BashTool
-    # from tools.codebase_search import CodebaseSearchTool  # Temporarily disabled
     from tools.edit import EditTool
     from tools.glob import GlobTool
     from tools.grep import GrepSearchTool
@@ -104,6 +102,7 @@ def create_default_registry(
 
     tool_classes = {
         "bash": BashTool,
+        "codebase_search": CodebaseSearchTool,
         "edit": EditTool,
         "glob": GlobTool,
         "grep": GrepSearchTool,
@@ -118,5 +117,6 @@ def create_default_registry(
         if selected is not None and key not in selected:
             continue
         kwargs: Dict[str, Any] = {}
-        registry.register(tool_cls(**kwargs), key=key)
+        tool_instance = tool_cls(**kwargs)
+        registry.register(tool_instance, name=key)
     return registry

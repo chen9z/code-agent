@@ -173,9 +173,9 @@ class _ReportedErrorTool(BaseTool):
 @pytest.fixture()
 def registry() -> ToolRegistry:
     reg = ToolRegistry()
-    reg.register(_RecorderTool("Echo"), key="echo")
-    reg.register(_RecorderTool("Slow", delay=0.05), key="slow")
-    reg.register(_EmptyTool(), key="empty")
+    reg.register(_RecorderTool("Echo"), name="echo")
+    reg.register(_RecorderTool("Slow", delay=0.05), name="slow")
+    reg.register(_EmptyTool(), name="empty")
     return reg
 
 
@@ -256,7 +256,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
 
 def test_emits_full_tool_output_without_truncation():
     registry = ToolRegistry()
-    registry.register(_LongOutputTool(), key="long")
+    registry.register(_LongOutputTool(), name="long")
     messages: list[str] = []
     runner = ToolExecutionRunner(registry)
     history: list[dict[str, Any]] = []
@@ -277,7 +277,7 @@ def test_emits_full_tool_output_without_truncation():
 
 def test_runner_uses_tool_display_entries():
     registry = ToolRegistry()
-    registry.register(_DisplayTool(), key="display")
+    registry.register(_DisplayTool(), name="display")
     runner = ToolExecutionRunner(registry)
     emitted: list[str] = []
 
@@ -292,7 +292,7 @@ def test_runner_uses_tool_display_entries():
 
 def test_runner_honors_tool_reported_status():
     registry = ToolRegistry()
-    registry.register(_ReportedErrorTool(), key="reported_error")
+    registry.register(_ReportedErrorTool(), name="reported_error")
     runner = ToolExecutionRunner(registry)
     emitted: list[str] = []
 
@@ -309,7 +309,7 @@ def test_runner_honors_tool_reported_status():
 def test_default_timeout_applies_to_bash_when_missing_argument():
     registry = ToolRegistry()
     bash_tool = _TimeoutAwareTool()
-    registry.register(bash_tool, key="bash")
+    registry.register(bash_tool, name="bash")
     runner = ToolExecutionRunner(registry, default_timeout_seconds=42)
     runner.run(
         [{"name": "bash", "arguments": {"command": "echo ok"}}],
@@ -324,7 +324,7 @@ def test_default_timeout_applies_to_bash_when_missing_argument():
 def test_existing_timeout_is_preserved():
     registry = ToolRegistry()
     bash_tool = _TimeoutAwareTool()
-    registry.register(bash_tool, key="bash")
+    registry.register(bash_tool, name="bash")
     runner = ToolExecutionRunner(registry, default_timeout_seconds=99)
     runner.run(
         [{"name": "bash", "arguments": {"command": "echo ok", "timeout": 10}}],
