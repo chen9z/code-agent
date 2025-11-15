@@ -4,7 +4,7 @@ import json
 import subprocess
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from tools.base import BaseTool
 
@@ -22,32 +22,6 @@ def _sanitize_line_text(text: str) -> Tuple[str, bool]:
     return clipped, True
 
 
-def _build_pointer(prefix_len: int, spans: Iterable[Tuple[int, int]], line_length: int) -> Optional[str]:
-    """Render a caret pointer line for highlighted spans when feasible."""
-    if line_length <= 0:
-        return None
-    markers = [" "] * line_length
-    has_marker = False
-    for raw_start, raw_end in spans:
-        if raw_start is None or raw_end is None:
-            continue
-        start = max(0, raw_start)
-        end = max(start + 1, raw_end)
-        if start >= line_length:
-            continue
-        if end > line_length:
-            end = line_length
-        for idx in range(start, end):
-            markers[idx] = "^"
-            has_marker = True
-    if not has_marker:
-        return None
-    pointer = "".join(markers).rstrip()
-    if not pointer:
-        return None
-    return " " * prefix_len + pointer
-
-
 def _format_grouped_matches(
     grouped: OrderedDict[str, OrderedDict[int | None, Dict[str, Any]]]
 ) -> str:
@@ -62,10 +36,6 @@ def _format_grouped_matches(
             prefix = f"  {line_label}→"
             snippet = entry.get("text", "")
             formatted_lines.append(f"{prefix}{snippet}")
-            if not entry.get("truncated") and snippet:
-                pointer = _build_pointer(len(prefix), entry.get("spans", []), len(snippet))
-                if pointer:
-                    formatted_lines.append(pointer)
         formatted_lines.append("")
 
     if formatted_lines and formatted_lines[-1] == "":
@@ -239,7 +209,6 @@ Use the include or exclude patterns to filter the search scope by file type or s
         snippet_truncated = False
         grouped: OrderedDict[str, OrderedDict[int | None, Dict[str, Any]]] = OrderedDict()
         stderr_output = ""
-        exit_code: Optional[int] = None
         try:
             assert process.stdout is not None
             for line in process.stdout:

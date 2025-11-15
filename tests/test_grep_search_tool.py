@@ -26,7 +26,6 @@ def test_grep_search_basic(tmp_path, monkeypatch):
     assert result["content"].splitlines() == [
         str(tmp_path / "a.py"),
         "       1→def foo():",
-        "             ^^^",
     ]
     display_text = result["data"].get("display", "")
     assert isinstance(display_text, str)
