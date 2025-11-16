@@ -13,7 +13,7 @@ class DummyEmbeddingClient:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
 
-    def embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
+    def embed_batch(self, texts: Sequence[str], *, labels: Sequence[str] | None = None) -> list[list[float]]:
         payload = list(texts)
         self.calls.append(payload)
         vectors: list[list[float]] = []

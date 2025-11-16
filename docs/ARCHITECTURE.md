@@ -6,14 +6,14 @@ This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, e
 - flow runtime: Flow/Node execution, retries, routing. No changes for now.
 - agents: Agent entrypoints and flows (e.g., code_chat, cursor_like, pr_reviewer). Each agent wires nodes into a task-specific pipeline.
 - tools: Node implementations and utilities (e.g., `rag_nodes`). Nodes avoid global state and are idempotent when possible.
-- integrations: External adapters (code repository index/search, VCS, CI). `integrations/repository.py` provides a functional fallback `ChatRepository` for local indexing/search.
+- integrations: External adapters (code repository index/search, VCS, CI). `integrations/index.py` provides the local project indexing/search adapter.
 - clients: Service adapters (LLM, Vector DB). Centralize API usage, retries, and streaming.
 - config: Centralized settings via Pydantic with env prefixes: `LLM_*` for LLM, `RAG_*` for embedding/rerank. Other settings use sensible defaults.
 - ui: CLI/TUI entrypoints and HTTP adapters.
 
 ## Module Responsibilities
-- codebase_retrieval.py: Lightweight helpers for indexing and searching codebases using `integrations.repository` (no Flow/Node orchestration or LLM calls).
-- integrations/repository.py: `ChatRepository` implements local indexing (line-chunked) and simple search scoring; bridges to external chat-codebase when available via `CHAT_CODEBASE_PATH`.
+- codebase_retrieval.py: Lightweight helpers for indexing and searching codebases using `integrations.index` (no Flow/Node orchestration or LLM calls).
+- integrations/index.py: Index adapter implementing local indexing (line-chunked) and simple search scoring; bridges to external chat-codebase when available via `CHAT_CODEBASE_PATH`.
 - clients/llm.py (planned): Unified LLM client (litellm), streaming, caching; `model.py` to be replaced gradually.
 
 ## Data & Indexing

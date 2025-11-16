@@ -178,7 +178,7 @@ print(result["final_response"])
 
 ### Vector Store Integration
 - `integrations/vector_store.py` - Embedding storage and retrieval using Qdrant
-- `integrations/repository.py` - Project indexing and search
+- `integrations/index.py` - Project indexing and search
 - `integrations/codebase_indexer.py` - Semantic code indexing with embeddings
 - Uses `litellm` for embedding generation with configurable endpoints
 - Local Qdrant storage with configurable collection names and vector sizes

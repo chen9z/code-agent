@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-"""Thin wrapper around the repository adapter for indexing and search."""
+"""Thin wrapper around the project index adapter for indexing and search."""
 
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from integrations.repository import create_repository
+from integrations.index import create_index
 _DEFAULT_LIMIT = 5
 
 
@@ -22,8 +22,8 @@ def index_project(project_path: str) -> Dict[str, Any]:
     if not path.is_dir():
         raise ValueError(f"Path is not a directory: {path}")
 
-    repository = create_repository()
-    index_info = repository.index_project(str(path), show_progress=True)
+    project_index = create_index()
+    index_info = project_index.index_project(str(path), show_progress=True)
 
     project_name = index_info.get("project_name", path.name)
     return {
@@ -52,10 +52,10 @@ def search_project(
     if not query:
         raise ValueError("query parameter is required")
 
-    repository = create_repository()
+    project_index = create_index()
 
     try:
-        results = repository.search(
+        results = project_index.search(
             project_name,
             query,
             max(1, int(limit)),

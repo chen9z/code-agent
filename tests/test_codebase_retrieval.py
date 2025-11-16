@@ -7,14 +7,14 @@ from pathlib import Path
 import tempfile
 
 import pytest
-def test_repository_adapter():
-    """Test repository adapter functionality."""
-    from integrations.repository import RepositoryAdapter
+def test_project_index_adapter():
+    """Test project index adapter functionality."""
+    from integrations.index import Index
 
     original_store = os.environ.get("CODEBASE_QDRANT_PATH")
     with tempfile.TemporaryDirectory() as store_dir:
         os.environ["CODEBASE_QDRANT_PATH"] = store_dir
-        adapter = RepositoryAdapter()
+        adapter = Index()
 
     if original_store is not None:
         os.environ["CODEBASE_QDRANT_PATH"] = original_store

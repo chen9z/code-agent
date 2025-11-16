@@ -429,7 +429,8 @@ class SemanticCodeIndexer:
 
         if items:
             texts = [item.snippet for item in items]
-            embeddings = self._embedder.embed_batch(texts)
+            labels = [f"{item.relative_path}:{item.start_line}-{item.end_line}" for item in items]
+            embeddings = self._embedder.embed_batch(texts, labels=labels)
             if len(embeddings) != len(items):
                 raise RuntimeError("Embedding service returned mismatched vector count")
             if embeddings:

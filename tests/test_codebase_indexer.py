@@ -7,7 +7,7 @@ from integrations.codebase_indexer import CodebaseIndex, SemanticCodeIndexer
 
 
 class DummyEmbedder:
-    def embed_batch(self, texts):
+    def embed_batch(self, texts, *, labels=None):
         return [[0.1, 0.1] for _ in texts]
 
 

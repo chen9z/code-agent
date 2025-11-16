@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Repository adapter built on the shared semantic code indexer."""
+"""Project indexing/search adapter built on the shared semantic code indexer."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +20,7 @@ class Document:
     end_line: int = 0
 
 
-class RepositoryAdapter:
+class Index:
     """Adapter exposing semantic indexing/search for RAG flows."""
 
     def __init__(
@@ -113,5 +113,10 @@ class RepositoryAdapter:
         raise KeyError(f"Project '{project_name}' has not been indexed yet.")
 
 
-def create_repository() -> RepositoryAdapter:
-    return RepositoryAdapter()
+def create_index() -> Index:
+    return Index()
+
+
+# Backwards compatibility ------------------------------------------------------
+def create_repository() -> Index:
+    return create_index()
