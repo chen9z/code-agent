@@ -22,7 +22,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 - Document model: `{path, content, chunk_id, start_line, end_line, score}`. Chunks are non-overlapping and max ~RAG_CHUNK_SIZE lines (default 200).
 
 ## Usage
-- Programmatic API: direct helpers `index_project`, `search_project`.
+- Programmatic API: direct helper `index_project` via `codebase_retrieval.main` for demos; advanced use should go through `retrieval.index.Index`.
 
 ## Extensibility Guidelines
 - Tool implementations remain stateless and idempotent; wire them into `runtime.ToolExecutionRunner`.

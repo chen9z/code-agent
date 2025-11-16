@@ -17,15 +17,11 @@ def test_main_import():
 
     assert codebase_retrieval is not None
     assert config_manager is not None
-    assert hasattr(codebase_retrieval, "index_project")
-    assert hasattr(codebase_retrieval, "search_project")
-    assert callable(codebase_retrieval.index_project)
     assert retrieval_index is not None
 
 
 def test_codebase_retrieval_import():
     """Test helper functions exposed via codebase_retrieval."""
-    from codebase_retrieval import index_project, search_project
+    import codebase_retrieval as cr
 
-    assert callable(index_project)
-    assert callable(search_project)
+    assert hasattr(cr, "main")

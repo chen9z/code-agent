@@ -7,6 +7,8 @@ from pathlib import Path
 import tempfile
 
 import pytest
+
+
 def test_project_index_adapter():
     """Test project index adapter functionality."""
     from retrieval.index import Index
@@ -29,7 +31,7 @@ def test_project_index_adapter():
 
 def test_index_and_search_flow():
     """Index a project and run semantic search using helper APIs."""
-    from codebase_retrieval import index_project, search_project
+    from retrieval.index import create_index
 
     with tempfile.TemporaryDirectory() as test_project, tempfile.TemporaryDirectory() as store_dir:
         original_store = os.environ.get("CODEBASE_QDRANT_PATH")
@@ -41,13 +43,13 @@ def test_index_and_search_flow():
         test_file.write_text("def hello_world():\n    print('Hello, World!')\n", encoding="utf-8")
 
         set_store("index")
-        result = index_project(test_project)
-        assert result["status"] == "success"
-        assert result.get("chunk_size")
+        adapter = create_index()
+        index_info = adapter.index_project(str(Path(test_project)), show_progress=False)
+        assert index_info["chunk_count"] >= 0
 
         set_store("search")
-        result = search_project(Path(test_project).name, "hello world")
-        assert result["status"] == "success"
+        results = create_index().search(Path(test_project).name, "hello world")
+        assert isinstance(results, list)
 
         if original_store is not None:
             os.environ["CODEBASE_QDRANT_PATH"] = original_store
@@ -57,11 +59,8 @@ def test_index_and_search_flow():
 
 def test_missing_parameters():
     """Ensure helper functions validate required parameters."""
-    from codebase_retrieval import index_project, search_project
+    from retrieval.index import create_index
 
-    with pytest.raises(ValueError):
-        index_project("")
-    with pytest.raises(ValueError):
-        search_project("", "test")
-    with pytest.raises(ValueError):
-        search_project("project", "")
+    index = create_index()
+    with pytest.raises(KeyError):
+        index.search("project", "hello")

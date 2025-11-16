@@ -41,16 +41,13 @@ export CLI_TOOL_TIMEOUT_SECONDS=120     # optional: override default tool timeou
 ## Python API
 
 ```python
-from codebase_retrieval import index_project, search_project
+from retrieval.index import create_index
 
-# Index a repository
-index_result = index_project("/path/to/project")
+index = create_index()
+index_info = index.index_project("/path/to/project")
+hits = index.search(index_info["project_name"], "function definition", limit=5)
 
-# Search for relevant code chunks
-search_result = search_project(index_result["project_name"], "function definition", limit=5)
-
-# Inspect summary metadata returned by indexing (e.g., chunk counts)
-print(index_result["chunk_count"], index_result["chunk_size"])
+print(index_info["chunk_count"], index_info["chunk_size"], len(hits))
 ```
 
 ### Chunking & Retrieval Flow
