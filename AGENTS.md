@@ -2,11 +2,12 @@
 
 ## Project Structure & Module Organization
 
-Runtime entry points (`cli.py`, `code_agent.py`, `codebase_retrieval.py`) wire together reusable building blocks.
-Domain logic现已拆分为 `agent/`（会话与系统提示）、`runtime/`（工具调度）、`retrieval/`（索引/搜索）以及
-`tools/`。外部依赖放在 `adapters/llm`（LLM 客户端）和 `adapters/workspace`（Tree-sitter、Qdrant）。`config/`
-负责所有环境配置和安全提示。CLI shell 仍在 `cli.py` 中，持久化 embedding 存于 `storage/`（gitignored），测试按
-上述目录在 `tests/` 下设置镜像。
+- 入口：`cli.py`, `code_agent.py`, `codebase_retrieval.py`，负责拼装 Agent/runtime。
+- 领域模块：`agent/`（会话 + 提示）、`runtime/`（工具调度、`dataset_agent.py`）、`retrieval/`（索引/搜索）、`tools/`（Read/Grep、`dataset_log.py` 等）。
+- 适配层：`adapters/llm`（LLM/Embedding 客户端）、`adapters/workspace`（Tree-sitter、Qdrant、本地文件视图）。
+- 配置：`config/` 统一维护安全提示与默认参数。
+- 基准/数据集：`benchmarks/` 包含 planner benchmark 以及 `benchmarks/dataset/` 数据集 orchestrator；流程细节写在 `docs/dataset_synthesis_plan.md`。
+- CLI 输出与壳层仍在 `cli.py` + `ui/`，持久化 embedding 存 `storage/`（gitignored），测试在 `tests/` 下与模块镜像。
 
 ## Build, Test, and Development Commands
 
@@ -16,6 +17,7 @@ Domain logic现已拆分为 `agent/`（会话与系统提示）、`runtime/`（�
   the current tree.
 - `uv run pytest` – execute the full regression suite; append `-k retrieval` for focused debugging.
 - `uv run pytest tests/test_codebase_retrieval.py -q` – fast signal for the semantic indexer pipeline.
+- `uv run python benchmarks/dataset/cli.py synthesize --queries demo.jsonl` – 运行 DatasetSynthesisAgent 流水线（参见 `docs/dataset_synthesis_plan.md`）。
 -
 `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json --output benchmarks/results/latest.json` –
 compare embedding/model settings before shipping planner changes.
@@ -30,7 +32,7 @@ PascalCase. Use `pathlib.Path` for filesystem work and keep most side effects in
 
 All tests run through `pytest`; place mirrors of new modules inside `tests/<module_name>/` and name files
 `test_<feature>.py`. Within a file,保持“fixtures → helpers → tests”的顺序。临近提交流程时执行
-`uv run pytest --cov=agent --cov=retrieval --cov=runtime --cov=tools` 并记录任何 flaky seed。
+`uv run pytest --cov=agent --cov=retrieval --cov=runtime --cov=tools` 并记录任何 flaky seed。Dataset 流水线相关变更需补充/更新 `tests/benchmarks/test_dataset_pipeline.py` 或其它对应测试。
 
 ## Commit & Pull Request Guidelines
 
@@ -44,7 +46,7 @@ update relevant docs (`README.md`, `docs/`, this guide), and ensure storage arti
 Secrets are read via `config.config.get_config()`; set `LLM_MODEL`, `LLM_API_KEY`, `OPENAI_API_KEY`, and related
 endpoints in your shell, never in code. Keep local `.env` files out of Git, and double-check that `storage/` snapshots
 or benchmark logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECONDS` override sparingly and document why
-longer tool windows are required.
+longer tool windows are required。对 DatasetSynthesisAgent 来说，`dataset_log.write_chunk` 必须保持单 chunk 校验 + 原子写入，禁用未经授权的路径输出。
 
 要遵守的原则：
 1. Output with Chinese.
