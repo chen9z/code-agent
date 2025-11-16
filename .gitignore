@@ -21,6 +21,7 @@ storage/
 storage/**
 *.sqlite
 .qdrant/
+artifacts/
 
 # Coverage and reports
 coverage.xml
