@@ -14,21 +14,17 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from litellm import embedding as litellm_embedding
-
 from config.config import get_config
 from retrieval.splitter import chunk_code_file, iter_repository_files
+from adapters.llm.embedding import (
+    EmbeddingClientProtocol,
+    HttpxEmbeddingClient,
+    create_embedding_client,
+)
 from adapters.workspace.tree_sitter.parser import TagKind, TreeSitterProjectParser
 from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
 
-
-DEFAULT_EMBEDDING_BASE = "http://127.0.0.1:8000/v1"
-
-
-def _resolve_endpoint() -> str:
-    """Resolve the embedding API base URL."""
-
-    return (os.getenv("EMBEDDING_API_BASE") or DEFAULT_EMBEDDING_BASE).rstrip("/")
+EmbeddingClient = HttpxEmbeddingClient
 
 
 def _project_identifier(root: Path) -> str:
@@ -83,83 +79,6 @@ class PendingEmbeddingItem:
     snippet: str
 
 
-class EmbeddingClient:
-    """Thin wrapper over a LiteLLM-compatible embedding endpoint."""
-
-    def __init__(
-        self,
-        *,
-        endpoint: str,
-        model: str,
-        api_key: Optional[str] = None,
-        batch_size: int = 16,
-        timeout: float = 30.0,
-    ) -> None:
-        normalized = endpoint.rstrip("/")
-        suffix = "/embeddings"
-        if normalized.endswith(suffix):
-            normalized = normalized[: -len(suffix)]
-        self.api_base = normalized
-        self.model = model
-        self.api_key = (
-            api_key
-            or os.getenv("CODEBASE_EMBEDDING_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-            or None
-        )
-        provider = (
-            os.getenv("CODEBASE_EMBEDDING_PROVIDER")
-            or os.getenv("EMBEDDING_PROVIDER")
-            or "openai"
-        )
-        self.provider = provider
-        self.batch_size = max(1, int(batch_size))
-        self.timeout = float(timeout)
-
-    def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:
-        if not texts:
-            return []
-        results: List[List[float]] = []
-        span = self.batch_size
-        for start in range(0, len(texts), span):
-            chunk = list(texts[start : start + span])
-            results.extend(self._embed(chunk))
-        return results
-
-    def _embed(self, inputs: Sequence[str]) -> List[List[float]]:
-        try:
-            response = litellm_embedding(
-                model=self.model,
-                input=list(inputs),
-                api_base=self.api_base,
-                api_key=self.api_key,
-                timeout=self.timeout,
-                custom_llm_provider=self.provider,
-            )
-        except Exception as exc:  # pragma: no cover - 依赖网络
-            raise RuntimeError(f"Embedding request failed: {exc}") from exc
-
-        data = getattr(response, "data", None)
-        if data is None and isinstance(response, dict):
-            data = response.get("data")
-        if not isinstance(data, list) or len(data) != len(inputs):
-            raise RuntimeError("Embedding response missing expected 'data' entries")
-
-        vectors: List[List[float]] = []
-        for entry in data:
-            embedding = getattr(entry, "embedding", None)
-            if embedding is None and isinstance(entry, dict):
-                embedding = entry.get("embedding")
-            if not isinstance(embedding, list):
-                raise RuntimeError("Embedding response missing 'embedding' vector")
-            try:
-                vector = [float(v) for v in embedding]
-            except (TypeError, ValueError) as exc:
-                raise RuntimeError("Embedding vector contained non-numeric values") from exc
-            vectors.append(vector)
-        return vectors
-
-
 @dataclass(frozen=True)
 class SemanticSearchHit:
     score: float
@@ -172,7 +91,7 @@ class SemanticCodeIndexer:
     def __init__(
         self,
         *,
-        embedding_client: Optional[EmbeddingClient] = None,
+        embedding_client: Optional[EmbeddingClientProtocol] = None,
         batch_size: Optional[int] = None,
         vector_store: Optional[LocalQdrantStore] = None,
         qdrant_config: Optional[QdrantConfig] = None,
@@ -183,8 +102,6 @@ class SemanticCodeIndexer:
         if rag_cfg is not None:
             chunk_size = max(32, int(getattr(rag_cfg, "chunk_size", 200)))
 
-        endpoint = _resolve_endpoint()
-        model = os.getenv("CODEBASE_EMBEDDING_MODEL") or os.getenv("EMBEDDING_MODEL") or "jinaai/jina-embeddings-v4"
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
         api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "120"))
 
@@ -193,9 +110,7 @@ class SemanticCodeIndexer:
         store_root.mkdir(parents=True, exist_ok=True)
         config = qdrant_config or QdrantConfig(path=str(store_root))
         self._store = vector_store or LocalQdrantStore(config)
-        self._embedder = embedding_client or EmbeddingClient(
-            endpoint=endpoint,
-            model=model,
+        self._embedder: EmbeddingClientProtocol = embedding_client or create_embedding_client(
             batch_size=batch,
             timeout=api_timeout,
         )

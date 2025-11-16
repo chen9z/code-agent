@@ -210,8 +210,8 @@ source = { editable = "." }
 dependencies = [
     { name = "diskcache" },
     { name = "grep-ast" },
+    { name = "httpx" },
     { name = "langchain" },
-    { name = "litellm" },
     { name = "numpy" },
     { name = "openai" },
     { name = "pytest" },
@@ -260,7 +260,6 @@ requires-dist = [
     { name = "grep-ast", specifier = ">=0.3.3" },
     { name = "langchain", specifier = ">=0.3.27" },
     { name = "langchain", marker = "extra == 'full'", specifier = ">=0.0.300" },
-    { name = "litellm", specifier = ">=1.76.3" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pytest", specifier = ">=8.4.2" },
@@ -933,29 +932,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a9/fb/a0fab0ce0bb46aaae9703c1fb814b4ac7cbc2d75adc51e8689f1b34ac08d/langsmith-0.4.16.tar.gz", hash = "sha256:a94f374c7fa0f406757f95f311e84873258563961e1af0ba8996411822cd7241", size = 930411 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/ed/7a48189bdad850cfd47df671204c31779dd190de6bc681f169d4535f852e/langsmith-0.4.16-py3-none-any.whl", hash = "sha256:9ba95ed09b057dfe227e882f5446e1824bfc9f2c89de542ee6f0f8d90ab953a7", size = 375761 },
-]
-
-[[package]]
-name = "litellm"
-version = "1.76.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "click" },
-    { name = "fastuuid" },
-    { name = "httpx" },
-    { name = "importlib-metadata" },
-    { name = "jinja2" },
-    { name = "jsonschema" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "tiktoken" },
-    { name = "tokenizers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/72/46/57b6539365616452bb6f4401487448ce62e62755738fce55d8222d7a557e/litellm-1.76.3.tar.gz", hash = "sha256:fc81219c59b17b26cc81276ce32582f3715612877ab11c1ea2c26e4853ac67e8", size = 10210403 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/d9/5f8ed27241b487f51f04573b8ba06d4460ebed9f792ff5cc148649fbf862/litellm-1.76.3-py3-none-any.whl", hash = "sha256:d62e3ff2a80ec5e551c6d7a0fe199ffe718ecb6cbaa43fc9250dd8d7c0944352", size = 9000797 },
 ]
 
 [[package]]

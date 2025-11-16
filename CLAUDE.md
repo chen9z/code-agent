@@ -104,7 +104,7 @@ export EMBEDDING_API_BASE=http://127.0.0.1:8000/v1  # default local endpoint
 
 ## Key Dependencies
 - **langchain** - LLM orchestration and tool abstractions
-- **litellm** - Unified LLM API with embedding support
+- **httpx** - HTTP client used for embedding requests
 - **qdrant-client** - Local vector database for semantic search
 - **tree-sitter** - Code parsing with language grammars
 - **diskcache** - Persistent caching for parsed symbols
@@ -182,7 +182,7 @@ print(result["final_response"])
 - `adapters/workspace/vector_store.py` - Embedding storage and retrieval using Qdrant
 - `retrieval/index.py` - Project indexing and search
 - `retrieval/codebase_indexer.py` - Semantic code indexing with embeddings
-- Uses `litellm` for embedding generation with configurable endpoints
+- Uses `httpx` to call OpenAI-compatible embedding endpoints
 - Local Qdrant storage with configurable collection names and vector sizes
 - Configurable embedding models via environment variables
 

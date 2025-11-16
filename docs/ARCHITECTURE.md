@@ -15,7 +15,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 - codebase_retrieval.py: Lightweight helpers for indexing/search built on `retrieval.index.Index`.
 - retrieval/index.py: Project adapter exposing `index_project`, `search`, and formatting utilities.
 - retrieval/codebase_indexer.py: Chunking + embedding pipeline backed by LiteLLM embeddings and the local Qdrant store.
-- adapters/llm/llm.py: Unified LLM client (litellm/OpenAI) with optional Opik tracking.
+- adapters/llm/llm.py: Unified OpenAI-compatible LLM client with optional Opik tracking.
 
 ## Data & Indexing
 - Project key: `<project_name>` (default basename of path). Storage under `./storage/` (ignored by VCS).
