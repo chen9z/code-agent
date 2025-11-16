@@ -117,6 +117,8 @@ def create_default_registry(
         if selected is not None and key not in selected:
             continue
         kwargs: Dict[str, Any] = {}
+        if key == "codebase_search" and project_root is not None:
+            kwargs["default_project_root"] = project_root
         tool_instance = tool_cls(**kwargs)
         registry.register(tool_instance, name=key)
     return registry

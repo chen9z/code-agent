@@ -34,21 +34,12 @@ class QdrantPoint:
     payload: Mapping[str, Any]
 
 
-_CLIENT_CACHE: Dict[str, QdrantClient] = {}
-
-
 class LocalQdrantStore:
     """Thin wrapper around the Qdrant client for symbol indexing."""
 
     def __init__(self, config: Optional[QdrantConfig] = None) -> None:
         self.config = config or QdrantConfig()
-        cache_key = str(Path(self.config.path).resolve())
-        if cache_key in _CLIENT_CACHE:
-            self.client = _CLIENT_CACHE[cache_key]
-        else:
-            client = QdrantClient(path=self.config.path)
-            _CLIENT_CACHE[cache_key] = client
-            self.client = client
+        self.client = QdrantClient(path=self.config.path)
         self._vector_size: Optional[int] = self.config.vector_size
         if self._vector_size is not None:
             self._ensure_collection(self._vector_size)
@@ -216,9 +207,7 @@ class LocalQdrantStore:
             except ValueError:
                 return {}
             for record in points:
-                payload = record.payload or {}
-                cache_key = payload.get("cache_key") if isinstance(payload, dict) else None
-                key = cache_key if isinstance(cache_key, str) else str(record.id)
+                key = str(record.id)
                 records[key] = record
             if offset is None:
                 break
@@ -304,9 +293,9 @@ class LocalQdrantStore:
             ]
         )
         try:
-            return self.client.search(
+            response = self.client.query_points(
                 collection_name=self.config.collection,
-                query_vector=list(vector),
+                query=list(vector),
                 query_filter=filter_,
                 limit=limit,
                 with_payload=True,
@@ -315,6 +304,10 @@ class LocalQdrantStore:
             )
         except ValueError:
             return []
+        points = getattr(response, "points", None)
+        if not points:
+            return []
+        return list(points)
 
     def close(self) -> None:
         try:

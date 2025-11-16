@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import threading
 import time
 import uuid
@@ -35,6 +36,17 @@ def _project_identifier(root: Path) -> str:
     return digest[:16]
 
 
+_COLLECTION_SANITIZE_RE = re.compile(r"[^0-9A-Za-z_-]+")
+
+
+def _collection_name(project_name: str, project_key: str) -> str:
+    """Derive a deterministic, unique Qdrant collection name."""
+
+    base = project_name or "project"
+    safe = _COLLECTION_SANITIZE_RE.sub("_", base).strip("_") or "project"
+    return f"{safe}_{project_key}"
+
+
 @dataclass(frozen=True)
 class CodeChunkEmbedding:
     relative_path: str
@@ -52,6 +64,7 @@ class CodebaseIndex:
     project_root: Path
     project_key: str
     project_name: str
+    collection_name: str
     entries: Tuple[CodeChunkEmbedding, ...]
     file_count: int
     chunk_count: int
@@ -204,13 +217,20 @@ class SemanticCodeIndexer:
     ) -> CodebaseIndex:
         root = Path(project_root).expanduser().resolve()
         key = str(root)
+        project_key = _project_identifier(root)
+        collection_name = _collection_name(root.name, project_key)
         with self._lock:
-            self._store.use_collection(root.name)
+            self._store.use_collection(collection_name)
             cached = self._indices.get(key)
-            collection_missing = not self._store.collection_exists(root.name)
+            collection_missing = not self._store.collection_exists(collection_name)
             if not refresh and cached is not None and not collection_missing:
                 return cached
-            index = self._build_index(root, show_progress=show_progress)
+            index = self._build_index(
+                root,
+                project_key=project_key,
+                collection_name=collection_name,
+                show_progress=show_progress,
+            )
             self._indices[key] = index
             return index
 
@@ -224,7 +244,7 @@ class SemanticCodeIndexer:
         refresh_index: bool = False,
     ) -> Tuple[List[SemanticSearchHit], CodebaseIndex]:
         index = self.ensure_index(project_root, refresh=refresh_index)
-        self._store.use_collection(index.project_name)
+        self._store.use_collection(index.collection_name)
         embeddings = self._embedder.embed_batch([query])
         if not embeddings:
             return [], index
@@ -312,16 +332,23 @@ class SemanticCodeIndexer:
         return {
             "project_key": index.project_key,
             "project_root": str(index.project_root),
+            "collection_name": index.collection_name,
             "chunk_count": index.chunk_count,
             "file_count": index.file_count,
             "indexed_at": index.indexed_at.isoformat().replace("+00:00", "Z"),
             "build_time_seconds": round(index.build_time_seconds, 3),
         }
 
-    def _build_index(self, root: Path, *, show_progress: bool = False) -> CodebaseIndex:
+    def _build_index(
+        self,
+        root: Path,
+        *,
+        project_key: str,
+        collection_name: str,
+        show_progress: bool = False,
+    ) -> CodebaseIndex:
         start = time.perf_counter()
-        project_key = _project_identifier(root)
-        self._store.use_collection(root.name)
+        self._store.use_collection(collection_name)
         entries: List[CodeChunkEmbedding] = []
         file_paths: set[str] = set()
 
@@ -406,7 +433,10 @@ class SemanticCodeIndexer:
             if len(embeddings) != len(items):
                 raise RuntimeError("Embedding service returned mismatched vector count")
             if embeddings:
-                self._store.use_collection(root.name, vector_size=len(embeddings[0]))
+                self._store.use_collection(
+                    collection_name,
+                    vector_size=len(embeddings[0]),
+                )
 
             points: List[QdrantPoint] = []
             for item, vector in zip(items, embeddings):
@@ -439,6 +469,7 @@ class SemanticCodeIndexer:
             project_root=root,
             project_key=project_key,
             project_name=root.name,
+            collection_name=collection_name,
             entries=tuple(entries),
             file_count=file_count,
             chunk_count=chunk_count,
