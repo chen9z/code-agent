@@ -21,8 +21,7 @@ value = area(3.0)
 """.strip()
     )
 
-    cache_dir = tmp_path / "cache"
-    with TreeSitterProjectParser(cache_dir=cache_dir) as parser:
+    with TreeSitterProjectParser() as parser:
         symbols = parser.parse_project(project_root)
         assert symbols, "expected at least one symbol extracted"
         names_and_kinds = {(s.name, s.kind) for s in symbols}
@@ -54,13 +53,11 @@ def test_tree_sitter_parser_logs_on_parse_failure(tmp_path, monkeypatch, caplog)
     source = project_root / "broken.py"
     source.write_text("def broken(:\n    pass\n")
 
-    cache_dir = tmp_path / "cache"
-
     class BoomParser:
         def parse(self, _bytes):
             raise RuntimeError("boom")
 
-    with TreeSitterProjectParser(cache_dir=cache_dir) as parser:
+    with TreeSitterProjectParser() as parser:
         monkeypatch.setattr(parser, "_get_parser", lambda _lang: BoomParser())
         caplog.set_level("WARNING")
         symbols = parser.parse_file(source, project_root=project_root)

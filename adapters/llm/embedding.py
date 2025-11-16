@@ -15,8 +15,14 @@ DEFAULT_EMBEDDING_MODEL = "jinaai/jina-embeddings-v4"
 class EmbeddingClientProtocol(Protocol):
     """Minimal interface required by retrieval components."""
 
-    def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:  # pragma: no cover - protocol
+    def embed_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        labels: Sequence[str] | None = None,
+    ) -> List[List[float]]:  # pragma: no cover - protocol
         ...
+
 
 @dataclass(slots=True)
 class HttpxEmbeddingClient(EmbeddingClientProtocol):
@@ -28,13 +34,21 @@ class HttpxEmbeddingClient(EmbeddingClientProtocol):
 
     def __post_init__(self) -> None:
         self.endpoint = self.endpoint.rstrip("/") or DEFAULT_EMBEDDING_URL
+        # 兼容用户只提供到 /v1 的 base URL；自动补全 embeddings 路径
+        if not self.endpoint.endswith("/embeddings"):
+            self.endpoint = f"{self.endpoint}/embeddings"
         self.batch_size = max(1, int(self.batch_size))
         if self.api_key is None:
             self.api_key = (
                 os.getenv("OPENAI_API_KEY")
             )
 
-    def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:
+    def embed_batch(
+        self,
+        texts: Sequence[str],
+        *,
+        labels: Sequence[str] | None = None,
+    ) -> List[List[float]]:
         if not texts:
             return []
         results: List[List[float]] = []
@@ -88,7 +102,7 @@ def create_embedding_client(
     api_key: str | None = None,
     batch_size: int = 16,
     timeout: float = 120.0,
-) -> HttpxEmbeddingClient:
+):
     resolved_endpoint = endpoint or os.getenv("EMBEDDING_API_BASE") or DEFAULT_EMBEDDING_URL
     resolved_model = model or os.getenv("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL
     return HttpxEmbeddingClient(

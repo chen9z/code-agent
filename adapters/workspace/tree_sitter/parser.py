@@ -16,7 +16,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from diskcache import Cache
 from grep_ast import filename_to_lang
 from tree_sitter import Parser, Query, QueryCursor
 
@@ -97,31 +96,19 @@ class ParsedSymbol:
 class TreeSitterProjectParser:
     """Parse repositories with tree-sitter queries to extract symbol tags."""
 
-    DEFAULT_CACHE_DIR = Path("storage/tree_sitter_cache")
-    CACHE_VERSION = 1
-
     def __init__(
         self,
-        cache_dir: Optional[Path | str] = None,
+        *,
         queries_dir: Optional[Path | str] = None,
     ) -> None:
-        self.cache_dir = Path(cache_dir or self.DEFAULT_CACHE_DIR)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache: Cache | dict[str, dict] | None = None
-        try:
-            namespaced = self.cache_dir / f"v{self.CACHE_VERSION}"
-            namespaced.mkdir(parents=True, exist_ok=True)
-            self._cache = Cache(namespaced)
-        except Exception:
-            self._cache = {}
         base_dir = Path(queries_dir) if queries_dir else Path(__file__).resolve().parent / "queries"
         self.queries_dir = base_dir
         self._language_cache: dict[str, object] = {}
         self._parser_cache: dict[str, object] = {}
 
     def close(self) -> None:
-        if isinstance(self._cache, Cache):
-            self._cache.close()
+        # 保留接口以兼容上下文管理器，当前无持久化缓存资源需要关闭。
+        pass
 
     # Context manager support if needed
     def __enter__(self) -> "TreeSitterProjectParser":
@@ -147,15 +134,7 @@ class TreeSitterProjectParser:
             relative = path.relative_to(root).as_posix()
         except ValueError:
             relative = path.name
-        cache_key = str(path)
-        mtime = path.stat().st_mtime_ns
-        cached = self._get_cached_symbols(cache_key, mtime)
-        if cached is not None:
-            return [ParsedSymbol.from_dict(entry) for entry in cached]
-
-        parsed = self._parse_file_uncached(path, relative)
-        self._set_cached_symbols(cache_key, mtime, parsed)
-        return parsed
+        return self._parse_file_uncached(path, relative)
 
     def export_symbols(self, symbols: Sequence[ParsedSymbol], output_path: Path | str) -> Path:
         """Write parsed symbols to JSONL for downstream consumption."""
@@ -168,33 +147,6 @@ class TreeSitterProjectParser:
         return out_path
 
     # Internal helpers -----------------------------------------------------------------
-    def _get_cached_symbols(self, key: str, mtime: int) -> Optional[List[dict]]:
-        cache = self._cache
-        if cache is None:
-            return None
-        if isinstance(cache, Cache):
-            cached = cache.get(key)
-        else:
-            cached = cache.get(key)
-        if not cached:
-            return None
-        if cached.get("mtime") != mtime:
-            return None
-        return cached.get("data")
-
-    def _set_cached_symbols(self, key: str, mtime: int, symbols: Sequence[ParsedSymbol]) -> None:
-        cache = self._cache
-        if cache is None:
-            return
-        payload = {
-            "mtime": mtime,
-            "data": [symbol.to_dict() for symbol in symbols],
-        }
-        if isinstance(cache, Cache):
-            cache.set(key, payload)
-        else:
-            cache[key] = payload
-
     def _parse_file_uncached(self, path: Path, relative: str) -> List[ParsedSymbol]:
         lang = filename_to_lang(str(path))
         if not lang or not is_language_supported(lang):

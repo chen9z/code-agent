@@ -8,7 +8,7 @@ import re
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
@@ -52,7 +52,7 @@ class CodeChunkEmbedding:
     language: Optional[str]
     symbol: Optional[str]
     content: str
-    vector: Tuple[float, ...]
+    vector: Tuple[float, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -66,17 +66,6 @@ class CodebaseIndex:
     chunk_count: int
     indexed_at: datetime
     build_time_seconds: float
-
-
-@dataclass(frozen=True)
-class PendingEmbeddingItem:
-    relative_path: str
-    absolute_path: str
-    start_line: int
-    end_line: int
-    language: Optional[str]
-    symbol: Optional[str]
-    snippet: str
 
 
 @dataclass(frozen=True)
@@ -264,7 +253,7 @@ class SemanticCodeIndexer:
     ) -> CodebaseIndex:
         start = time.perf_counter()
         self._store.use_collection(collection_name)
-        entries: List[CodeChunkEmbedding] = []
+        resolved_entries: List[CodeChunkEmbedding] = []
         file_paths: set[str] = set()
 
         parser = TreeSitterProjectParser()
@@ -275,7 +264,7 @@ class SemanticCodeIndexer:
 
         covered_paths: set[str] = set()
         reported_paths: set[str] = set()
-        items: List[PendingEmbeddingItem] = []
+        pending_entries: List[CodeChunkEmbedding] = []
         for symbol in symbols:
             if symbol.kind is not TagKind.DEF:
                 continue
@@ -285,14 +274,14 @@ class SemanticCodeIndexer:
             snippet_text = snippet.rstrip("\n")
             if not snippet_text.strip():
                 continue
-            item = PendingEmbeddingItem(
+            item = CodeChunkEmbedding(
                 relative_path=symbol.relative_path,
                 absolute_path=symbol.absolute_path,
                 start_line=symbol.start_line,
                 end_line=symbol.end_line,
                 language=symbol.language,
                 symbol=symbol.metadata.get("identifier") or symbol.name,
-                snippet=snippet_text,
+                content=snippet_text,
             )
             if show_progress and symbol.absolute_path not in reported_paths:
                 try:
@@ -302,8 +291,7 @@ class SemanticCodeIndexer:
                 reported_paths.add(symbol.absolute_path)
             covered_paths.add(symbol.absolute_path)
             file_paths.add(symbol.absolute_path)
-            entries.append(self._entry_from_item(item, None))
-            items.append(item)
+            pending_entries.append(item)
 
         for file_path in iter_repository_files(root):
             absolute = str(file_path)
@@ -322,17 +310,16 @@ class SemanticCodeIndexer:
                 snippet_text = chunk.content.rstrip("\n")
                 if not snippet_text.strip():
                     continue
-                item = PendingEmbeddingItem(
+                item = CodeChunkEmbedding(
                     relative_path=relative_path,
                     absolute_path=absolute,
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
                     language=chunk.language,
                     symbol=chunk.symbol,
-                    snippet=snippet_text,
+                    content=snippet_text,
                 )
-                entries.append(self._entry_from_item(item, None))
-                items.append(item)
+                pending_entries.append(item)
                 file_paths.add(item.absolute_path)
 
         existing_records = self._store.list_point_ids(project_key)
@@ -340,11 +327,12 @@ class SemanticCodeIndexer:
             remove_ids = [str(record.id) for record in existing_records.values()]
             self._store.delete_points(remove_ids)
 
-        if items:
-            texts = [item.snippet for item in items]
-            labels = [f"{item.relative_path}:{item.start_line}-{item.end_line}" for item in items]
+        normalized_vectors: List[Tuple[float, ...]] = []
+        if pending_entries:
+            texts = [item.content for item in pending_entries]
+            labels = [f"{item.relative_path}:{item.start_line}-{item.end_line}" for item in pending_entries]
             embeddings = self._embedder.embed_batch(texts, labels=labels)
-            if len(embeddings) != len(items):
+            if len(embeddings) != len(pending_entries):
                 raise RuntimeError("Embedding service returned mismatched vector count")
             if embeddings:
                 self._store.use_collection(
@@ -353,7 +341,9 @@ class SemanticCodeIndexer:
                 )
 
             points: List[QdrantPoint] = []
-            for item, vector in zip(items, embeddings):
+            for item, vector in zip(pending_entries, embeddings):
+                normalized = tuple(float(v) for v in vector)
+                normalized_vectors.append(normalized)
                 payload = {
                     "project_key": project_key,
                     "project_name": root.name,
@@ -364,7 +354,7 @@ class SemanticCodeIndexer:
                     "end_line": item.end_line,
                     "language": item.language,
                     "symbol": item.symbol,
-                    "snippet": item.snippet,
+                    "snippet": item.content,
                 }
                 points.append(
                     QdrantPoint(
@@ -375,7 +365,21 @@ class SemanticCodeIndexer:
                 )
             self._store.upsert_points(points, batch_size=self._batch_size)
 
-        chunk_count = len(items)
+            resolved_entries = [
+                CodeChunkEmbedding(
+                    relative_path=entry.relative_path,
+                    absolute_path=entry.absolute_path,
+                    start_line=entry.start_line,
+                    end_line=entry.end_line,
+                    language=entry.language,
+                    symbol=entry.symbol,
+                    content=entry.content,
+                    vector=vector,
+                )
+                for entry, vector in zip(pending_entries, normalized_vectors)
+            ]
+
+        chunk_count = len(pending_entries)
         file_count = len(file_paths)
 
         build_time = time.perf_counter() - start
@@ -384,28 +388,15 @@ class SemanticCodeIndexer:
             project_key=project_key,
             project_name=root.name,
             collection_name=collection_name,
-            entries=tuple(entries),
+            entries=tuple(resolved_entries),
             file_count=file_count,
             chunk_count=chunk_count,
             indexed_at=datetime.now(timezone.utc),
             build_time_seconds=build_time,
         )
 
-    def _entry_from_item(self, item: PendingEmbeddingItem, vector: Optional[Sequence[float]]) -> CodeChunkEmbedding:
-        normalized: Tuple[float, ...] = tuple(float(v) for v in vector) if vector is not None else ()
-        return CodeChunkEmbedding(
-            relative_path=item.relative_path,
-            absolute_path=item.absolute_path,
-            start_line=item.start_line,
-            end_line=item.end_line,
-            language=item.language,
-            symbol=item.symbol,
-            content=item.snippet,
-            vector=normalized,
-        )
-
     @staticmethod
-    def _make_point_id(project_key: str, item: PendingEmbeddingItem) -> str:
+    def _make_point_id(project_key: str, item: CodeChunkEmbedding) -> str:
         raw = f"{project_key}:{item.relative_path}:{item.start_line}:{item.end_line}"
         digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
         return str(uuid.uuid5(uuid.NAMESPACE_URL, digest))

@@ -107,7 +107,7 @@ export EMBEDDING_API_BASE=http://127.0.0.1:8000/v1  # default local endpoint
 - **httpx** - HTTP client used for embedding requests
 - **qdrant-client** - Local vector database for semantic search
 - **tree-sitter** - Code parsing with language grammars
-- **diskcache** - Persistent caching for parsed symbols
+- ~~**diskcache** - Persistent caching for parsed symbols~~（已移除缓存逻辑）
 - **grep-ast** - Language detection and file filtering
 - **rich** - Rich console output for CLI interface
 
@@ -175,7 +175,7 @@ print(result["final_response"])
 - Supports multiple programming languages via tree-sitter grammars
 - Uses `grep_ast` for language detection and file filtering
 - Extracts symbols with `TagKind.DEF` (definitions) and `TagKind.REF` (references)
-- Caches parsed results using `diskcache` for performance
+- ~~Caches parsed results using `diskcache` for performance~~（现实时直解析，无持久化缓存）
 - Exports parsed symbols to JSONL format
 
 ### Vector Store Integration
@@ -233,7 +233,7 @@ print(result["final_response"])
 - Test flows with focused pytest cases
 
 ### Performance Optimization
-- Use `diskcache` for expensive tree-sitter parsing operations
+- ~~Use `diskcache` for expensive tree-sitter parsing operations~~（解析不再写入缓存）
 - Configure `max_parallel_workers` for tool execution throughput
 - Set appropriate `max_iterations` to prevent infinite loops
 - Use `ThreadPoolExecutor` for parallel tool execution
