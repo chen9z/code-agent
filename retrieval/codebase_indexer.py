@@ -16,10 +16,10 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from litellm import embedding as litellm_embedding
 
-from configs.config import get_config
-from integrations.splitter import chunk_code_file, iter_repository_files
-from integrations.tree_sitter.parser import TagKind, TreeSitterProjectParser
-from integrations.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
+from config.config import get_config
+from retrieval.splitter import chunk_code_file, iter_repository_files
+from adapters.workspace.tree_sitter.parser import TagKind, TreeSitterProjectParser
+from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
 
 
 DEFAULT_EMBEDDING_BASE = "http://127.0.0.1:8000/v1"

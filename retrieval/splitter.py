@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from tree_sitter import Parser
 
-from integrations.tree_sitter.language_loader import (
+from adapters.workspace.tree_sitter.language_loader import (
     is_language_supported,
     load_language,
 )

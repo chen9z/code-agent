@@ -9,7 +9,7 @@ import tempfile
 import pytest
 def test_project_index_adapter():
     """Test project index adapter functionality."""
-    from integrations.index import Index
+    from retrieval.index import Index
 
     original_store = os.environ.get("CODEBASE_QDRANT_PATH")
     with tempfile.TemporaryDirectory() as store_dir:

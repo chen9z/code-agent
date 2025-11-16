@@ -1,4 +1,4 @@
-from configs.prompt import compose_system_prompt
+from config.prompt import compose_system_prompt
 
 
 def test_compose_system_prompt_with_sections_and_env():

@@ -1,20 +1,21 @@
 # Architecture Overview
 
-This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, exposed via the package `__init__`, remains available for other agents; however `codebase_retrieval.py` now exposes direct helper functions without wrapping them in Flow/Node abstractions.
+This project is a code agent focused on local repository understanding. Flow/Node abstractions have been trimmed back in favour of a lightweight session layer living in `agent/`.
 
 ## Layers
-- flow runtime: Flow/Node execution, retries, routing. No changes for now.
-- agents: Agent entrypoints and flows (e.g., code_chat, cursor_like, pr_reviewer). Each agent wires nodes into a task-specific pipeline.
-- tools: Node implementations and utilities (e.g., `rag_nodes`). Nodes avoid global state and are idempotent when possible.
-- integrations: External adapters (code repository index/search, VCS, CI). `integrations/index.py` provides the local project indexing/search adapter.
-- clients: Service adapters (LLM, Vector DB). Centralize API usage, retries, and streaming.
-- config: Centralized settings via Pydantic with env prefixes: `LLM_*` for LLM, `RAG_*` for embedding/rerank. Other settings use sensible defaults.
-- ui: CLI/TUI entrypoints and HTTP adapters.
+- entrypoints: `cli.py`, `code_agent.py`, `codebase_retrieval.py` wire together the lower layers.
+- agent: Session + prompt orchestration (`agent/session.py`), shared by CLI and benchmarks.
+- runtime: Tool execution runner (`runtime/tool_runner.py`) that fans out OpenAI tool calls in parallel.
+- retrieval: Semantic indexing/search pipeline plus chunking helpers (`retrieval/index.py`, `retrieval/codebase_indexer.py`, `retrieval/splitter.py`).
+- adapters: External integrations – `adapters/llm/` for OpenAI-compatible chat clients, `adapters/workspace/` for Tree-sitter parsing and Qdrant-backed vector storage.
+- config: Centralized settings and prompt pieces in `config/`.
+- tools & ui: Tool implementations (`tools/`) and CLI emitters (`ui/`).
 
 ## Module Responsibilities
-- codebase_retrieval.py: Lightweight helpers for indexing and searching codebases using `integrations.index` (no Flow/Node orchestration or LLM calls).
-- integrations/index.py: Index adapter implementing local indexing (line-chunked) and simple search scoring; bridges to external chat-codebase when available via `CHAT_CODEBASE_PATH`.
-- clients/llm.py (planned): Unified LLM client (litellm), streaming, caching; `model.py` to be replaced gradually.
+- codebase_retrieval.py: Lightweight helpers for indexing/search built on `retrieval.index.Index`.
+- retrieval/index.py: Project adapter exposing `index_project`, `search`, and formatting utilities.
+- retrieval/codebase_indexer.py: Chunking + embedding pipeline backed by LiteLLM embeddings and the local Qdrant store.
+- adapters/llm/llm.py: Unified LLM client (litellm/OpenAI) with optional Opik tracking.
 
 ## Data & Indexing
 - Project key: `<project_name>` (default basename of path). Storage under `./storage/` (ignored by VCS).
@@ -24,11 +25,11 @@ This project is a code-agent built on a Flow/Node runtime. The Flow/Node code, e
 - Programmatic API: direct helpers `index_project`, `search_project`.
 
 ## Extensibility Guidelines
-- New nodes extend `Node`; keep side effects isolated and parameters explicit. (Not required for `codebase_retrieval`, which now uses direct helpers.)
-- Compose flows from small nodes; avoid global state when using the Flow runtime.
-- Config is read via `configs.manager.get_config()`; avoid direct `os.environ` in nodes.
+- Tool implementations remain stateless and idempotent; wire them into `runtime.ToolExecutionRunner`.
+- Retrieval helpers should route filesystem and vector-store concerns through `adapters/workspace`.
+- Config is read via `config.config.get_config()`; avoid direct `os.environ` access in feature code.
 
 ## Roadmap (excerpt)
-- clients/llm.py + caching; replace direct `model.call_llm`.
+- adapters/llm caching; replace ad-hoc client instantiations.
 - Typer CLI with subcommands for `index|search|query` and agent runners.
 - PR reviewer agent: diff ingestion, risk categorization, suggestions.

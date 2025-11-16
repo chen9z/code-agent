@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from integrations.tool_execution import ToolExecutionRunner, ToolResult
+from runtime.tool_runner import ToolExecutionRunner, ToolResult
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
-from integrations.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
+from retrieval.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
 from tools.base import BaseTool
 
 

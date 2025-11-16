@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
-from integrations.tree_sitter.parser import ParsedSymbol
+from adapters.workspace.tree_sitter.parser import ParsedSymbol
 
 
 EmbedderFn = Callable[[ParsedSymbol], Sequence[float]]

@@ -12,15 +12,15 @@ def test_package_import():
 def test_main_import():
     """Test that main modules can be imported."""
     import codebase_retrieval
-    from configs import config as config_manager
-    from integrations import repository
+    from config import config as config_manager
+    from retrieval import index as retrieval_index
 
     assert codebase_retrieval is not None
     assert config_manager is not None
     assert hasattr(codebase_retrieval, "index_project")
     assert hasattr(codebase_retrieval, "search_project")
     assert callable(codebase_retrieval.index_project)
-    assert repository is not None
+    assert retrieval_index is not None
 
 
 def test_codebase_retrieval_import():

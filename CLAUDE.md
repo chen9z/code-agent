@@ -5,12 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Codebase Overview
 
 A composable agent runtime focused on code understanding with these key components:
-- **Flow/Node Runtime** (`__init__.py`) - Core orchestration primitives for building agent workflows
-- **Agent Modules** (`code_rag.py`, `code_agent.py`) - Ready-to-run flows built from reusable nodes
-- **Integrations** (`integrations/`) - Adapters for repositories, vector stores, and external services
-- **Configuration** (`configs/`) - Environment-driven settings management
-- **Tools & Clients** (`tools/`, `clients/`) - LLM clients and tool abstractions
-- **Testing** (`tests/`) - Pytest suite mirroring runtime modules
+- **Entry Points** (`cli.py`, `code_agent.py`, `codebase_retrieval.py`) – wire the conversation session and retrieval helpers.
+- **Agent Layer** (`agent/`) – maintains conversational state (`CodeAgentSession`) and system prompts.
+- **Runtime** (`runtime/`) – tool execution runner that orchestrates OpenAI tool calls and concurrency.
+- **Retrieval** (`retrieval/`) – indexing/search adapters plus chunking utilities.
+- **Adapters** (`adapters/llm`, `adapters/workspace`) – OpenAI/LiteLLM clients, Tree-sitter grammars, and Qdrant vector store helpers.
+- **Configuration** (`config/`) – environment-driven settings and prompt fragments.
+- **Tools & UI** (`tools/`, `ui/`) – builtin tool implementations and CLI emitters.
+- **Testing** (`tests/`) – Pytest suite mirroring the directories above.
 
 Vector data and local artifacts persist in `storage/` (gitignored). Key gitignored items:
 - `.venv/` - Python virtual environment
@@ -140,7 +142,7 @@ print(result["final_response"])
 - Runtime primitives exported via top-level `__init__`
 - Agent modules provide ready-to-run flows with documented entrypoints
 - Integrations use dependency injection for testability
-- Configuration managed through `configs/manager.py` helpers
+- Configuration managed through `config.config.get_config()` helpers
 
 ### Testing Strategy
 - Pytest with fixtures in `tests/conftest.py`
@@ -169,7 +171,7 @@ print(result["final_response"])
 ## Integration Points
 
 ### Tree-sitter Integration
-- `integrations/tree_sitter/` - Code parsing and symbol extraction
+- `adapters/workspace/tree_sitter/` - Code parsing and symbol extraction
 - Supports multiple programming languages via tree-sitter grammars
 - Uses `grep_ast` for language detection and file filtering
 - Extracts symbols with `TagKind.DEF` (definitions) and `TagKind.REF` (references)
@@ -177,21 +179,21 @@ print(result["final_response"])
 - Exports parsed symbols to JSONL format
 
 ### Vector Store Integration
-- `integrations/vector_store.py` - Embedding storage and retrieval using Qdrant
-- `integrations/index.py` - Project indexing and search
-- `integrations/codebase_indexer.py` - Semantic code indexing with embeddings
+- `adapters/workspace/vector_store.py` - Embedding storage and retrieval using Qdrant
+- `retrieval/index.py` - Project indexing and search
+- `retrieval/codebase_indexer.py` - Semantic code indexing with embeddings
 - Uses `litellm` for embedding generation with configurable endpoints
 - Local Qdrant storage with configurable collection names and vector sizes
 - Configurable embedding models via environment variables
 
 ### LLM Client Integration
-- `clients/llm.py` - Unified LLM client interface
+- `adapters/llm/llm.py` - Unified LLM client interface
 - Supports OpenAI-compatible APIs
 - Fallback stub LLM for testing
 - Optional Opik observability integration
 
 ### System Prompts
-- `core/prompt.py` - Centralized prompt management
+- `config/prompt.py` - Centralized prompt management
 - Security constraints for defensive operations only
 - Concise response guidelines to minimize token usage
 - Context-aware conversation history management

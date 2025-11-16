@@ -7,7 +7,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from configs.config import AppConfig, get_config, reload_config
+from config.config import AppConfig, get_config, reload_config
 
 
 def test_get_config_singleton():

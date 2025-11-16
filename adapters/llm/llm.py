@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Generator, List, Dict, Any
-from configs.config import get_config
+from config.config import get_config
 
 from opik.integrations.openai import track_openai
 
@@ -107,7 +107,7 @@ def get_default_llm_client() -> BaseLLMClient:
     """Construct default LLM client using centralized config.
 
     Precedence:
-    1) LLM_* from configs.manager (recommended)
+    1) LLM_* from config manager (recommended)
     2) OPENAI_API_KEY / OPENAI_API_BASE environment variables (fallback)
     """
     cfg = get_config()
@@ -117,7 +117,7 @@ def get_default_llm_client() -> BaseLLMClient:
 
     if not api_key:
         raise RuntimeError(
-            "LLM configuration missing: set configs.manager llm.api_key or OPENAI_API_KEY environment variable."
+            "LLM configuration missing: set config manager llm.api_key or OPENAI_API_KEY environment variable."
         )
     return OpenAICompatLLMClient(
         api_key=api_key,

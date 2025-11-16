@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from integrations.tree_sitter.parser import TagKind, TreeSitterProjectParser
+from adapters.workspace.tree_sitter.parser import TagKind, TreeSitterProjectParser
 
 
 def test_tree_sitter_parser_extracts_python_symbols(tmp_path):

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from integrations.codebase_indexer import EmbeddingClient
+from retrieval.codebase_indexer import EmbeddingClient
 
 # Add the project root to Python path
 project_root = Path(__file__).parent.parent

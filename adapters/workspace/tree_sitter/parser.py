@@ -20,8 +20,8 @@ from diskcache import Cache
 from grep_ast import filename_to_lang
 from tree_sitter import Parser, Query, QueryCursor
 
-from integrations.splitter import iter_repository_files
-from integrations.tree_sitter.language_loader import (
+from retrieval.splitter import iter_repository_files
+from adapters.workspace.tree_sitter.language_loader import (
     is_language_supported,
     load_language,
 )

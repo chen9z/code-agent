@@ -3,10 +3,10 @@
 ## Project Structure & Module Organization
 
 Runtime entry points (`cli.py`, `code_agent.py`, `codebase_retrieval.py`) wire together reusable building blocks.
-Domain logic is split across `core/` (prompts, security, config), `nodes/` (tool planners/executors), `tools/` and
-`clients/` (LLM + external integrations). The CLI shell in `cli.py` handles interactive UX, while `integrations/` carries
-adapters such as Tree-sitter grammars. Persisted embeddings live under `storage/` (gitignored), and parity tests mirror
-the runtime layout inside `tests/`.
+Domain logic现已拆分为 `agent/`（会话与系统提示）、`runtime/`（工具调度）、`retrieval/`（索引/搜索）以及
+`tools/`。外部依赖放在 `adapters/llm`（LLM 客户端）和 `adapters/workspace`（Tree-sitter、Qdrant）。`config/`
+负责所有环境配置和安全提示。CLI shell 仍在 `cli.py` 中，持久化 embedding 存于 `storage/`（gitignored），测试按
+上述目录在 `tests/` 下设置镜像。
 
 ## Build, Test, and Development Commands
 
@@ -29,8 +29,8 @@ PascalCase. Use `pathlib.Path` for filesystem work and keep most side effects in
 ## Testing Guidelines
 
 All tests run through `pytest`; place mirrors of new modules inside `tests/<module_name>/` and name files
-`test_<feature>.py`. Within a file, order fixtures → helpers → `test_*` functions or parameterized classes. Run
-`uv run pytest --cov=core --cov=tools --cov=nodes` before pushing and capture flaky seeds in the PR description.
+`test_<feature>.py`. Within a file,保持“fixtures → helpers → tests”的顺序。临近提交流程时执行
+`uv run pytest --cov=agent --cov=retrieval --cov=runtime --cov=tools` 并记录任何 flaky seed。
 
 ## Commit & Pull Request Guidelines
 
@@ -41,10 +41,10 @@ update relevant docs (`README.md`, `docs/`, this guide), and ensure storage arti
 
 ## Security & Configuration Tips
 
-Secrets are read via `configs/manager.py`; set `LLM_MODEL`, `LLM_API_KEY`, `OPENAI_API_KEY`, and related endpoints in
-your shell, never in code. Keep local `.env` files out of Git, and double-check that `storage/` snapshots or benchmark
-logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECONDS` override sparingly and document why longer tool
-windows are required.
+Secrets are read via `config.config.get_config()`; set `LLM_MODEL`, `LLM_API_KEY`, `OPENAI_API_KEY`, and related
+endpoints in your shell, never in code. Keep local `.env` files out of Git, and double-check that `storage/` snapshots
+or benchmark logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECONDS` override sparingly and document why
+longer tool windows are required.
 
 要遵守的原则：
 1. Development Spirit: Remember: Our development should follow the spirit of Linus.

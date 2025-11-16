@@ -4,12 +4,14 @@ Composable agent runtime focused on code understanding. Index repositories, run 
 
 ## Project Layout
 
-- Flow/node runtime primitives exported directly via top-level `__init__`.
-- Agent modules (e.g., `codebase_retrieval.py`, `code_agent.py`) built from reusable nodes and tools.
-- `integrations/` – adapters for repositories, vector stores, external bridges.
-- `configs/` – environment-driven configuration helpers.
-- `clients/` / `tools/` – LLM clients and tool abstractions.
-- `tests/` – pytest suite mirroring runtime modules.
+- Root entrypoints (`cli.py`, `code_agent.py`, `codebase_retrieval.py`) orchestrate the runtime.
+- `agent/` – conversation/session orchestration and system prompt assembly.
+- `config/` – environment-driven settings and prompt fragments.
+- `retrieval/` – indexing/search pipeline plus file chunking helpers.
+- `adapters/` – `llm/` for model clients, `workspace/` for tree-sitter + vector store plumbing.
+- `runtime/` – tool execution runner and concurrency helpers.
+- `tools/` / `ui/` – builtin tool implementations and CLI output emitters.
+- `tests/` – pytest suite mirroring the directories above.
 
 Vector data persists in `storage/` (gitignored).
 
@@ -24,7 +26,7 @@ uv sync
 uv pip install -e '.[test]'
 ```
 
-Optional configuration (env vars consumed via `configs/manager.py`):
+Optional configuration (env vars consumed via `config.config`):
 
 ```bash
 export LLM_MODEL=deepseek-chat

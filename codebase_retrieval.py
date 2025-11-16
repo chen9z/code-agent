@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from integrations.index import create_index
+from retrieval.index import create_index
 _DEFAULT_LIMIT = 5
 
 

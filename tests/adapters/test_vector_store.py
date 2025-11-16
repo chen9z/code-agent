@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from integrations.tree_sitter.parser import ParsedSymbol, TagKind
-from integrations.vector_store import LocalQdrantStore, QdrantConfig
+from adapters.workspace.tree_sitter.parser import ParsedSymbol, TagKind
+from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig
 
 
 def test_local_qdrant_store_roundtrip(tmp_path):

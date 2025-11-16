@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from integrations.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
+from retrieval.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
 _PROJECT_ROOTS: Dict[str, Path] = {}
 
 

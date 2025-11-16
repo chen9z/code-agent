@@ -52,18 +52,21 @@ test = [
 dev-dependencies = ["pytest>=8.4.2", "pytest-cov>=5.0.0"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["configs", "integrations", "clients", "tools", "nodes"]
+packages = ["agent", "config", "retrieval", "runtime", "adapters", "tools", "ui"]
 include = [
     "__init__.py",
     "cli.py",
-    "model.py",
     "code_agent.py",
     "codebase_retrieval.py",
-    "configs/*.py",
+    "config/*.py",
+    "agent/*.py",
+    "retrieval/*.py",
+    "runtime/*.py",
+    "adapters/**/*.py",
     "tools/*.py",
-    "integrations/tree_sitter/*.py",
-    "integrations/tree_sitter/queries/*.scm",
-    "integrations/tree_sitter/queries/README.md",
+    "ui/*.py",
+    "adapters/workspace/tree_sitter/queries/*.scm",
+    "adapters/workspace/tree_sitter/queries/README.md",
 ]
 exclude = [
     "tests/**",
@@ -75,14 +78,15 @@ exclude = [
 include = [
     "__init__.py",
     "cli.py",
-    "model.py",
     "code_agent.py",
     "codebase_retrieval.py",
-    "clients/**",
-    "configs/**",
-    "integrations/**",
+    "agent/**",
+    "config/**",
+    "retrieval/**",
+    "runtime/**",
+    "adapters/**",
     "tools/**",
-    "nodes/**",
+    "ui/**",
 ]
 exclude = [
     "tests/**",
