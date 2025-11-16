@@ -299,7 +299,6 @@ class SemanticCodeIndexer:
                     rel = Path(symbol.absolute_path).relative_to(root).as_posix()
                 except ValueError:
                     rel = symbol.relative_path
-                print(f"Indexing {rel}")
                 reported_paths.add(symbol.absolute_path)
             covered_paths.add(symbol.absolute_path)
             file_paths.add(symbol.absolute_path)
@@ -317,7 +316,6 @@ class SemanticCodeIndexer:
                 continue
 
             if show_progress and absolute not in reported_paths:
-                print(f"Indexing {relative_path}")
                 reported_paths.add(absolute)
 
             for chunk in chunks:
