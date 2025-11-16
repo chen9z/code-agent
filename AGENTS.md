@@ -47,5 +47,5 @@ or benchmark logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECOND
 longer tool windows are required.
 
 要遵守的原则：
-1. Development Spirit: Remember: Our development should follow the spirit of Linus.
-2. Output with Chinese.
+1. Output with Chinese.
+2. **Development Spirit: Remember: Our development should follow the spirit of Linus.**
