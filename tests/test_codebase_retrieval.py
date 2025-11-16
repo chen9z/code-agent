@@ -45,7 +45,8 @@ def test_index_and_search_flow():
         set_store("index")
         adapter = create_index()
         index_info = adapter.index_project(str(Path(test_project)), show_progress=False)
-        assert index_info["chunk_count"] >= 0
+        assert "collection_name" in index_info
+        assert "chunk_size" in index_info and index_info["chunk_size"] > 0
 
         set_store("search")
         results = create_index().search(Path(test_project).name, "hello world")

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +23,7 @@ class DummyStore:
         self.search_calls: list[str | None] = []
         self.upserts: list = []
         self.deleted: list[str] = []
+        self.records_by_key: dict[str, dict[str, SimpleNamespace]] = {}
 
     def use_collection(self, name: str, vector_size: int | None = None) -> None:
         self.active_collection = name
@@ -39,13 +39,21 @@ class DummyStore:
         return []
 
     def list_point_ids(self, project_key):
-        return {}
+        return self.records_by_key.get(project_key, {})
 
     def delete_points(self, remove_ids):
         self.deleted.extend(remove_ids)
 
     def upsert_points(self, points, batch_size: int) -> None:
         self.upserts.append((points, batch_size))
+        # 模拟已写入存储，方便 hydrate 逻辑读取
+        for point in points:
+            payload = getattr(point, "payload", {})
+            record = SimpleNamespace(payload=payload)
+            project_key = payload.get("project_key")
+            if project_key:
+                bucket = self.records_by_key.setdefault(project_key, {})
+                bucket[str(point.id)] = record
 
     # Methods below satisfy the interface expected by SemanticCodeIndexer during cleanup.
     def close(self) -> None:  # pragma: no cover - noop cleanup
@@ -58,11 +66,6 @@ def _fake_index(root: Path, project_key: str, collection_name: str) -> CodebaseI
         project_key=project_key,
         project_name=root.name,
         collection_name=collection_name,
-        entries=tuple(),
-        file_count=0,
-        chunk_count=0,
-        indexed_at=datetime.now(timezone.utc),
-        build_time_seconds=0.0,
     )
 
 
@@ -153,3 +156,37 @@ def test_indexer_reports_progress(monkeypatch, tmp_path, caplog):
     assert any("解析符号" in msg for msg in messages)
     assert any("分块文件" in msg for msg in messages)
     assert any("完成索引" in msg for msg in messages)
+
+
+def test_indexer_skips_rebuild_when_collection_exists(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    project_key = codebase_indexer._project_identifier(repo)
+    collection_name = codebase_indexer._collection_name(repo.name, project_key)
+
+    store = DummyStore()
+    store.collections_with_vectors.add(collection_name)
+    payload = {
+        "project_key": project_key,
+        "project_name": repo.name,
+        "project_root": str(repo),
+        "relative_path": "foo.py",
+        "absolute_path": f"{repo}/foo.py",
+        "start_line": 1,
+        "end_line": 2,
+        "language": "python",
+        "symbol": "foo",
+        "snippet": "def foo():\n    return 1\n",
+    }
+    store.records_by_key[project_key] = {"foo": SimpleNamespace(payload=payload)}
+
+    embedder = DummyEmbedder()
+    indexer = SemanticCodeIndexer(embedding_client=embedder, vector_store=store)
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("should not rebuild")
+
+    monkeypatch.setattr(SemanticCodeIndexer, "_build_index", boom)
+
+    index = indexer.ensure_index(repo, refresh=False)
+    assert index.collection_name == collection_name

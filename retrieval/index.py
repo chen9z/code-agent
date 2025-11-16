@@ -35,21 +35,26 @@ class Index:
         )
         self._project_paths: Dict[str, Path] = {}
 
-    def index_project(self, project_path: str, *, show_progress: bool = False) -> Dict[str, int | str]:
+    def index_project(
+        self,
+        project_path: str,
+        *,
+        refresh: bool = False,
+        show_progress: bool = False,
+    ) -> Dict[str, int | str]:
         root = Path(project_path).expanduser().resolve()
         if not root.exists():
             raise FileNotFoundError(f"Project directory not found: {root}")
         if not root.is_dir():
             raise ValueError(f"Path is not a directory: {root}")
 
-        index = self._indexer.ensure_index(root, refresh=True, show_progress=show_progress)
+        index = self._indexer.ensure_index(root, refresh=refresh, show_progress=show_progress)
         self._project_paths[index.project_name] = root
         _PROJECT_ROOTS[index.project_name] = root
         return {
             "project_name": index.project_name,
             "project_path": str(root),
-            "chunk_count": index.chunk_count,
-            "file_count": index.file_count,
+            "collection_name": index.collection_name,
             "chunk_size": self._indexer.chunk_size,
         }
 

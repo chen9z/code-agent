@@ -10,7 +10,6 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -63,11 +62,6 @@ class CodebaseIndex:
     project_key: str
     project_name: str
     collection_name: str
-    entries: Tuple[CodeChunkEmbedding, ...]
-    file_count: int
-    chunk_count: int
-    indexed_at: datetime
-    build_time_seconds: float
 
 
 @dataclass(frozen=True)
@@ -131,6 +125,10 @@ class SemanticCodeIndexer:
             collection_missing = not self._store.collection_exists(collection_name)
             if not refresh and cached is not None and not collection_missing:
                 return cached
+            if not refresh and cached is None and not collection_missing:
+                hydrated = self._placeholder_index(root, project_key, collection_name)
+                self._indices[key] = hydrated
+                return hydrated
             index = self._build_index(
                 root,
                 project_key=project_key,
@@ -201,11 +199,15 @@ class SemanticCodeIndexer:
             "project_key": index.project_key,
             "project_root": str(index.project_root),
             "collection_name": index.collection_name,
-            "chunk_count": index.chunk_count,
-            "file_count": index.file_count,
-            "indexed_at": index.indexed_at.isoformat().replace("+00:00", "Z"),
-            "build_time_seconds": round(index.build_time_seconds, 3),
         }
+
+    def _placeholder_index(self, root: Path, project_key: str, collection_name: str) -> CodebaseIndex:
+        return CodebaseIndex(
+            project_root=root,
+            project_key=project_key,
+            project_name=root.name,
+            collection_name=collection_name,
+        )
 
     def _build_index(
             self,
@@ -218,7 +220,6 @@ class SemanticCodeIndexer:
         start = time.perf_counter()
         self._emit_progress(f"开始索引：{root.as_posix()}", show=show_progress)
         self._store.use_collection(collection_name)
-        resolved_entries: List[CodeChunkEmbedding] = []
         file_paths: set[str] = set()
 
         parser = TreeSitterProjectParser()
@@ -296,7 +297,6 @@ class SemanticCodeIndexer:
             remove_ids = [str(record.id) for record in existing_records.values()]
             self._store.delete_points(remove_ids)
 
-        normalized_vectors: List[Tuple[float, ...]] = []
         if pending_entries:
             texts = [item.content for item in pending_entries]
             embeddings = self._embedder.embed_batch(texts, task="code")
@@ -310,8 +310,6 @@ class SemanticCodeIndexer:
 
             points: List[QdrantPoint] = []
             for item, vector in zip(pending_entries, embeddings):
-                normalized = tuple(float(v) for v in vector)
-                normalized_vectors.append(normalized)
                 payload = {
                     "project_key": project_key,
                     "project_name": root.name,
@@ -333,26 +331,9 @@ class SemanticCodeIndexer:
                 )
             self._store.upsert_points(points, batch_size=self._batch_size)
 
-            resolved_entries = [
-                CodeChunkEmbedding(
-                    relative_path=entry.relative_path,
-                    absolute_path=entry.absolute_path,
-                    start_line=entry.start_line,
-                    end_line=entry.end_line,
-                    language=entry.language,
-                    symbol=entry.symbol,
-                    content=entry.content,
-                    vector=vector,
-                )
-                for entry, vector in zip(pending_entries, normalized_vectors)
-            ]
-
-        chunk_count = len(pending_entries)
-        file_count = len(file_paths)
-
         build_time = time.perf_counter() - start
         self._emit_progress(
-            f"完成索引：文件 {file_count} 个，片段 {chunk_count} 个，耗时 {build_time:.2f} 秒",
+            f"完成索引：文件 {len(file_paths)} 个，片段 {len(pending_entries)} 个，耗时 {build_time:.2f} 秒",
             show=show_progress,
         )
         return CodebaseIndex(
@@ -360,11 +341,6 @@ class SemanticCodeIndexer:
             project_key=project_key,
             project_name=root.name,
             collection_name=collection_name,
-            entries=tuple(resolved_entries),
-            file_count=file_count,
-            chunk_count=chunk_count,
-            indexed_at=datetime.now(timezone.utc),
-            build_time_seconds=build_time,
         )
 
     def _emit_progress(self, message: str, *, show: bool) -> None:
