@@ -8,9 +8,6 @@ from typing import List, Protocol, Sequence
 
 import httpx
 
-DEFAULT_EMBEDDING_URL = "http://127.0.0.1:8000/v1"
-DEFAULT_EMBEDDING_MODEL = "jinaai/jina-embeddings-v4"
-
 
 class EmbeddingClientProtocol(Protocol):
     """Minimal interface required by retrieval components."""
@@ -19,7 +16,7 @@ class EmbeddingClientProtocol(Protocol):
             self,
             texts: Sequence[str],
             *,
-            labels: Sequence[str] | None = None,
+            task: str = "code",
     ) -> List[List[float]]:  # pragma: no cover - protocol
         ...
 
@@ -33,7 +30,7 @@ class DefaultEmbeddingClient(EmbeddingClientProtocol):
     timeout: float = 30.0
 
     def __post_init__(self) -> None:
-        self.endpoint = self.endpoint or DEFAULT_EMBEDDING_URL
+        self.endpoint = self.endpoint
         self.endpoint = f"{self.endpoint}/embeddings"
         self.batch_size = self.batch_size
         if self.api_key is None:
@@ -45,23 +42,24 @@ class DefaultEmbeddingClient(EmbeddingClientProtocol):
             self,
             texts: Sequence[str],
             *,
-            labels: Sequence[str] | None = None,
+            task: str = "code",
     ) -> List[List[float]]:
         if not texts:
             return []
         results: List[List[float]] = []
         for start in range(0, len(texts), self.batch_size):
             batch = list(texts[start: start + self.batch_size])
-            results.extend(self._embed(batch))
+            results.extend(self._embed(batch, task=task))
         return results
 
-    def _embed(self, inputs: Sequence[str]) -> List[List[float]]:
+    def _embed(self, inputs: Sequence[str], *, task: str) -> List[List[float]]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         payload = {
             "model": self.model,
             "input": list(inputs),
+            "task": task,
         }
         try:
             resp = httpx.post(
@@ -101,8 +99,8 @@ def create_embedding_client(
         batch_size: int = 16,
         timeout: float = 120.0,
 ):
-    resolved_endpoint = endpoint or os.getenv("EMBEDDING_API_BASE") or DEFAULT_EMBEDDING_URL
-    resolved_model = model or os.getenv("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL
+    resolved_endpoint = endpoint or os.getenv("EMBEDDING_API_BASE")
+    resolved_model = model or os.getenv("EMBEDDING_MODEL")
     return DefaultEmbeddingClient(
         endpoint=resolved_endpoint,
         model=resolved_model,

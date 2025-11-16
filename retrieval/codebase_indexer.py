@@ -3,6 +3,7 @@ from __future__ import annotations
 """Shared semantic code indexing and search utilities for tools and flows."""
 
 import hashlib
+import logging
 import os
 import re
 import threading
@@ -25,6 +26,7 @@ from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, Qdra
 from qdrant_client.http import models as qmodels
 
 EmbeddingClient = DefaultEmbeddingClient
+logger = logging.getLogger(__name__)
 
 
 def _project_identifier(root: Path) -> str:
@@ -214,6 +216,7 @@ class SemanticCodeIndexer:
             show_progress: bool = False,
     ) -> CodebaseIndex:
         start = time.perf_counter()
+        self._emit_progress(f"开始索引：{root.as_posix()}", show=show_progress)
         self._store.use_collection(collection_name)
         resolved_entries: List[CodeChunkEmbedding] = []
         file_paths: set[str] = set()
@@ -226,6 +229,15 @@ class SemanticCodeIndexer:
 
         covered_paths: set[str] = set()
         reported_paths: set[str] = set()
+
+        def record_progress(stage: str, path_value: str, *, hint: str | None = None) -> None:
+            path_str = str(path_value)
+            if path_str in reported_paths:
+                return
+            rel_display = self._format_path_for_progress(root, path_str, hint)
+            self._emit_progress(f"{stage}: {rel_display}", show=show_progress)
+            reported_paths.add(path_str)
+
         pending_entries: List[CodeChunkEmbedding] = []
         for symbol in symbols:
             if symbol.kind is not TagKind.DEF:
@@ -245,14 +257,10 @@ class SemanticCodeIndexer:
                 symbol=symbol.metadata.get("identifier") or symbol.name,
                 content=snippet_text,
             )
-            if show_progress and symbol.absolute_path not in reported_paths:
-                try:
-                    rel = Path(symbol.absolute_path).relative_to(root).as_posix()
-                except ValueError:
-                    rel = symbol.relative_path
-                reported_paths.add(symbol.absolute_path)
-            covered_paths.add(symbol.absolute_path)
-            file_paths.add(symbol.absolute_path)
+            absolute_path = str(symbol.absolute_path)
+            record_progress("解析符号", absolute_path, hint=symbol.relative_path)
+            covered_paths.add(absolute_path)
+            file_paths.add(absolute_path)
             pending_entries.append(item)
 
         for file_path in iter_repository_files(root):
@@ -265,8 +273,7 @@ class SemanticCodeIndexer:
             except Exception:
                 continue
 
-            if show_progress and absolute not in reported_paths:
-                reported_paths.add(absolute)
+            record_progress("分块文件", absolute, hint=relative_path)
 
             for chunk in chunks:
                 snippet_text = chunk.content.rstrip("\n")
@@ -292,8 +299,7 @@ class SemanticCodeIndexer:
         normalized_vectors: List[Tuple[float, ...]] = []
         if pending_entries:
             texts = [item.content for item in pending_entries]
-            labels = [f"{item.relative_path}:{item.start_line}-{item.end_line}" for item in pending_entries]
-            embeddings = self._embedder.embed_batch(texts, labels=labels)
+            embeddings = self._embedder.embed_batch(texts, task="code")
             if len(embeddings) != len(pending_entries):
                 raise RuntimeError("Embedding service returned mismatched vector count")
             if embeddings:
@@ -345,6 +351,10 @@ class SemanticCodeIndexer:
         file_count = len(file_paths)
 
         build_time = time.perf_counter() - start
+        self._emit_progress(
+            f"完成索引：文件 {file_count} 个，片段 {chunk_count} 个，耗时 {build_time:.2f} 秒",
+            show=show_progress,
+        )
         return CodebaseIndex(
             project_root=root,
             project_key=project_key,
@@ -356,6 +366,21 @@ class SemanticCodeIndexer:
             indexed_at=datetime.now(timezone.utc),
             build_time_seconds=build_time,
         )
+
+    def _emit_progress(self, message: str, *, show: bool) -> None:
+        if not show:
+            return
+        logger.info("[code-index] %s", message)
+
+    @staticmethod
+    def _format_path_for_progress(root: Path, absolute_path: str, hint: str | None = None) -> str:
+        candidate = Path(absolute_path)
+        try:
+            return candidate.resolve().relative_to(root).as_posix()
+        except ValueError:
+            if hint:
+                return hint
+            return candidate.name
 
     @staticmethod
     def _make_point_id(project_key: str, item: CodeChunkEmbedding) -> str:

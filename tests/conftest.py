@@ -14,7 +14,7 @@ sys.path.insert(0, str(project_root))
 
 @pytest.fixture(autouse=True)
 def patch_embedding_client(monkeypatch):
-    def fake_embed(self, texts, *, labels=None):
+    def fake_embed(self, texts, *, task="code"):
         results = []
         for text in texts:
             lower = str(text).lower()
