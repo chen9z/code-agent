@@ -281,17 +281,25 @@ class LocalQdrantStore:
         project_key: str,
         limit: int,
         score_threshold: Optional[float] = None,
+        payload_filter: Optional[qmodels.Filter] = None,
     ) -> List[qmodels.ScoredPoint]:
         if limit <= 0:
             return []
-        filter_ = qmodels.Filter(
-            must=[
-                qmodels.FieldCondition(
-                    key="project_key",
-                    match=qmodels.MatchValue(value=project_key),
-                )
-            ]
-        )
+        must = [
+            qmodels.FieldCondition(
+                key="project_key",
+                match=qmodels.MatchValue(value=project_key),
+            )
+        ]
+        if payload_filter is not None:
+            must.extend(payload_filter.must or [])
+            filter_ = qmodels.Filter(
+                must=must,
+                should=payload_filter.should,
+                must_not=payload_filter.must_not,
+            )
+        else:
+            filter_ = qmodels.Filter(must=must)
         try:
             response = self.client.query_points(
                 collection_name=self.config.collection,

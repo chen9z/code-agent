@@ -126,8 +126,19 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             }
             return _success_response("[no semantic matches]", data)
 
-        formatted = self._indexer.format_hits(hits)
-        results = formatted.get("results", [])
+        results = [
+            {
+                "path": hit.chunk.relative_path,
+                "absolute_path": hit.chunk.absolute_path,
+                "start_line": hit.chunk.start_line,
+                "end_line": hit.chunk.end_line,
+                "score": hit.score,
+                "language": hit.chunk.language,
+                "symbol": hit.chunk.symbol,
+                "snippet": hit.chunk.content,
+            }
+            for hit in hits
+        ]
         data = {
             "query": query,
             "project_root": str(root),
@@ -137,7 +148,12 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             "index": self._indexer.index_metadata(index),
             "target_directories": list(target_directories or []),
         }
-        return _success_response(formatted["summary"] or "[no semantic matches]", data)
+        content_lines = [
+            f"{entry['path']}:{entry['start_line']}-{entry['end_line']} [{entry['symbol'] or '(anonymous)'}]"
+            for entry in results
+        ]
+        summary = "\n".join(f"- {line}" for line in content_lines) or "[no semantic matches]"
+        return _success_response(summary, data)
 
 
 def _error_display(message: str) -> str:

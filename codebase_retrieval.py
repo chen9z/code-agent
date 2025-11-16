@@ -7,9 +7,12 @@ from pathlib import Path
 
 from retrieval.index import create_index
 
+
 def main() -> int:
-    project_path = Path("~/workspace/spring-ai").expanduser()
-    query_text = "查找项目中有哪些 embedding model"
+    # project_path = Path("~/workspace/spring-ai").expanduser()
+    # query_text = "查找项目中有哪些 embedding model"
+    project_path = Path("~/workspace/code-agent").expanduser()
+    query_text = "查找项目中有哪些 tools"
 
     if not project_path:
         raise ValueError("project_path parameter is required")
@@ -35,7 +38,6 @@ def main() -> int:
         results = project_index.search(
             project_name,
             query_text,
-            max(1, 8),
             target_directories=None,
         )
     except Exception as exc:  # pragma: no cover - CLI convenience

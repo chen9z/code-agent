@@ -27,7 +27,7 @@ class DummyStore:
     def collection_exists(self, name: str) -> bool:
         return name in self.collections_with_vectors
 
-    def search(self, *, vector, project_key, limit, score_threshold=None):  # noqa: D401
+    def search(self, *, vector, project_key, limit, score_threshold=None, payload_filter=None):  # noqa: D401
         self.search_calls.append(self.active_collection)
         return []
 

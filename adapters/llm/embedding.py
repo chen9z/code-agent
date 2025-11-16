@@ -8,7 +8,7 @@ from typing import List, Protocol, Sequence
 
 import httpx
 
-DEFAULT_EMBEDDING_URL = "http://127.0.0.1:8000/v1/embeddings"
+DEFAULT_EMBEDDING_URL = "http://127.0.0.1:8000/v1"
 DEFAULT_EMBEDDING_MODEL = "jinaai/jina-embeddings-v4"
 
 
@@ -16,16 +16,16 @@ class EmbeddingClientProtocol(Protocol):
     """Minimal interface required by retrieval components."""
 
     def embed_batch(
-        self,
-        texts: Sequence[str],
-        *,
-        labels: Sequence[str] | None = None,
+            self,
+            texts: Sequence[str],
+            *,
+            labels: Sequence[str] | None = None,
     ) -> List[List[float]]:  # pragma: no cover - protocol
         ...
 
 
 @dataclass(slots=True)
-class HttpxEmbeddingClient(EmbeddingClientProtocol):
+class DefaultEmbeddingClient(EmbeddingClientProtocol):
     endpoint: str
     model: str
     api_key: str | None = None
@@ -33,27 +33,25 @@ class HttpxEmbeddingClient(EmbeddingClientProtocol):
     timeout: float = 30.0
 
     def __post_init__(self) -> None:
-        self.endpoint = self.endpoint.rstrip("/") or DEFAULT_EMBEDDING_URL
-        # 兼容用户只提供到 /v1 的 base URL；自动补全 embeddings 路径
-        if not self.endpoint.endswith("/embeddings"):
-            self.endpoint = f"{self.endpoint}/embeddings"
-        self.batch_size = max(1, int(self.batch_size))
+        self.endpoint = self.endpoint or DEFAULT_EMBEDDING_URL
+        self.endpoint = f"{self.endpoint}/embeddings"
+        self.batch_size = self.batch_size
         if self.api_key is None:
             self.api_key = (
                 os.getenv("OPENAI_API_KEY")
             )
 
     def embed_batch(
-        self,
-        texts: Sequence[str],
-        *,
-        labels: Sequence[str] | None = None,
+            self,
+            texts: Sequence[str],
+            *,
+            labels: Sequence[str] | None = None,
     ) -> List[List[float]]:
         if not texts:
             return []
         results: List[List[float]] = []
         for start in range(0, len(texts), self.batch_size):
-            batch = list(texts[start : start + self.batch_size])
+            batch = list(texts[start: start + self.batch_size])
             results.extend(self._embed(batch))
         return results
 
@@ -96,16 +94,16 @@ class HttpxEmbeddingClient(EmbeddingClientProtocol):
 
 
 def create_embedding_client(
-    *,
-    endpoint: str | None = None,
-    model: str | None = None,
-    api_key: str | None = None,
-    batch_size: int = 16,
-    timeout: float = 120.0,
+        *,
+        endpoint: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        batch_size: int = 16,
+        timeout: float = 120.0,
 ):
     resolved_endpoint = endpoint or os.getenv("EMBEDDING_API_BASE") or DEFAULT_EMBEDDING_URL
     resolved_model = model or os.getenv("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL
-    return HttpxEmbeddingClient(
+    return DefaultEmbeddingClient(
         endpoint=resolved_endpoint,
         model=resolved_model,
         api_key=api_key,

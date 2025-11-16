@@ -10,21 +10,21 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from config.config import get_config
 from retrieval.splitter import chunk_code_file, iter_repository_files
 from adapters.llm.embedding import (
     EmbeddingClientProtocol,
-    HttpxEmbeddingClient,
+    DefaultEmbeddingClient,
     create_embedding_client,
 )
 from adapters.workspace.tree_sitter.parser import TagKind, TreeSitterProjectParser
 from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
+from qdrant_client.http import models as qmodels
 
-EmbeddingClient = HttpxEmbeddingClient
+EmbeddingClient = DefaultEmbeddingClient
 
 
 def _project_identifier(root: Path) -> str:
@@ -78,18 +78,18 @@ class SemanticCodeIndexer:
     """集中式语义索引构建与检索实现。"""
 
     def __init__(
-        self,
-        *,
-        embedding_client: Optional[EmbeddingClientProtocol] = None,
-        batch_size: Optional[int] = None,
-        vector_store: Optional[LocalQdrantStore] = None,
-        qdrant_config: Optional[QdrantConfig] = None,
+            self,
+            *,
+            embedding_client: Optional[EmbeddingClientProtocol] = None,
+            batch_size: Optional[int] = None,
+            vector_store: Optional[LocalQdrantStore] = None,
+            qdrant_config: Optional[QdrantConfig] = None,
     ) -> None:
         cfg = get_config()
         rag_cfg = getattr(cfg, "rag", None)
-        chunk_size = 200
-        if rag_cfg is not None:
-            chunk_size = max(32, int(getattr(rag_cfg, "chunk_size", 200)))
+        chunk_size = 2048
+        if rag_cfg is not None and hasattr(rag_cfg, "chunk_size"):
+            chunk_size = int(rag_cfg.chunk_size)
 
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
         api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "120"))
@@ -113,11 +113,11 @@ class SemanticCodeIndexer:
         return self._chunk_size
 
     def ensure_index(
-        self,
-        project_root: Path | str,
-        *,
-        refresh: bool = False,
-        show_progress: bool = False,
+            self,
+            project_root: Path | str,
+            *,
+            refresh: bool = False,
+            show_progress: bool = False,
     ) -> CodebaseIndex:
         root = Path(project_root).expanduser().resolve()
         key = str(root)
@@ -139,13 +139,13 @@ class SemanticCodeIndexer:
             return index
 
     def search(
-        self,
-        project_root: Path | str,
-        query: str,
-        *,
-        limit: int = 5,
-        target_directories: Optional[Sequence[str]] = None,
-        refresh_index: bool = False,
+            self,
+            project_root: Path | str,
+            query: str,
+            *,
+            limit: int = 5,
+            target_directories: Optional[Sequence[str]] = None,
+            refresh_index: bool = False,
     ) -> Tuple[List[SemanticSearchHit], CodebaseIndex]:
         index = self.ensure_index(project_root, refresh=refresh_index)
         self._store.use_collection(index.collection_name)
@@ -155,19 +155,18 @@ class SemanticCodeIndexer:
         query_vector = tuple(float(v) for v in embeddings[0])
 
         fetch_limit = max(limit, 1)
+        payload_filter = self._build_payload_filter(index.project_key, target_directories)
         scored_points = self._store.search(
             vector=query_vector,
             project_key=index.project_key,
             limit=fetch_limit,
+            payload_filter=payload_filter,
         )
 
-        pattern_matcher = self._compile_directory_matcher(target_directories)
         hits: List[SemanticSearchHit] = []
         for point in scored_points:
             payload = point.payload or {}
             relative_path = payload.get("relative_path")
-            if pattern_matcher and (not isinstance(relative_path, str) or not pattern_matcher(relative_path)):
-                continue
             chunk = CodeChunkEmbedding(
                 relative_path=str(relative_path or ""),
                 absolute_path=str(payload.get("absolute_path") or ""),
@@ -194,43 +193,6 @@ class SemanticCodeIndexer:
         except Exception:
             pass
 
-    def format_hits(self, hits: Sequence[SemanticSearchHit]) -> Dict[str, Any]:
-        results: List[Dict[str, Any]] = []
-        summary_blocks: List[str] = []
-
-        hits_by_path: Dict[str, List[SemanticSearchHit]] = {}
-        for hit in hits:
-            hits_by_path.setdefault(hit.chunk.relative_path, []).append(hit)
-
-        for path, path_hits in hits_by_path.items():
-            path_hits.sort(key=lambda h: (h.chunk.start_line, h.chunk.end_line))
-            top_hit = path_hits[0].chunk
-            symbol = top_hit.symbol or "(anonymous)"
-            preview_lines = top_hit.content.strip().splitlines()[:5]
-            preview = " ".join(line.strip() for line in preview_lines)
-            if len(top_hit.content.splitlines()) > 5:
-                preview += " ..."
-            summary_blocks.append(
-                f"{path}:{top_hit.start_line}-{top_hit.end_line} [{symbol}] {preview}"
-            )
-
-        for hit in hits:
-            entry = hit.chunk
-            results.append(
-                {
-                    "path": entry.relative_path,
-                    "absolute_path": entry.absolute_path,
-                    "start_line": entry.start_line,
-                    "end_line": entry.end_line,
-                    "score": hit.score,
-                    "language": entry.language,
-                    "symbol": entry.symbol,
-                    "snippet": entry.content,
-                }
-            )
-        summary = "\n".join(f"- {block}" for block in summary_blocks)
-        return {"results": results, "summary": summary}
-
     @staticmethod
     def index_metadata(index: CodebaseIndex) -> Dict[str, Any]:
         return {
@@ -244,12 +206,12 @@ class SemanticCodeIndexer:
         }
 
     def _build_index(
-        self,
-        root: Path,
-        *,
-        project_key: str,
-        collection_name: str,
-        show_progress: bool = False,
+            self,
+            root: Path,
+            *,
+            project_key: str,
+            collection_name: str,
+            show_progress: bool = False,
     ) -> CodebaseIndex:
         start = time.perf_counter()
         self._store.use_collection(collection_name)
@@ -402,30 +364,38 @@ class SemanticCodeIndexer:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, digest))
 
     @staticmethod
-    def _compile_directory_matcher(target_directories: Optional[Sequence[str]]) -> Optional[Callable[[str], bool]]:
+    @staticmethod
+    def _build_payload_filter(
+            project_key: str,
+            target_directories: Optional[Sequence[str]],
+    ) -> Optional[qmodels.Filter]:
         if not target_directories:
             return None
 
-        patterns: List[str] = []
+        should: List[qmodels.FieldCondition] = []
         for raw in target_directories:
             if not raw:
                 continue
             pattern = raw.strip().lstrip("./")
             if not pattern:
                 continue
+            # 将目录模式简化为前缀匹配，一律追加 '/**' 表示子目录
             if pattern.endswith("/"):
-                pattern = pattern.rstrip("/") + "/**"
-            if "**" not in pattern and not any(char in pattern for char in "*?["):
-                pattern = pattern.rstrip("/") + "/**"
-            patterns.append(pattern)
+                pattern = pattern.rstrip("/")
+            if pattern.endswith("**"):
+                pattern = pattern[:-2].rstrip("/")
+            prefix = pattern.rstrip("/") + "/"
+            should.append(
+                qmodels.FieldCondition(
+                    key="relative_path",
+                    match=qmodels.MatchText(text=prefix),
+                )
+            )
 
-        if not patterns:
+        if not should:
             return None
 
-        def matcher(path: str) -> bool:
-            return any(fnmatch(path, pat) for pat in patterns)
-
-        return matcher
+        return qmodels.Filter(should=should)
 
     def __del__(self) -> None:  # pragma: no cover - 清理路径
         self.close()
