@@ -32,7 +32,7 @@ class FakeLLMClient(BaseLLMClient):
                                 {
                                     "id": "call-0",
                                     "function": {
-                                        "name": "dataset_log.write_chunk",
+                                        "name": "dataset_log_write_chunk",
                                         "arguments": json.dumps(self.chunk_args),
                                     },
                                 }
@@ -58,10 +58,10 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
         )
     ]
 
-    manager = SnapshotManager(base_dir=tmp_path / "artifacts")
+    manager = SnapshotManager(base_dir=tmp_path / "storage" / "dataset")
     prepared = prepare_queries(specs, manager=manager)
 
-    artifacts_root = tmp_path / "artifacts"
+    artifacts_root = tmp_path / "storage" / "dataset"
     runner = DatasetRunner(llm_client=FakeLLMClient(
         {
             "path": "src/main.py",

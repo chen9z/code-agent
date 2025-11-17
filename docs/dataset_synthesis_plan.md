@@ -15,7 +15,7 @@
 ## 总体流程
 1. **仓库快照 & 索引**
    - 输入：`{repo_url, branch, commit}`。
-   - 操作：拉取只读快照（如 `storage/datasets/<repo>/<commit>`），校验 commit SHA/GPG、同步子模块，并通过离线索引脚本针对快照构建 Qdrant collection，记录 chunk 数、构建时间与索引参数。
+   - 操作：拉取只读快照（如 `storage/dataset/snapshots/<repo>/<commit>`），校验 commit SHA/GPG、同步子模块，并通过离线索引脚本针对快照构建 Qdrant collection，记录 chunk 数、构建时间与索引参数。
    - 输出：快照目录 + 索引元数据缓存 + `snapshot_metadata.json`（含 repo 授权、rag 配置、磁盘占用）。
 
 2. **Dataset Agent 回放**
@@ -25,7 +25,7 @@
 
 3. **合成样本写出工具**
    - 输入：Agent 每次挑选出的一条 golden_chunk；query_id/query/repo 等静态信息由 orchestrator 注入（快照与 `{repo_url, branch, commit_id}` 一一对应，数据视为静态）。
-   - 操作：新注册 `dataset_log_tool`（`tools/dataset_log.py`）暴露 `write_chunk(payload)`；DatasetSynthesisAgent 在发现高价值证据时调用该工具。工具在写入前基于指定快照验证 `path` 是否存在、`start_line/end_line` 是否越界、片段内容是否匹配；校验通过后，将该 chunk 追加到 `artifacts/<date>/raw_samples/<query_id>.jsonl`（一行一 chunk）。
+   - 操作：新注册 `dataset_log_tool`（`tools/dataset_log.py`）暴露 `write_chunk(payload)`；DatasetSynthesisAgent 在发现高价值证据时调用该工具。工具在写入前基于指定快照验证 `path` 是否存在、`start_line/end_line` 是否越界、片段内容是否匹配；校验通过后，将该 chunk 追加到 `storage/dataset/<date>/raw_samples/<query_id>.jsonl`（一行一 chunk）。
    - 输出：按 chunk 逐步累积的 JSONL 文件；若校验失败立即返回错误，Agent 可据此补救。
 
 4. **证据抽取与补全**
@@ -53,7 +53,7 @@
 
 7. **自动化与质量控制**
    - 在 `benchmarks/dataset/` 下实现 orchestrator CLI，串联“快照→回放→抽取→评估”，支持并发 job、断点续跑、单仓库增量刷新，所有输出采用原子写（tmp→rename）。
-   - CLI 提供 `--dry-run`、`--resume query_id`、`--refresh-snapshot repo@commit` 等能力；运行时将异常（索引失败、超时）写入 `artifacts/<date>/anomalies.jsonl`。
+   - CLI 提供 `--dry-run`、`--resume query_id`、`--refresh-snapshot repo@commit` 等能力；运行时将异常（索引失败、超时）写入 `storage/dataset/<date>/anomalies.jsonl`。
    - 提供抽样审查工具：random spot-check golden_chunks，并允许人工标注“通过/退回”。
    - 每次 pipeline 完成后触发 `uv run pytest tests/benchmarks/test_dataset_pipeline.py -q` 的冒烟测试，确保存储 schema 没被破坏。
 
@@ -69,16 +69,16 @@ benchmarks/dataset/
 agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
 runtime/dataset_agent.py    # agent 封装/adapter
   tools/dataset_log.py        # dataset_log_tool，仅一次性写样本 JSON（含快照校验）
-artifacts/<date>/           # 输出数据/异常
+ storage/dataset/<date>/           # 输出数据/异常
 ```
 
 ## DatasetSynthesisAgent & dataset_log_tool
 - **Agent 行为**：只允许调用检索/读文件相关工具，禁止自然语言长回复；每步检查 token 数与工具状态，异常立即中断并打标签。
-- **Prompt**：强调“每当检索到能够支撑答案的片段，就立即调用 `dataset_log.write_chunk(payload)` 提交单条 golden_chunk；同一 `query_id` 可多次调用，结束前确保覆盖所有证据”。
+- **Prompt**：强调“每当检索到能够支撑答案的片段，就立即调用 `dataset_log_write_chunk(payload)` 提交单条 golden_chunk；同一 `query_id` 可多次调用，结束前确保覆盖所有证据”。
 - **Tool schema**：
   ```json
   {
-    "tool": "dataset_log.write_chunk",
+    "tool": "dataset_log_write_chunk",
     "arguments": {
       "path": "src/foo.py",
       "start_line": 120,
@@ -87,7 +87,7 @@ artifacts/<date>/           # 输出数据/异常
     }
   }
   ```
-  工具在内部合并 orchestrator 注入的 `query_id/query/repo/...`，先校验 path/行号/片段与静态快照一致，再将该 chunk 附加到 `artifacts/<date>/raw_samples/<query_id>.jsonl`；需保证幂等（同一 chunk 重复写入需检测并拒绝）。
+  工具在内部合并 orchestrator 注入的 `query_id/query/repo/...`，先校验 path/行号/片段与静态快照一致，再将该 chunk 附加到 `storage/dataset/<date>/raw_samples/<query_id>.jsonl`；需保证幂等（同一 chunk 重复写入需检测并拒绝）。
 - **版本记录**：工具输出字段变化时 bump `schema_version` 并更新 `tests/tools/test_dataset_log.py`。
 
 （opik 已记录完整请求/响应，此处无需另外定义本地日志格式）

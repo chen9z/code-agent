@@ -30,7 +30,7 @@ class FakeLLMClient(BaseLLMClient):
                                 {
                                     "id": "call-0",
                                     "function": {
-                                        "name": "dataset_log.write_chunk",
+                                        "name": "dataset_log_write_chunk",
                                         "arguments": json.dumps(self.chunk_args),
                                     },
                                 }
@@ -64,14 +64,14 @@ def test_agent_triggers_dataset_log(tmp_path: Path) -> None:
             "confidence": 0.95,
         }
     )
-    run_dir = tmp_path / "artifacts"
+    run_dir = tmp_path / "storage" / "dataset"
     agent = DatasetSynthesisAgent(
         query_context=ctx,
         snapshot_root=repo,
         llm_client=llm,
         workspace=repo,
-        run_name="run1",
-        artifacts_root=run_dir,
+    run_name="run1",
+    artifacts_root=run_dir,
     )
 
     agent.run_turn("print demo")

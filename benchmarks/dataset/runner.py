@@ -22,7 +22,7 @@ class DatasetRunner:
     ) -> None:
         self.llm_client = llm_client
         self.run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%d")
-        self.artifacts_root = Path(artifacts_root or "artifacts").expanduser().resolve()
+        self.artifacts_root = Path(artifacts_root or "storage/dataset").expanduser().resolve()
 
     def run_queries(self, queries: Iterable[PreparedQuery]) -> List[DatasetRunResult]:
         results: List[DatasetRunResult] = []

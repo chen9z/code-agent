@@ -107,7 +107,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Dataset synthesis orchestrator")
     parser.add_argument("--queries", required=True, help="Path to queries JSONL file")
     parser.add_argument("--run-name", dest="run_name", help="Override run name (default YYYYMMDD)")
-    parser.add_argument("--artifacts-root", default="artifacts", help="Artifacts root directory")
+    parser.add_argument("--artifacts-root", default="storage/dataset", help="Artifacts root directory")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
     synthesize(args)

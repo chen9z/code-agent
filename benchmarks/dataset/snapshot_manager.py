@@ -19,11 +19,11 @@ class SnapshotMetadata:
 
 
 class SnapshotManager:
-    """Materialize repo snapshots under artifacts/snapshots.<br>
+    """Materialize repo snapshots under storage/dataset/snapshots.<br>
     Linus 风格：保持简单，依赖本地路径复制，不额外封装复杂 git 逻辑。
     """
 
-    def __init__(self, base_dir: str | Path = "artifacts") -> None:
+    def __init__(self, base_dir: str | Path = "storage/dataset") -> None:
         self.base_dir = Path(base_dir).expanduser().resolve()
         self.snapshots_root = self.base_dir / "snapshots"
         self.snapshots_root.mkdir(parents=True, exist_ok=True)
@@ -51,7 +51,13 @@ class SnapshotManager:
             shutil.rmtree(target)
 
         if not target.exists():
-            shutil.copytree(source, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+            # 忽略 .git、artifacts、storage 避免自复制导致无限嵌套
+            shutil.copytree(
+                source,
+                target,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns(".git", "artifacts", "storage"),
+            )
 
         return self._write_metadata(repo_url, branch, commit, target)
 

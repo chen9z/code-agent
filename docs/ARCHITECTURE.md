@@ -17,14 +17,14 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 - `retrieval/index.py`：暴露 `index_project`、`search`、格式化工具，负责与 Qdrant/Tree-sitter 协作。
 - `retrieval/codebase_indexer.py`：切片与 embedding pipeline，依赖 `adapters/llm.embedding` 与 `adapters/workspace.vector_store`。
 - `runtime/dataset_agent.py`：DatasetSynthesisAgent 的 runtime 封装，限制工具集并提供固定会话配置。
-- `tools/dataset_log.py`：`dataset_log.write_chunk` 工具实现，逐条验证 golden_chunk 后附加到 `artifacts/<date>/raw_samples/*.jsonl`。
+- `tools/dataset_log.py`：`dataset_log_write_chunk` 工具实现，逐条验证 golden_chunk 后附加到 `storage/dataset/<date>/raw_samples/*.jsonl`。
 - `benchmarks/dataset/cli.py`：数据集 orchestrator，串联快照→Agent→聚合→过滤全流程。
 - `adapters/llm/llm.py`：统一的 OpenAI/Opik 兼容客户端，提供 tracing hook。
 
 ## Data & Indexing
 - Project key：`<project_name>`（默认为工作区 basename）。快照及向量集合写入 `./storage/`（gitignored）。
 - 检索 chunk 模型：`{path, start_line, end_line, chunk_id, score}`。`retrieval.splitter` 控制最大行数（默认约 200 行）。
-- 数据集 golden_chunk：`{path, start_line, end_line, confidence}`，由 `dataset_log.write_chunk` 在静态快照上校验后写入 JSONL；`benchmarks/dataset/extractor.py` 负责聚合。
+- 数据集 golden_chunk：`{path, start_line, end_line, confidence}`，由 `dataset_log_write_chunk` 在静态快照上校验后写入 JSONL；`benchmarks/dataset/extractor.py` 负责聚合。
 
 ## Usage
 - 程序化入口：示例脚本可通过 `codebase_retrieval.main` 调用 `index_project`；复杂集成走 `retrieval.index.Index`。

@@ -36,7 +36,7 @@ class DatasetLogTool(BaseTool):
     ) -> None:
         self.context = context
         self.snapshot_path = context.snapshot_path.expanduser().resolve()
-        self.artifacts_root = Path(artifacts_root or "artifacts").expanduser().resolve()
+        self.artifacts_root = Path(artifacts_root or "storage/dataset").expanduser().resolve()
         self.run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%d")
         self.schema_version = schema_version
         self.raw_samples_dir = self.artifacts_root / self.run_name / "raw_samples"
@@ -45,7 +45,8 @@ class DatasetLogTool(BaseTool):
     # ------------------------------------------------------------------ metadata
     @property
     def name(self) -> str:
-        return "dataset_log.write_chunk"
+        # OpenAI 工具名只允许字母/数字/下划线/减号，保持语义一致但使用下划线形式
+        return "dataset_log_write_chunk"
 
     @property
     def description(self) -> str:

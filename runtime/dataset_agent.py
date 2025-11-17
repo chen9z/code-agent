@@ -58,7 +58,7 @@ class DatasetSynthesisAgent:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
         self.snapshot_root = Path(snapshot_root).expanduser().resolve()
         self.query_context = query_context
-        self.artifacts_root = Path(artifacts_root or "artifacts").expanduser().resolve()
+        self.artifacts_root = Path(artifacts_root or "storage/dataset").expanduser().resolve()
         cfg = get_config()
         self.model = cfg.llm_model
         # Dataset agent 强制温度 0
