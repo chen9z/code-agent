@@ -239,7 +239,60 @@ class SemanticCodeIndexer:
             self._emit_progress(f"{stage}: {rel_display}", show=show_progress)
             reported_paths.add(path_str)
 
-        pending_entries: List[CodeChunkEmbedding] = []
+        chunk_count = 0
+        entry_buffer: List[CodeChunkEmbedding] = []
+        vector_size_initialized = False
+
+        def flush_entries(*, force: bool = False) -> None:
+            nonlocal chunk_count, vector_size_initialized
+            if not entry_buffer:
+                return
+            if not force and len(entry_buffer) < self._batch_size:
+                return
+
+            batch_entries = list(entry_buffer)
+            texts = [item.content for item in batch_entries]
+            embeddings = self._embedder.embed_batch(texts, task="code")
+            if len(embeddings) != len(batch_entries):
+                raise RuntimeError("Embedding service returned mismatched vector count")
+
+            if embeddings:
+                if not vector_size_initialized:
+                    self._store.use_collection(
+                        collection_name,
+                        vector_size=len(embeddings[0]),
+                    )
+                    vector_size_initialized = True
+
+                points: List[QdrantPoint] = []
+                for item, vector in zip(batch_entries, embeddings):
+                    payload = {
+                        "project_key": project_key,
+                        "project_name": root.name,
+                        "project_root": str(root),
+                        "relative_path": item.relative_path,
+                        "absolute_path": item.absolute_path,
+                        "start_line": item.start_line,
+                        "end_line": item.end_line,
+                        "language": item.language,
+                        "symbol": item.symbol,
+                        "snippet": item.content,
+                    }
+                    points.append(
+                        QdrantPoint(
+                            id=self._make_point_id(project_key, item),
+                            vector=vector,
+                            payload=payload,
+                        )
+                    )
+                self._store.upsert_points(points, batch_size=self._batch_size)
+
+            chunk_count += len(batch_entries)
+            entry_buffer.clear()
+
+        def enqueue_entry(item: CodeChunkEmbedding) -> None:
+            entry_buffer.append(item)
+            flush_entries()
         for symbol in symbols:
             if symbol.kind is not TagKind.DEF:
                 continue
@@ -262,7 +315,7 @@ class SemanticCodeIndexer:
             record_progress("解析符号", absolute_path, hint=symbol.relative_path)
             covered_paths.add(absolute_path)
             file_paths.add(absolute_path)
-            pending_entries.append(item)
+            enqueue_entry(item)
 
         for file_path in iter_repository_files(root):
             absolute = str(file_path)
@@ -289,51 +342,22 @@ class SemanticCodeIndexer:
                     symbol=chunk.symbol,
                     content=snippet_text,
                 )
-                pending_entries.append(item)
+                enqueue_entry(item)
                 file_paths.add(item.absolute_path)
 
         existing_records = self._store.list_point_ids(project_key)
         if existing_records:
-            remove_ids = [str(record.id) for record in existing_records.values()]
+            remove_ids = [
+                str(getattr(record, "id", record_id))
+                for record_id, record in existing_records.items()
+            ]
             self._store.delete_points(remove_ids)
 
-        if pending_entries:
-            texts = [item.content for item in pending_entries]
-            embeddings = self._embedder.embed_batch(texts, task="code")
-            if len(embeddings) != len(pending_entries):
-                raise RuntimeError("Embedding service returned mismatched vector count")
-            if embeddings:
-                self._store.use_collection(
-                    collection_name,
-                    vector_size=len(embeddings[0]),
-                )
-
-            points: List[QdrantPoint] = []
-            for item, vector in zip(pending_entries, embeddings):
-                payload = {
-                    "project_key": project_key,
-                    "project_name": root.name,
-                    "project_root": str(root),
-                    "relative_path": item.relative_path,
-                    "absolute_path": item.absolute_path,
-                    "start_line": item.start_line,
-                    "end_line": item.end_line,
-                    "language": item.language,
-                    "symbol": item.symbol,
-                    "snippet": item.content,
-                }
-                points.append(
-                    QdrantPoint(
-                        id=self._make_point_id(project_key, item),
-                        vector=vector,
-                        payload=payload,
-                    )
-                )
-            self._store.upsert_points(points, batch_size=self._batch_size)
+        flush_entries(force=True)
 
         build_time = time.perf_counter() - start
         self._emit_progress(
-            f"完成索引：文件 {len(file_paths)} 个，片段 {len(pending_entries)} 个，耗时 {build_time:.2f} 秒",
+            f"完成索引：文件 {len(file_paths)} 个，片段 {chunk_count} 个，耗时 {build_time:.2f} 秒",
             show=show_progress,
         )
         return CodebaseIndex(
@@ -377,15 +401,9 @@ class SemanticCodeIndexer:
         for raw in target_directories:
             if not raw:
                 continue
-            pattern = raw.strip().lstrip("./")
-            if not pattern:
+            prefix = raw.strip()
+            if not prefix:
                 continue
-            # 将目录模式简化为前缀匹配，一律追加 '/**' 表示子目录
-            if pattern.endswith("/"):
-                pattern = pattern.rstrip("/")
-            if pattern.endswith("**"):
-                pattern = pattern[:-2].rstrip("/")
-            prefix = pattern.rstrip("/") + "/"
             should.append(
                 qmodels.FieldCondition(
                     key="relative_path",

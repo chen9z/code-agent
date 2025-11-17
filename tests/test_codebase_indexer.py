@@ -21,21 +21,26 @@ class DummyStore:
         self.collections_with_vectors: set[str] = set()
         self.use_calls: list[tuple[str, int | None]] = []
         self.search_calls: list[str | None] = []
+        self.last_filter = None
         self.upserts: list = []
         self.deleted: list[str] = []
         self.records_by_key: dict[str, dict[str, SimpleNamespace]] = {}
+        self.prefix_indexes: set[str] = set()
 
     def use_collection(self, name: str, vector_size: int | None = None) -> None:
         self.active_collection = name
         self.use_calls.append((name, vector_size))
         if vector_size is not None:
             self.collections_with_vectors.add(name)
+        self.prefix_indexes.add("relative_path")
+        self.prefix_indexes.add("relative_path")
 
     def collection_exists(self, name: str) -> bool:
         return name in self.collections_with_vectors
 
     def search(self, *, vector, project_key, limit, score_threshold=None, payload_filter=None):  # noqa: D401
         self.search_calls.append(self.active_collection)
+        self.last_filter = payload_filter
         return []
 
     def list_point_ids(self, project_key):
@@ -190,3 +195,11 @@ def test_indexer_skips_rebuild_when_collection_exists(tmp_path, monkeypatch):
 
     index = indexer.ensure_index(repo, refresh=False)
     assert index.collection_name == collection_name
+
+
+def test_build_payload_filter_passes_through_prefix():
+    filter_ = SemanticCodeIndexer._build_payload_filter("proj", ["src/agent", "docs/**", ""])
+    assert filter_ is not None
+    tokens = [cond.match.text for cond in filter_.should]
+    assert "src/agent" in tokens
+    assert "docs/**" in tokens

@@ -201,7 +201,7 @@ class LocalQdrantStore:
                     scroll_filter=filter_,
                     limit=256,
                     offset=offset,
-                    with_payload=True,
+                    with_payload=False,
                     with_vectors=False,
                 )
             except ValueError:
@@ -212,6 +212,7 @@ class LocalQdrantStore:
             if offset is None:
                 break
         return records
+
 
     def delete_points(self, ids: Sequence[str]) -> None:
         if not ids:
