@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ui.emission import OutputCallback, OutputMessage, create_emit_event
 from adapters.llm.llm import get_default_llm_client
@@ -60,28 +60,56 @@ class CodeAgentSession:
     """In-memory conversation session for the Code Agent CLI."""
 
     def __init__(
-            self,
-            *,
-            registry: Optional[ToolRegistry] = None,
-            llm_client: Any = None,
-            max_iterations: int = 25,
-            system_prompt: Optional[str] = None,
-            environment: Optional[Mapping[str, Any]] = None,
-            workspace: Optional[str | Path] = None,
+        self,
+        *,
+        registry: Optional[ToolRegistry] = None,
+        registry_factory: Optional[Callable[[Optional[Iterable[str]]], ToolRegistry]] = None,
+        tool_allowlist: Optional[Iterable[str]] = None,
+        llm_client: Any = None,
+        max_iterations: int = 25,
+        system_prompt: Optional[str] = None,
+        environment: Optional[Mapping[str, Any]] = None,
+        context: Optional[Mapping[str, Any]] = None,
+        workspace: Optional[str | Path] = None,
+        temperature: Optional[float] = None,
+        tool_timeout_seconds: Optional[float] = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
-        self.registry = registry or create_default_registry(project_root=self.workspace)
+
+        # registry construction: prefer explicit instance, otherwise factory, otherwise default
+        if registry is not None:
+            self.registry = registry
+        else:
+            allow: Optional[Sequence[str]] = list(tool_allowlist) if tool_allowlist is not None else None
+            if registry_factory:
+                self.registry = registry_factory(allow)
+            else:
+                self.registry = create_default_registry(
+                    include=allow,
+                    project_root=self.workspace,
+                )
+
         self.llm_client = llm_client or get_default_llm_client()
         self.max_iterations = max_iterations if max_iterations >= 1 else 1
+
+        base_env: Dict[str, Any] = {}
         if environment is not None:
-            self.environment = environment
+            base_env.update(environment)
         elif self.workspace is not None:
-            self.environment = {"cwd": str(self.workspace)}
-        else:
-            self.environment = None
+            base_env["cwd"] = str(self.workspace)
+        if context:
+            base_env.update(context)
+        self.environment = base_env if base_env else None
+
         cfg = get_config()
         self.model = cfg.llm_model
-        self.tool_timeout_seconds = float(cfg.cli_tool_timeout_seconds)
+        self.temperature = float(temperature) if temperature is not None else float(cfg.llm_temperature)
+        self.tool_timeout_seconds = (
+            float(tool_timeout_seconds)
+            if tool_timeout_seconds is not None and tool_timeout_seconds > 0
+            else float(cfg.cli_tool_timeout_seconds)
+        )
+
         if system_prompt is None:
             resolved_prompt = build_code_agent_system_prompt(
                 base_prompt=_BASE_SYSTEM_PROMPT,
@@ -148,6 +176,7 @@ class CodeAgentSession:
             model=self.model,
             messages=messages,
             tools=tools,
+            temperature=self.temperature,
         )
         plan = self._parse_tool_response(response)
 

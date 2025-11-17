@@ -73,7 +73,7 @@ runtime/dataset_agent.py    # agent 封装/adapter
 ```
 
 ## DatasetSynthesisAgent & dataset_log_tool
-- **Agent 行为**：只允许调用检索/读文件相关工具，禁止自然语言长回复；每步检查 token 数与工具状态，异常立即中断并打标签。
+- **Agent 行为**：复用 `CodeAgentSession` 的对话循环（仅配置受限工具/温度 0），只允许调用检索/读文件相关工具，禁止自然语言长回复；每步检查 token 数与工具状态，异常立即中断并打标签。
 - **Prompt**：强调“每当检索到能够支撑答案的片段，就立即调用 `dataset_log_write_chunk(payload)` 提交单条 golden_chunk；同一 `query_id` 可多次调用，结束前确保覆盖所有证据”。
 - **Tool schema**：
   ```json

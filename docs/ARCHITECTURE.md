@@ -16,7 +16,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 - `codebase_retrieval.py`：面向 CLI/benchmark 的索引与搜索助手，封装 `retrieval.index.Index`。
 - `retrieval/index.py`：暴露 `index_project`、`search`、格式化工具，负责与 Qdrant/Tree-sitter 协作。
 - `retrieval/codebase_indexer.py`：切片与 embedding pipeline，依赖 `adapters/llm.embedding` 与 `adapters/workspace.vector_store`。
-- `runtime/dataset_agent.py`：DatasetSynthesisAgent 的 runtime 封装，限制工具集并提供固定会话配置。
+- `runtime/dataset_agent.py`：DatasetSynthesisAgent 的 runtime 封装，基于 `CodeAgentSession` 复用对话循环但使用受限工具集/温度 0。
 - `tools/dataset_log.py`：`dataset_log_write_chunk` 工具实现，逐条验证 golden_chunk 后附加到 `storage/dataset/<date>/raw_samples/*.jsonl`。
 - `benchmarks/dataset/cli.py`：数据集 orchestrator，串联快照→Agent→聚合→过滤全流程。
 - `adapters/llm/llm.py`：统一的 OpenAI/Opik 兼容客户端，提供 tracing hook。
