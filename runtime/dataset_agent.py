@@ -50,6 +50,7 @@ class DatasetSynthesisAgent:
             workspace=self.workspace or self.snapshot_root,
             temperature=0.0,
             tool_timeout_seconds=float(cfg.cli_tool_timeout_seconds),
+            verbose=True
         )
 
     def run_turn(
@@ -66,7 +67,7 @@ class DatasetSynthesisAgent:
     # ------------------------------------------------------------------ internals
     def _build_registry(self, run_name: Optional[str]) -> ToolRegistry:
         registry = create_default_registry(
-            include={"read", "grep", "glob", "codebase_search"},
+            include={"bash", "read", "grep", "glob"},
             project_root=self.workspace or self.snapshot_root,
         )
         dataset_tool = DatasetLogTool(

@@ -73,6 +73,7 @@ class CodeAgentSession:
         workspace: Optional[str | Path] = None,
         temperature: Optional[float] = None,
         tool_timeout_seconds: Optional[float] = None,
+        verbose: bool = False,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve() if workspace else None
 
@@ -118,6 +119,7 @@ class CodeAgentSession:
         else:
             resolved_prompt = system_prompt
         self.system_prompt = resolved_prompt
+        self.verbose = verbose
         self.executor = ToolExecutionRunner(
             self.registry,
             default_timeout_seconds=self.tool_timeout_seconds,
@@ -134,6 +136,7 @@ class CodeAgentSession:
             raise ValueError("user_input cannot be empty")
         messages = _prepare_messages(self.messages, self.system_prompt, user_input)
         _emit(output_callback, create_emit_event("user", user_input))
+        self._log_message("user", user_input)
 
         tool_results: List[ToolResult] = []
         iterations = 0
@@ -144,6 +147,7 @@ class CodeAgentSession:
             assistant_content = response.get("content")
             if assistant_content:
                 _emit(output_callback, create_emit_event("assistant", assistant_content))
+                self._log_message("assistant", assistant_content)
             tool_calls = response.get("tool_calls")
             if not tool_calls:
                 final_content = assistant_content
@@ -155,6 +159,13 @@ class CodeAgentSession:
                 timeout_override=self.tool_timeout_seconds,
             )
             tool_results.extend(outputs)
+            if self.verbose and outputs:
+                for result in outputs:
+                    info = result.as_dict()
+                    name = info.get("inputs", {}).get("name")
+                    status = info.get("result", {}).get("status")
+                    args = info.get("inputs", {}).get("arguments")
+                    self._debug(f"tool={name} status={status} args={args}")
             iterations += 1
             if iterations >= self.max_iterations:
                 break
@@ -165,6 +176,8 @@ class CodeAgentSession:
             "messages": list(messages),
         }
         self.messages = [msg for msg in messages if self._is_valid_message(msg)]
+        if self.verbose and final_content:
+            self._debug("final response captured for turn")
         return result
 
     def _call_llm(
@@ -178,6 +191,10 @@ class CodeAgentSession:
             tools=tools,
             temperature=self.temperature,
         )
+        if self.verbose:
+            self._debug(f"LLM call with {len(messages)} messages")
+            last = messages[-1]
+            self._debug(f"LLM latest message role={last.get('role')} content={self._preview(last.get('content'))}")
         plan = self._parse_tool_response(response)
 
         assistant_message: Dict[str, Any] = {
@@ -207,6 +224,20 @@ class CodeAgentSession:
             return
         self.tool_timeout_seconds = float(seconds)
         self.executor.set_default_timeout(self.tool_timeout_seconds)
+
+    def _debug(self, message: str) -> None:
+        print(f"[CodeAgentSession] {message}")
+
+    def _log_message(self, role: str, content: Optional[str]) -> None:
+        if not self.verbose or content is None:
+            return
+        preview = content if len(content) <= 500 else content[:497] + "..."
+        self._debug(f"{role}: {preview}")
+
+    def _preview(self, content: Optional[str]) -> Optional[str]:
+        if content is None:
+            return None
+        return content if len(content) <= 500 else content[:497] + "..."
 
     @staticmethod
     def _is_valid_message(raw: Any) -> bool:
