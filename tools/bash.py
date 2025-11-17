@@ -153,7 +153,7 @@ Usage notes:
   - The command argument is required.
   - You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). If not specified, commands will timeout after 120000ms (2 minutes).
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
-  - If the output exceeds 30000 characters, output will be truncated before being returned to you.
+  - If the output exceeds 50000 characters, output will be truncated before being returned to you.
   - You can use the `run_in_background` parameter to run the command in the background, which allows you to continue working while the command runs. You can monitor the output using the Bash tool as it becomes available. You do not need to use '&' at the end of the command when using this parameter.
   
   - Avoid using Bash with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
@@ -393,27 +393,33 @@ Important:
                 errors="replace",
                 timeout=timeout_val,
             )
+            clipped_stdout, stdout_truncated = self.clip_text(completed.stdout)
+            clipped_stderr, stderr_truncated = self.clip_text(completed.stderr)
             data = {
-                "stdout": completed.stdout,
-                "stderr": completed.stderr,
+                "stdout": clipped_stdout,
+                "stderr": clipped_stderr,
                 "exit_code": completed.returncode,
                 "timed_out": False,
                 "command": command,
+                "truncated": stdout_truncated or stderr_truncated,
             }
             status = "success" if completed.returncode == 0 else "error"
             content = summarize_output(
-                completed.stdout,
-                completed.stderr,
+                clipped_stdout,
+                clipped_stderr,
                 f"Command exited with code {completed.returncode}",
             )
             return build_payload(status, content, data)
         except subprocess.TimeoutExpired as exc:
+            clipped_stdout, stdout_truncated = self.clip_text(exc.stdout or "")
+            clipped_stderr, stderr_truncated = self.clip_text(exc.stderr or "")
             data = {
-                "stdout": exc.stdout or "",
-                "stderr": exc.stderr or "",
+                "stdout": clipped_stdout,
+                "stderr": clipped_stderr,
                 "exit_code": None,
                 "timed_out": True,
                 "command": command,
+                "truncated": stdout_truncated or stderr_truncated,
             }
             return build_payload(
                 "error",
@@ -487,6 +493,10 @@ class BashOutputTool(BaseTool):
             shell.refresh()
             stdout, new_stdout_buffer = shell.consume(shell.stdout_buffer, filter)
             stderr, new_stderr_buffer = shell.consume(shell.stderr_buffer, filter)
+
+            clipped_stdout, stdout_truncated = self.clip_text(stdout)
+            clipped_stderr, stderr_truncated = self.clip_text(stderr)
+
             shell.stdout_buffer = new_stdout_buffer
             shell.stderr_buffer = new_stderr_buffer
             done = shell.status != "running"
@@ -494,19 +504,20 @@ class BashOutputTool(BaseTool):
             if done and exit_code is not None and shell.stdout_buffer == "" and shell.stderr_buffer == "":
                 shell.close()
             result_parts: List[str] = []
-            if stdout:
-                result_parts.append(stdout.rstrip("\n"))
-            if stderr:
-                result_parts.append(f"STDERR:\n{stderr.rstrip('\n')}")
+            if clipped_stdout:
+                result_parts.append(clipped_stdout.rstrip("\n"))
+            if clipped_stderr:
+                result_parts.append(f"STDERR:\n{clipped_stderr.rstrip('\n')}")
             result_text = "\n\n".join(part for part in result_parts if part)
             if not result_text:
                 result_text = shell.status
             data = {
                 "bash_id": bash_id,
-                "stdout": stdout,
-                "stderr": stderr,
+                "stdout": clipped_stdout,
+                "stderr": clipped_stderr,
                 "shell_status": shell.status,
                 "exit_code": exit_code,
+                "truncated": stdout_truncated or stderr_truncated,
             }
             return {
                 "status": "success",

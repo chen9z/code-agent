@@ -280,13 +280,15 @@ Use the include or exclude patterns to filter the search scope by file type or s
             )
 
         formatted_output = _format_grouped_matches(grouped)
+        clipped_output, content_truncated = self.clip_text(formatted_output)
         display_text = _build_display_matches(matches)
 
         return _success_response(
-            content=formatted_output,
+            content=clipped_output,
             data={
                 "query": query,
                 "matches": matches,
+                "truncated": content_truncated,
             },
             display=display_text,
         )
