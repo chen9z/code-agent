@@ -3,11 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from adapters.llm.llm import BaseLLMClient
-from runtime.dataset_agent import DatasetSynthesisAgent
-from tools.dataset_log import DatasetQueryContext
+from benchmarks.dataset.models import PreparedQuery, QuerySpec, RepoSpec
+from benchmarks.dataset.runner import DatasetRunner
 
 
 class FakeLLMClient(BaseLLMClient):
@@ -42,20 +40,19 @@ class FakeLLMClient(BaseLLMClient):
         return {"choices": [{"message": {"content": "done"}}]}
 
 
-def test_agent_triggers_dataset_log(tmp_path: Path) -> None:
+def test_runner_logs_chunk(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "src").mkdir()
     (repo / "src" / "demo.py").write_text("print('demo')\n", encoding="utf-8")
 
-    ctx = DatasetQueryContext(
+    spec = QuerySpec(
         query_id="q-demo",
         query="print demo",
-        repo_url="repo-url",
-        branch="main",
-        commit="abc123",
-        snapshot_path=repo,
+        repo=RepoSpec(url="repo-url", branch="main", commit="abc123", path=str(repo)),
     )
+    prepared = PreparedQuery(spec=spec, snapshot_path=repo)
+
     llm = FakeLLMClient(
         {
             "path": "src/demo.py",
@@ -64,21 +61,13 @@ def test_agent_triggers_dataset_log(tmp_path: Path) -> None:
             "confidence": 0.95,
         }
     )
-    run_dir = tmp_path / "storage" / "dataset"
-    agent = DatasetSynthesisAgent(
-        query_context=ctx,
-        snapshot_root=repo,
-        llm_client=llm,
-        workspace=repo,
-    run_name="run1",
-    artifacts_root=run_dir,
-    )
+    artifacts_root = tmp_path / "storage" / "dataset"
+    runner = DatasetRunner(llm_client=llm, run_name="run1", artifacts_root=artifacts_root)
 
-    agent.run_turn("print demo")
+    results = runner.run_queries([prepared])
+    assert results[0].success
 
-    raw_file = run_dir / "run1" / "raw_samples" / "q-demo.jsonl"
+    raw_file = artifacts_root / "run1" / "raw_samples" / "q-demo.jsonl"
     assert raw_file.exists()
-    payload = raw_file.read_text(encoding="utf-8").strip().splitlines()
-    assert len(payload) == 1
-    row = json.loads(payload[0])
+    row = json.loads(raw_file.read_text(encoding="utf-8").strip())
     assert row["chunk"]["path"] == "src/demo.py"

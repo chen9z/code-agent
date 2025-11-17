@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 - 入口：`cli.py`, `code_agent.py`, `codebase_retrieval.py`，负责拼装 Agent/runtime。
-- 领域模块：`agent/`（会话 + 提示）、`runtime/`（工具调度、`dataset_agent.py`）、`retrieval/`（索引/搜索）、`tools/`（Read/Grep、`dataset_log.py` 等）。
+- 领域模块：`agent/`（会话 + 提示）、`runtime/`（工具调度）、`retrieval/`（索引/搜索）、`tools/`（Read/Grep、`dataset_log.py` 等）。
 - 适配层：`adapters/llm`（LLM/Embedding 客户端）、`adapters/workspace`（Tree-sitter、Qdrant、本地文件视图）。
 - 配置：`config/` 统一维护安全提示与默认参数。
 - 基准/数据集：`benchmarks/` 包含 planner benchmark 以及 `benchmarks/dataset/` 数据集 orchestrator；流程细节写在 `docs/dataset_synthesis_plan.md`。

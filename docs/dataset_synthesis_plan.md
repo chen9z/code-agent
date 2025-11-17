@@ -20,7 +20,7 @@
 
 2. **Dataset Agent 回放**
    - 输入：query 列表 + 快照路径 + agent 配置。
-   - 操作：实例化 `DatasetSynthesisAgent`（`runtime/dataset_agent.py`），强制使用固定模型、温度 0、禁用非必要工具，执行 `run_turn`。会话细节由 opik 侧统一记录，数据集流水线仅需关心 agent 成功生成了足够证据。
+   - 操作：DatasetRunner 直接配置 `CodeAgentSession`（受限工具、温度 0）并执行 `run_turn`。会话细节由 opik 侧统一记录，数据集流水线仅需关心 agent 成功生成了足够证据。
    - 输出：内存中的 golden_chunks（供下一步使用），无需额外本地日志。
 
 3. **合成样本写出工具**
@@ -67,7 +67,6 @@ benchmarks/dataset/
   metrics.py                # （暂缓）指标计算，如需开启在此实现
   cli.py                    # 主 orchestrator
 agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
-runtime/dataset_agent.py    # agent 封装/adapter
   tools/dataset_log.py        # dataset_log_tool，仅一次性写样本 JSON（含快照校验）
  storage/dataset/<date>/           # 输出数据/异常
 ```
