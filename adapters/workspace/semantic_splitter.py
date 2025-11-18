@@ -6,7 +6,7 @@ import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from tree_sitter import Parser
 
@@ -142,14 +142,26 @@ def _char_to_byte(offsets: Sequence[int], idx: int) -> int:
     return offsets[idx]
 
 
-def _byte_span_char_len(text: str, start_byte: int, end_byte: int) -> int:
-    """以字节区间计算对应的字符长度（忽略性能，每次重新编码）。"""
+def _byte_span_char_len(
+        text: str,
+        start_byte: int,
+        end_byte: int,
+        *,
+        char_offsets: Optional[Sequence[int]] = None,
+        encoded: Optional[bytes] = None,
+) -> int:
+    """以字节区间计算对应的字符长度。
+
+    优先使用预计算的 `char_offsets`，其次复用已编码的 `encoded`，最后回退到 encode。
+    """
     if end_byte <= start_byte:
         return 0
+    if char_offsets is not None:
+        return _char_length(char_offsets, start_byte, end_byte)
     start = max(0, start_byte)
     end = max(start, end_byte)
-    # Tree-sitter byte offset 基于原始字符串的 UTF-8 表示，因此直接切片
-    return len(text.encode("utf-8")[start:end].decode("utf-8", errors="ignore"))
+    data = encoded if encoded is not None else text.encode("utf-8")
+    return len(data[start:end].decode("utf-8", errors="ignore"))
 
 
 def _byte_to_line(line_offsets: Sequence[int], byte_idx: int, total_lines: int) -> int:
@@ -198,9 +210,9 @@ class SemanticSplitter:
         root = tree.root_node
         if root is None:
             return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
-        spans = self._chunk_node(root, text)
+        spans = self._chunk_node(root, text, char_offsets=char_offsets, encoded=encoded)
         self._connect_chunks(spans)
-        spans = self._coalesce_chunks(spans)
+        spans = self._coalesce_chunks(spans, char_offsets)
         if not spans:
             return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
         return self._build_chunks_from_spans(
@@ -242,24 +254,95 @@ class SemanticSplitter:
             start_char = end_char
         return chunks
 
-    def _chunk_node(self, node, text) -> List[Span]:
+    def _chunk_node(
+            self,
+            node,
+            text,
+            *,
+            char_offsets: Optional[Sequence[int]] = None,
+            encoded: Optional[bytes] = None,
+    ) -> List[Span]:
         span = Span(node.start_byte, node.start_byte)
-        chunks = []
+        chunks: List[Span] = []
+        symbol_types = set(_node_types(self.language))
+        pending_comment: Optional[List[int]] = None
+
+        def flush_pending_comment() -> None:
+            nonlocal pending_comment
+            if pending_comment and pending_comment[1] > pending_comment[0]:
+                chunks.append(Span(pending_comment[0], pending_comment[1], SpanKind.COMMENT))
+            pending_comment = None
 
         for child in node.children:
-            if _byte_span_char_len(text, child.start_byte, child.end_byte) > self.chunk_size:
+            if _is_comment_node(child):
+                if pending_comment is None:
+                    pending_comment = [child.start_byte, child.end_byte]
+                else:
+                    pending_comment[1] = child.end_byte
+                continue
+
+            comment_range: Optional[Tuple[int, int]] = None
+            if pending_comment is not None:
+                if not symbol_types or child.type in symbol_types:
+                    comment_range = (pending_comment[0], pending_comment[1])
+                    pending_comment = None
+                else:
+                    flush_pending_comment()
+
+            child_start = comment_range[0] if comment_range else child.start_byte
+            child_end = child.end_byte
+            child_len = _byte_span_char_len(
+                text,
+                child_start,
+                child_end,
+                char_offsets=char_offsets,
+                encoded=encoded,
+            )
+
+            if comment_range and span.end > span.start:
+                chunks.append(span)
+                span = Span(comment_range[0], comment_range[0])
+
+            if child_len > self.chunk_size:
                 if span.end > span.start:
                     chunks.append(span)
-                span = Span(child.end_byte, child.end_byte)
+                span = Span(child_end, child_end)
                 if len(child.children) == 0:
-                    chunks.append(Span(child.start_byte, child.end_byte))
-                else:
-                    chunks.extend(self._chunk_node(child, text))
-            elif _byte_span_char_len(text, span.start, child.end_byte) > self.chunk_size:
-                chunks.append(span)
-                span = Span(child.start_byte, child.end_byte)
+                    start = comment_range[0] if comment_range else child.start_byte
+                    chunks.append(Span(start, child_end))
+                    continue
+
+                child_spans = self._chunk_node(
+                    child,
+                    text,
+                    char_offsets=char_offsets,
+                    encoded=encoded,
+                )
+                if comment_range and child_spans:
+                    child_spans[0].start = min(child_spans[0].start, comment_range[0])
+                elif comment_range:
+                    chunks.append(Span(comment_range[0], comment_range[1], SpanKind.COMMENT))
+                chunks.extend(child_spans)
+                continue
+
+            if _byte_span_char_len(
+                    text,
+                    span.start,
+                    child_end,
+                    char_offsets=char_offsets,
+                    encoded=encoded,
+            ) > self.chunk_size:
+                if span.end > span.start:
+                    chunks.append(span)
+                start = comment_range[0] if comment_range else child.start_byte
+                span = Span(start, child_end)
             else:
-                span = Span(span.start, child.end_byte)
+                if span.end == span.start and comment_range:
+                    span = Span(comment_range[0], child_end)
+                else:
+                    span = Span(span.start, child_end)
+
+        flush_pending_comment()
 
         if span.end > span.start:
             chunks.append(span)
@@ -269,11 +352,11 @@ class SemanticSplitter:
         for pre, cur in zip(chunks[:-1], chunks[1:]):
             pre.end = cur.start
 
-    def _coalesce_chunks(self, chunks: List[Span]) -> List[Span]:
+    def _coalesce_chunks(self, chunks: List[Span], char_offsets: Sequence[int]) -> List[Span]:
         new_chunks = []
         current_chunk = Span(0, 0)
         for chunk in chunks:
-            if chunk.end - current_chunk.start < self.chunk_size:
+            if _char_length(char_offsets, current_chunk.start, chunk.end) < self.chunk_size:
                 current_chunk.end = chunk.end
             else:
                 if current_chunk.end > current_chunk.start:
