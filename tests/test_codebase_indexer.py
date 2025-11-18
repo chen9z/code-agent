@@ -122,7 +122,6 @@ def test_indexer_reports_progress(monkeypatch, tmp_path, caplog):
                 start_line=1,
                 end_line=len(text.splitlines()),
                 language="python",
-                symbol=None,
             )
         ]
 
@@ -161,7 +160,6 @@ def test_indexer_skips_rebuild_when_collection_exists(tmp_path, monkeypatch):
         "start_line": 1,
         "end_line": 2,
         "language": "python",
-        "symbol": "foo",
         "snippet": "def foo():\n    return 1\n",
     }
     store.records_by_key[project_key] = {"foo": SimpleNamespace(payload=payload)}

@@ -9,7 +9,7 @@ from typing import Iterator, List, Optional
 from adapters.workspace.semantic_splitter import (
     CODE_EXTS,
     EXT_LANGUAGE,
-    SemanticChunk,
+    Document,
     SemanticSplitter,
 )
 
@@ -29,7 +29,6 @@ class Chunk:
     start_line: int
     end_line: int
     language: Optional[str] = None
-    symbol: Optional[str] = None
     metadata: Optional[dict] = None
 
 
@@ -73,7 +72,8 @@ def _make_ignore_matcher(root: Path):
             if fnmatch.fnmatch(rel, pat_eff) or fnmatch.fnmatch(Path(rel).name, pat_eff):
                 ignored = not neg
         # Default ignores for common dirs
-        default_dirs = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "dist", "build", "target", ".pytest_cache", ".mypy_cache", ".qdrant", "storage"}
+        default_dirs = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "dist", "build", "target",
+                        ".pytest_cache", ".mypy_cache", ".qdrant", "storage"}
         parts = set(Path(rel).parts)
         if parts & default_dirs:
             return True
@@ -102,51 +102,44 @@ def iter_repository_files(root: Path) -> Iterator[Path]:
                 yield fpath
 
 
-
 def chunk_code_file(
-    path: Path,
-    max_lines: int = 200,
-    overlap: int = 0,  # kept for backwards compatibility
-    pre_context: int = 2,
-    *,
-    chunk_size: int | None = None,
+        path: Path,
+        chunk_size: int = 2048
 ) -> List[Chunk]:
     """Chunk a single source file using the shared SemanticSplitter."""
 
-    size = max(1, int(chunk_size or max_lines))
     text = path.read_text(encoding="utf-8", errors="ignore")
     if not text:
         return []
 
     language = EXT_LANGUAGE.get(path.suffix.lower())
     if not language:
-        return _line_chunks_from_text(str(path), text, size, language=None)
+        return _line_chunks_from_text(str(path), text, chunk_size, language=None)
 
-    splitter = SemanticSplitter(language, chunk_size=size)
+    splitter = SemanticSplitter(language, chunk_size)
     semantic_chunks = splitter.split(str(path), text)
     if not semantic_chunks:
-        return _line_chunks_from_text(str(path), text, size, language=language)
+        return _line_chunks_from_text(str(path), text, chunk_size, language=language)
     return [_convert_chunk(chunk) for chunk in semantic_chunks]
 
 
-def _convert_chunk(chunk: SemanticChunk) -> Chunk:
+def _convert_chunk(chunk: Document) -> Chunk:
     return Chunk(
         path=chunk.path,
         content=chunk.content,
         start_line=chunk.start_line,
         end_line=chunk.end_line,
         language=chunk.language,
-        symbol=chunk.symbol,
         metadata=chunk.metadata or {},
     )
 
 
 def _line_chunks_from_text(
-    path: str,
-    text: str,
-    max_lines: int,
-    *,
-    language: Optional[str],
+        path: str,
+        text: str,
+        max_lines: int,
+        *,
+        language: Optional[str],
 ) -> List[Chunk]:
     lines = text.splitlines(keepends=True)
     chunks: List[Chunk] = []
@@ -154,7 +147,7 @@ def _line_chunks_from_text(
     total = len(lines)
     while start <= total:
         end = min(total, start + max_lines - 1)
-        content = "".join(lines[start - 1 : end])
+        content = "".join(lines[start - 1: end])
         chunks.append(
             Chunk(
                 path=path,

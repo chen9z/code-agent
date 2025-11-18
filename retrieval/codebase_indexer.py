@@ -50,7 +50,6 @@ class CodeChunkEmbedding:
     start_line: int
     end_line: int
     language: Optional[str]
-    symbol: Optional[str]
     content: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     vector: Tuple[float, ...] = field(default_factory=tuple)
@@ -171,7 +170,6 @@ class SemanticCodeIndexer:
                 start_line=int(payload.get("start_line") or 0),
                 end_line=int(payload.get("end_line") or 0),
                 language=payload.get("language"),
-                symbol=payload.get("symbol"),
                 content=str(payload.get("snippet") or ""),
                 vector=(),
             )
@@ -275,7 +273,6 @@ class SemanticCodeIndexer:
                         "start_line": item.start_line,
                         "end_line": item.end_line,
                         "language": item.language,
-                        "symbol": item.symbol,
                         "snippet": item.content,
                         "metadata": getattr(item, "metadata", None) or {},
                     }

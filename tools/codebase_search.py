@@ -134,7 +134,6 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
                 "end_line": hit.chunk.end_line,
                 "score": hit.score,
                 "language": hit.chunk.language,
-                "symbol": hit.chunk.symbol,
                 "snippet": hit.chunk.content,
             }
             for hit in hits
@@ -149,7 +148,7 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             "target_directories": list(target_directories or []),
         }
         content_lines = [
-            f"{entry['path']}:{entry['start_line']}-{entry['end_line']} [{entry['symbol'] or '(anonymous)'}]"
+            f"{entry['path']}:{entry['start_line']}-{entry['end_line']}"
             for entry in results
         ]
         summary = "\n".join(f"- {line}" for line in content_lines) or "[no semantic matches]"

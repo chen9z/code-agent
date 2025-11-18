@@ -76,15 +76,12 @@ class SpanKind(Enum):
 
 
 @dataclass(slots=True)
-class SemanticChunk:
+class Document:
     path: str
     content: str
     start_line: int
     end_line: int
     language: Optional[str]
-    symbol: Optional[str] = None
-    node_type: Optional[str] = None
-    byte_range: tuple[int, int] = (0, 0)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -93,9 +90,6 @@ class Span:
     start: int
     end: int
     kind: SpanKind
-    symbol: Optional[str]
-    node_type: Optional[str]
-
 
 def _get_parser(language: str) -> Optional[Parser]:
     if not is_language_supported(language):
@@ -175,7 +169,7 @@ class SemanticSplitter:
         self.language = language
         self.chunk_size = chunk_size
 
-    def split(self, path: str, text: str) -> List[SemanticChunk]:
+    def split(self, path: str, text: str) -> List[Document]:
         text = text or ""
         if not text:
             return []
@@ -194,10 +188,9 @@ class SemanticSplitter:
         root = tree.root_node
         if root is None:
             return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
-        targets = set(_node_types(self.language))
         spans = self._chunk_node(root, text)
         self._connect_chunks(spans)
-        spans = self._coalesce_chunks(spans, char_offsets)
+        spans = self._coalesce_chunks(spans)
         if not spans:
             return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
         return self._build_chunks_from_spans(
@@ -215,11 +208,11 @@ class SemanticSplitter:
             lines: Sequence[str],
             line_offsets: Sequence[int],
             char_offsets: Sequence[int],
-    ) -> List[SemanticChunk]:
+    ) -> List[Document]:
         size = max(1, self.chunk_size)
         total_chars = len(char_offsets) - 1
         start_char = 0
-        chunks: List[SemanticChunk] = []
+        chunks: List[Document] = []
         while start_char < total_chars:
             end_char = min(total_chars, start_char + size)
             start_byte = _char_to_byte(char_offsets, start_char)
@@ -227,13 +220,12 @@ class SemanticSplitter:
             content = text[start_char:end_char]
             if content.strip():
                 chunks.append(
-                    SemanticChunk(
+                    Document(
                         path=path,
                         content=content,
                         start_line=_byte_to_line(line_offsets, start_byte, len(lines)),
                         end_line=_byte_to_line(line_offsets, end_byte, len(lines)),
                         language=self.language,
-                        byte_range=(start_byte, end_byte),
                         metadata={"kind": SpanKind.CODE.name},
                     )
                 )
@@ -287,15 +279,15 @@ class SemanticSplitter:
             lines: Sequence[str],
             spans: List[Span],
             line_offsets: Sequence[int],
-    ) -> List[SemanticChunk]:
-        chunks: List[SemanticChunk] = []
+    ) -> List[Document]:
+        chunks: List[Document] = []
         total_lines = len(lines)
         for span in spans:
             content_bytes = encoded[span.start:span.end]
             content = content_bytes.decode("utf-8", errors="ignore")
             if not content.strip():
                 continue
-            chunk = SemanticChunk(
+            chunk = Document(
                 path=path,
                 content=content,
                 start_line=_byte_to_line(line_offsets, span.start, total_lines),
