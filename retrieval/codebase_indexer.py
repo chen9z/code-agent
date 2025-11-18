@@ -311,7 +311,6 @@ class SemanticCodeIndexer:
                     start_line=chunk.start_line,
                     end_line=chunk.end_line,
                     language=chunk.language,
-                    symbol=chunk.symbol,
                     content=snippet_text,
                     metadata=getattr(chunk, "metadata", {}) or {},
                 )

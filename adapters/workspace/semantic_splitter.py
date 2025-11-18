@@ -89,7 +89,7 @@ class Document:
 class Span:
     start: int
     end: int
-    kind: SpanKind
+    kind: SpanKind = SpanKind.CODE
 
 def _get_parser(language: str) -> Optional[Parser]:
     if not is_language_supported(language):
@@ -142,6 +142,16 @@ def _char_to_byte(offsets: Sequence[int], idx: int) -> int:
     return offsets[idx]
 
 
+def _byte_span_char_len(text: str, start_byte: int, end_byte: int) -> int:
+    """以字节区间计算对应的字符长度（忽略性能，每次重新编码）。"""
+    if end_byte <= start_byte:
+        return 0
+    start = max(0, start_byte)
+    end = max(start, end_byte)
+    # Tree-sitter byte offset 基于原始字符串的 UTF-8 表示，因此直接切片
+    return len(text.encode("utf-8")[start:end].decode("utf-8", errors="ignore"))
+
+
 def _byte_to_line(line_offsets: Sequence[int], byte_idx: int, total_lines: int) -> int:
     pos = bisect_right(line_offsets, byte_idx) - 1
     return max(1, min(total_lines, pos))
@@ -165,7 +175,7 @@ def _get_node_name(node) -> Optional[str]:
 
 
 class SemanticSplitter:
-    def __init__(self, language: str, *, chunk_size: int = 2048) -> None:
+    def __init__(self, language: str, chunk_size: int = 2048) -> None:
         self.language = language
         self.chunk_size = chunk_size
 
@@ -235,8 +245,9 @@ class SemanticSplitter:
     def _chunk_node(self, node, text) -> List[Span]:
         span = Span(node.start_byte, node.start_byte)
         chunks = []
+
         for child in node.children:
-            if child.end_byte - child.start_byte > self.chunk_size:
+            if _byte_span_char_len(text, child.start_byte, child.end_byte) > self.chunk_size:
                 if span.end > span.start:
                     chunks.append(span)
                 span = Span(child.end_byte, child.end_byte)
@@ -244,7 +255,7 @@ class SemanticSplitter:
                     chunks.append(Span(child.start_byte, child.end_byte))
                 else:
                     chunks.extend(self._chunk_node(child, text))
-            elif child.end_byte - span.start > self.chunk_size:
+            elif _byte_span_char_len(text, span.start, child.end_byte) > self.chunk_size:
                 chunks.append(span)
                 span = Span(child.start_byte, child.end_byte)
             else:
@@ -267,7 +278,7 @@ class SemanticSplitter:
             else:
                 if current_chunk.end > current_chunk.start:
                     new_chunks.append(current_chunk)
-                current_chunk = Span(chunk.start, chunk.end)
+                current_chunk = Span(chunk.start, chunk.end, chunk.kind)
         if current_chunk.end > current_chunk.start:
             new_chunks.append(current_chunk)
         return new_chunks
@@ -293,7 +304,7 @@ class SemanticSplitter:
                 start_line=_byte_to_line(line_offsets, span.start, total_lines),
                 end_line=_byte_to_line(line_offsets, span.end, total_lines),
                 language=self.language,
-                metadata={"kind": span.kind.name},
+                metadata={"kind": span.kind.name if span.kind else SpanKind.CODE.name},
             )
             chunks.append(chunk)
         chunks.sort(key=lambda c: (c.start_line, c.end_line))
