@@ -1,33 +1,30 @@
 from __future__ import annotations
 
-from adapters.workspace.tree_sitter.parser import ParsedSymbol, TagKind
-from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig
+from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
 
 
 def test_local_qdrant_store_roundtrip(tmp_path):
-    symbol = ParsedSymbol(
-        relative_path="example.py",
-        absolute_path=str(tmp_path / "repo" / "example.py"),
-        language="python",
-        start_line=1,
-        end_line=5,
-        name="area",
-        kind=TagKind.DEF,
-        metadata={
-            "code_snippet": "def area(r):\n    return r * r\n",
-            "references": [],
-        },
-    )
-
     config = QdrantConfig(path=str(tmp_path / "qdrant"), vector_size=3)
     store = LocalQdrantStore(config)
 
-    store.upsert_symbols(
-        "demo_project",
-        project_path=str(tmp_path / "repo"),
-        symbols=[symbol],
-        embeddings=[[0.1, 0.2, 0.3]],
+    payload = {
+        "project_name": "demo_project",
+        "project_path": str(tmp_path / "repo"),
+        "language": "python",
+        "relative_path": "example.py",
+        "absolute_path": str(tmp_path / "repo" / "example.py"),
+        "start_line": 1,
+        "end_line": 5,
+        "symbol_name": "area",
+        "symbol_kind": "def",
+        "metadata": {"code_snippet": "def area(r):\n    return r * r\n", "references": []},
+    }
+    point = QdrantPoint(
+        id="b3b9f8c0-1f2b-11ee-be56-0242ac120002",  # valid UUID string
+        vector=[0.1, 0.2, 0.3],
+        payload=payload,
     )
+    store.upsert_points([point], batch_size=10)
 
     count = store.client.count(collection_name=config.collection, exact=True)
     assert count.count == 1

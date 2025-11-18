@@ -9,10 +9,10 @@ from retrieval.index import create_index
 
 
 def main() -> int:
-    project_path = Path("~/workspace/spring-ai").expanduser()
-    query_text = "查找项目中有哪些 embedding model"
-    # project_path = Path("~/workspace/code-agent").expanduser()
-    # query_text = "查找项目中有哪些 tools"
+    # project_path = Path("~/workspace/spring-ai").expanduser()
+    # query_text = "查找项目中有哪些 embedding model"
+    project_path = Path("~/workspace/code-agent").expanduser()
+    query_text = "查找项目中有哪些 tools"
 
     if not project_path:
         raise ValueError("project_path parameter is required")

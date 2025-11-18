@@ -35,15 +35,18 @@ def test_config_structure():
 
 def test_config_default_values():
     """Test that config has sensible default values."""
-    config = get_config()
+    with patch.dict(os.environ, {}, clear=True):
+        config = reload_config()
 
-    assert config.rag_embedding_model == "openai-like"
-    assert config.rag_rerank_model == "api"
-    assert config.rag_chunk_size == 200
-    assert config.llm_model == "deepseek-chat"
-    assert config.llm_temperature == 0.1
-    assert config.llm_max_tokens == 2000
-    assert config.cli_tool_timeout_seconds == 60
+        assert config.rag_embedding_model == "openai-like"
+        assert config.rag_rerank_model == "api"
+        assert config.rag_chunk_size == 200
+        assert config.llm_model == "deepseek-chat"
+        assert config.llm_temperature == 0.1
+        assert config.llm_max_tokens == 2000
+        assert config.cli_tool_timeout_seconds == 60
+
+    reload_config()
 
 
 def test_environment_variable_override():

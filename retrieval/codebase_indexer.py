@@ -20,7 +20,6 @@ from adapters.llm.embedding import (
     DefaultEmbeddingClient,
     create_embedding_client,
 )
-from adapters.workspace.tree_sitter.parser import TagKind, TreeSitterProjectParser
 from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
 from qdrant_client.http import models as qmodels
 
@@ -53,6 +52,7 @@ class CodeChunkEmbedding:
     language: Optional[str]
     symbol: Optional[str]
     content: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
     vector: Tuple[float, ...] = field(default_factory=tuple)
 
 
@@ -82,10 +82,8 @@ class SemanticCodeIndexer:
             qdrant_config: Optional[QdrantConfig] = None,
     ) -> None:
         cfg = get_config()
-        rag_cfg = getattr(cfg, "rag", None)
-        chunk_size = 2048
-        if rag_cfg is not None and hasattr(rag_cfg, "chunk_size"):
-            chunk_size = int(rag_cfg.chunk_size)
+        # 优先使用 AppConfig.rag_chunk_size；缺省回退到 200 行以内的合理窗口
+        chunk_size = int(getattr(cfg, "rag_chunk_size", 200) or 200)
 
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
         api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "120"))
@@ -222,13 +220,15 @@ class SemanticCodeIndexer:
         self._store.use_collection(collection_name)
         file_paths: set[str] = set()
 
-        parser = TreeSitterProjectParser()
-        try:
-            symbols = parser.parse_project(root)
-        finally:
-            parser.close()
+        # 先清理旧向量，避免写入新片段后又被后置删除逻辑清空
+        existing_records = self._store.list_point_ids(project_key)
+        if existing_records:
+            remove_ids = [
+                str(getattr(record, "id", record_id))
+                for record_id, record in existing_records.items()
+            ]
+            self._store.delete_points(remove_ids)
 
-        covered_paths: set[str] = set()
         reported_paths: set[str] = set()
 
         def record_progress(stage: str, path_value: str, *, hint: str | None = None) -> None:
@@ -277,6 +277,7 @@ class SemanticCodeIndexer:
                         "language": item.language,
                         "symbol": item.symbol,
                         "snippet": item.content,
+                        "metadata": getattr(item, "metadata", None) or {},
                     }
                     points.append(
                         QdrantPoint(
@@ -293,34 +294,8 @@ class SemanticCodeIndexer:
         def enqueue_entry(item: CodeChunkEmbedding) -> None:
             entry_buffer.append(item)
             flush_entries()
-        for symbol in symbols:
-            if symbol.kind is not TagKind.DEF:
-                continue
-            snippet = symbol.metadata.get("code_snippet")
-            if not isinstance(snippet, str):
-                continue
-            snippet_text = snippet.rstrip("\n")
-            if not snippet_text.strip():
-                continue
-            item = CodeChunkEmbedding(
-                relative_path=symbol.relative_path,
-                absolute_path=symbol.absolute_path,
-                start_line=symbol.start_line,
-                end_line=symbol.end_line,
-                language=symbol.language,
-                symbol=symbol.metadata.get("identifier") or symbol.name,
-                content=snippet_text,
-            )
-            absolute_path = str(symbol.absolute_path)
-            record_progress("解析符号", absolute_path, hint=symbol.relative_path)
-            covered_paths.add(absolute_path)
-            file_paths.add(absolute_path)
-            enqueue_entry(item)
-
         for file_path in iter_repository_files(root):
             absolute = str(file_path)
-            if absolute in covered_paths:
-                continue
             relative_path = file_path.relative_to(root).as_posix()
             try:
                 chunks = chunk_code_file(file_path, chunk_size=self._chunk_size)
@@ -341,17 +316,10 @@ class SemanticCodeIndexer:
                     language=chunk.language,
                     symbol=chunk.symbol,
                     content=snippet_text,
+                    metadata=getattr(chunk, "metadata", {}) or {},
                 )
                 enqueue_entry(item)
                 file_paths.add(item.absolute_path)
-
-        existing_records = self._store.list_point_ids(project_key)
-        if existing_records:
-            remove_ids = [
-                str(getattr(record, "id", record_id))
-                for record_id, record in existing_records.items()
-            ]
-            self._store.delete_points(remove_ids)
 
         flush_entries(force=True)
 
@@ -370,7 +338,9 @@ class SemanticCodeIndexer:
     def _emit_progress(self, message: str, *, show: bool) -> None:
         if not show:
             return
-        logger.info("[code-index] %s", message)
+        # 直接用 print，避免依赖外部 logging 配置导致静默
+        print(f"[code-index] {message}")
+        logger.info(message)
 
     @staticmethod
     def _format_path_for_progress(root: Path, absolute_path: str, hint: str | None = None) -> str:
@@ -388,7 +358,6 @@ class SemanticCodeIndexer:
         digest = hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
         return str(uuid.uuid5(uuid.NAMESPACE_URL, digest))
 
-    @staticmethod
     @staticmethod
     def _build_payload_filter(
             project_key: str,

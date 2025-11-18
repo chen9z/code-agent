@@ -49,5 +49,6 @@ or benchmark logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECOND
  longer tool windows are required。对 DatasetSynthesisAgent 来说，`dataset_log_write_chunk` 必须保持单 chunk 校验 + 原子写入，禁用未经授权的路径输出。
 
 要遵守的原则：
-1. Output with Chinese.
-2. **Development Spirit: Remember: Our development should follow the spirit of Linus.**
+1. **Development Spirit: Remember: Our development should follow the spirit of Linus.**
+2. Output with Chinese.
+

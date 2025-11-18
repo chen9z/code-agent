@@ -171,12 +171,10 @@ print(result["final_response"])
 ## Integration Points
 
 ### Tree-sitter Integration
-- `adapters/workspace/tree_sitter/` - Code parsing and symbol extraction
-- Supports multiple programming languages via tree-sitter grammars
-- Uses `grep_ast` for language detection and file filtering
-- Extracts symbols with `TagKind.DEF` (definitions) and `TagKind.REF` (references)
-- ~~Caches parsed results using `diskcache` for performance~~（现实时直解析，无持久化缓存）
-- Exports parsed symbols to JSONL format
+- `adapters/workspace/semantic_splitter.py` - 基于 tree-sitter 的统一 AST 分片
+- 支持多语言语义分块（函数/类），并对未覆盖区域行级补齐
+- 通过 `config.rag_chunk_size` 控制分片行数，默认 200
+- 无额外 `.scm` 查询文件与符号导出流程（已移除 ParsedSymbol/TagKind）
 
 ### Vector Store Integration
 - `adapters/workspace/vector_store.py` - Embedding storage and retrieval using Qdrant

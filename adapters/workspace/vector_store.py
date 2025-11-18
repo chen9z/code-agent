@@ -4,15 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
-
-from adapters.workspace.tree_sitter.parser import ParsedSymbol
-
-
-EmbedderFn = Callable[[ParsedSymbol], Sequence[float]]
 
 
 @dataclass
@@ -115,52 +110,6 @@ class LocalQdrantStore:
                 distance=self.config.distance,
             ),
         )
-
-    def upsert_symbols(
-        self,
-        project_name: str,
-        project_path: str,
-        symbols: Sequence[ParsedSymbol],
-        *,
-        embedder: Optional[EmbedderFn] = None,
-        embeddings: Optional[Sequence[Sequence[float]]] = None,
-        payload_overrides: Optional[Mapping[str, object]] = None,
-        batch_size: int = 128,
-    ) -> None:
-        """Upsert ParsedSymbol entries into Qdrant."""
-
-        if not symbols:
-            return
-        if embeddings is None and embedder is None:
-            raise ValueError("Either embeddings or embedder must be provided")
-        if embeddings is not None and len(embeddings) != len(symbols):
-            raise ValueError("Embeddings length must match symbols length")
-
-        def iter_vectors() -> Iterable[Sequence[float]]:
-            if embeddings is not None:
-                for vector in embeddings:
-                    yield vector
-            else:
-                assert embedder is not None
-                for symbol in symbols:
-                    yield embedder(symbol)
-
-        vector_iter = iter_vectors()
-
-        points: List[QdrantPoint] = []
-        for symbol in symbols:
-            vector = next(vector_iter)
-            payload = symbol.to_payload(project_name, project_path)
-            if payload_overrides:
-                payload.update(payload_overrides)
-            points.append(
-                QdrantPoint(
-                    id=symbol.point_id(project_name),
-                    vector=vector,
-                    payload=payload,
-                )
-            )
-        self.upsert_points(points, batch_size=batch_size)
 
     def upsert_points(self, points: Sequence[QdrantPoint], *, batch_size: int = 128) -> None:
         if not points:
@@ -269,7 +218,7 @@ class LocalQdrantStore:
             result = self.client.count(
                 collection_name=self.config.collection,
                 exact=True,
-                filter=filter_,
+                count_filter=filter_,
             )
         except ValueError:
             return 0

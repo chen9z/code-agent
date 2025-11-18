@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
 import retrieval.codebase_indexer as codebase_indexer
 
 from retrieval.codebase_indexer import CodebaseIndex, SemanticCodeIndexer
-from adapters.workspace.tree_sitter.parser import TagKind
+from config.config import reload_config
 
 
 class DummyEmbedder:
@@ -110,24 +111,6 @@ def test_indexer_reports_progress(monkeypatch, tmp_path, caplog):
     bar = tmp_path / "bar.py"
     bar.write_text("def bar():\n    return foo()\n", encoding="utf-8")
 
-    symbol = SimpleNamespace(
-        kind=TagKind.DEF,
-        metadata={"code_snippet": "def foo():\n    return 1\n", "identifier": "foo"},
-        relative_path="foo.py",
-        absolute_path=str(foo),
-        start_line=1,
-        end_line=2,
-        language="python",
-        name="foo",
-    )
-
-    class FakeParser:
-        def parse_project(self, root):
-            return [symbol]
-
-        def close(self):
-            pass
-
     def fake_iter_repository_files(root):
         return [foo, bar]
 
@@ -143,7 +126,6 @@ def test_indexer_reports_progress(monkeypatch, tmp_path, caplog):
             )
         ]
 
-    monkeypatch.setattr(codebase_indexer, "TreeSitterProjectParser", lambda: FakeParser())
     monkeypatch.setattr(codebase_indexer, "iter_repository_files", fake_iter_repository_files)
     monkeypatch.setattr(codebase_indexer, "chunk_code_file", fake_chunk_code_file)
 
@@ -158,7 +140,6 @@ def test_indexer_reports_progress(monkeypatch, tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="retrieval.codebase_indexer"):
         indexer.ensure_index(tmp_path, refresh=True, show_progress=True)
     messages = [record.getMessage() for record in caplog.records if record.name == "retrieval.codebase_indexer"]
-    assert any("解析符号" in msg for msg in messages)
     assert any("分块文件" in msg for msg in messages)
     assert any("完成索引" in msg for msg in messages)
 
@@ -203,3 +184,37 @@ def test_build_payload_filter_passes_through_prefix():
     tokens = [cond.match.text for cond in filter_.should]
     assert "src/agent" in tokens
     assert "docs/**" in tokens
+
+
+def test_indexer_covers_top_level_with_large_chunk(monkeypatch):
+    """chunk_size 2048 时，顶层 __main__ 逻辑也会被索引。"""
+
+    repo_root = Path(__file__).resolve().parent.parent
+    target_file = repo_root / "code_agent.py"
+    assert target_file.exists()
+
+    with monkeypatch.context():
+        monkeypatch.setenv("CHUNK_SIZE", "2048")
+        reload_config()
+
+        def fake_iter_repository_files(_root):
+            return [target_file]
+
+        monkeypatch.setattr(codebase_indexer, "iter_repository_files", fake_iter_repository_files)
+
+        store = DummyStore()
+        embedder = DummyEmbedder()
+        indexer = SemanticCodeIndexer(
+            embedding_client=embedder,
+            vector_store=store,
+            batch_size=8,
+        )
+
+        indexer.ensure_index(repo_root, refresh=True, show_progress=False)
+
+        assert indexer.chunk_size == 2048
+
+        payloads = [p.payload for batch, _ in store.upserts for p in batch]
+        assert any("__main__" in (pl.get("snippet") or "") for pl in payloads)
+
+    reload_config()
