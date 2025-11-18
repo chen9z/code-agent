@@ -49,6 +49,14 @@ class DummyStore:
 
     def delete_points(self, remove_ids):
         self.deleted.extend(remove_ids)
+    def delete_project(self, project_name, *, project_key=None):
+        if project_key and project_key in self.records_by_key:
+            removed = list(self.records_by_key.pop(project_key, {}).keys())
+            self.deleted.extend(removed)
+        elif project_key is None:
+            keys = list(self.records_by_key.keys())
+            self.records_by_key.clear()
+            self.deleted.extend(keys)
 
     def upsert_points(self, points, batch_size: int) -> None:
         self.upserts.append((points, batch_size))

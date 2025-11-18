@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from retrieval.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
-_PROJECT_ROOTS: Dict[str, Path] = {}
+from retrieval.codebase_indexer import CodebaseIndex, EmbeddingClient, SemanticCodeIndexer
+_PROJECT_ROOTS_BY_KEY: Dict[str, Path] = {}
 
 
 @dataclass
@@ -33,7 +33,7 @@ class Index:
             embedding_client=embedding_client,
             batch_size=batch_size,
         )
-        self._project_paths: Dict[str, Path] = {}
+        self._project_paths_by_key: Dict[str, Path] = {}
 
     def index_project(
         self,
@@ -49,32 +49,34 @@ class Index:
             raise ValueError(f"Path is not a directory: {root}")
 
         index = self._indexer.ensure_index(root, refresh=refresh, show_progress=show_progress)
-        self._project_paths[index.project_name] = root
-        _PROJECT_ROOTS[index.project_name] = root
+        self._register_index(index)
         return {
             "project_name": index.project_name,
             "project_path": str(root),
             "collection_name": index.collection_name,
             "chunk_size": self._indexer.chunk_size,
+            "project_key": index.project_key,
         }
 
     def search(
         self,
-        project_name: str,
+        project_key: str,
         query: str,
         limit: int = 5,
         *,
+        project_path: Optional[str] = None,
         target_directories: Optional[Sequence[str]] = None,
         refresh_index: bool = False,
     ) -> List[Document]:
-        root = self._resolve_project_root(project_name)
-        hits, _ = self._indexer.search(
+        root = self._resolve_project_root(project_key, project_path)
+        hits, index = self._indexer.search(
             root,
             query,
             limit=max(1, limit),
             target_directories=target_directories,
             refresh_index=refresh_index,
         )
+        self._register_index(index)
         documents: List[Document] = []
         for idx, hit in enumerate(hits):
             chunk = hit.chunk
@@ -107,15 +109,34 @@ class Index:
             formatted.append("")
         return "\n".join(formatted).rstrip()
 
-    def _resolve_project_root(self, project_name: str) -> Path:
-        local = self._project_paths.get(project_name)
-        if local is not None:
-            return local
-        shared = _PROJECT_ROOTS.get(project_name)
-        if shared is not None:
-            self._project_paths[project_name] = shared
-            return shared
-        raise KeyError(f"Project '{project_name}' has not been indexed yet.")
+    def _resolve_project_root(
+        self,
+        project_key: str,
+        project_path: Optional[str],
+    ) -> Path:
+        if project_path:
+            root = Path(project_path).expanduser().resolve()
+            if not root.exists():
+                raise FileNotFoundError(f"Project directory not found: {root}")
+            if not root.is_dir():
+                raise ValueError(f"Path is not a directory: {root}")
+            self._project_paths_by_key[project_key] = root
+            _PROJECT_ROOTS_BY_KEY[project_key] = root
+            return root
+
+        local_key = self._project_paths_by_key.get(project_key)
+        if local_key is not None:
+            return local_key
+        shared_key = _PROJECT_ROOTS_BY_KEY.get(project_key)
+        if shared_key is not None:
+            self._project_paths_by_key[project_key] = shared_key
+            return shared_key
+        raise KeyError(f"Project key '{project_key}' has not been indexed yet.")
+
+    def _register_index(self, index: CodebaseIndex) -> None:
+        root = index.project_root
+        self._project_paths_by_key[index.project_key] = root
+        _PROJECT_ROOTS_BY_KEY[index.project_key] = root
 
 
 def create_index() -> Index:

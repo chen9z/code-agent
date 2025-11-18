@@ -14,6 +14,8 @@ sys.path.insert(0, str(project_root))
 
 @pytest.fixture(autouse=True)
 def patch_embedding_client(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_API_BASE", "http://localhost:0")
+    monkeypatch.setenv("EMBEDDING_MODEL", "dummy-embedding")
     def fake_embed(self, texts, *, task="code"):
         results = []
         for text in texts:

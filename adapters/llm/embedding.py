@@ -101,6 +101,16 @@ def create_embedding_client(
 ):
     resolved_endpoint = endpoint or os.getenv("EMBEDDING_API_BASE")
     resolved_model = model or os.getenv("EMBEDDING_MODEL")
+    if not resolved_endpoint:
+        raise RuntimeError(
+            "EMBEDDING_API_BASE 未设置，无法创建 embedding 客户端；"
+            "请在环境变量或配置中提供 EMBEDDING_API_BASE。"
+        )
+    if not resolved_model:
+        raise RuntimeError(
+            "EMBEDDING_MODEL 未设置，无法创建 embedding 客户端；"
+            "请在环境变量或配置中提供 EMBEDDING_MODEL。"
+        )
     return DefaultEmbeddingClient(
         endpoint=resolved_endpoint,
         model=resolved_model,

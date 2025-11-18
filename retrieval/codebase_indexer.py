@@ -27,9 +27,41 @@ EmbeddingClient = DefaultEmbeddingClient
 logger = logging.getLogger(__name__)
 
 
+def _read_git_head(root: Path) -> Optional[str]:
+    """Return HEAD commit hash if repository exists, else None."""
+    git_dir = root / ".git"
+    if not git_dir.exists():
+        return None
+    head_file = git_dir / "HEAD"
+    try:
+        head_content = head_file.read_text(encoding="utf-8", errors="ignore").strip()
+    except Exception:
+        head_content = ""
+    if head_content.startswith("ref:"):
+        ref_rel = head_content.split(" ", 1)[1].strip()
+        ref_path = git_dir / ref_rel
+        try:
+            return ref_path.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            return None
+    if head_content:
+        return head_content
+    return None
+
+
 def _project_identifier(root: Path) -> str:
-    digest = hashlib.sha1(str(root).encode("utf-8", errors="ignore")).hexdigest()
+    """Generate a deterministic project key, incorporating commit when可用."""
+    commit = _read_git_head(root)
+    material = f"{root}@{commit}" if commit else str(root)
+    digest = hashlib.sha1(material.encode("utf-8", errors="ignore")).hexdigest()
     return digest[:16]
+
+
+def compute_project_key(project_path: str | Path) -> str:
+    """Public helper for callers that need stable project_key generation."""
+
+    root = Path(project_path).expanduser().resolve()
+    return _project_identifier(root)
 
 
 _COLLECTION_SANITIZE_RE = re.compile(r"[^0-9A-Za-z_-]+")
@@ -219,13 +251,7 @@ class SemanticCodeIndexer:
         file_paths: set[str] = set()
 
         # 先清理旧向量，避免写入新片段后又被后置删除逻辑清空
-        existing_records = self._store.list_point_ids(project_key)
-        if existing_records:
-            remove_ids = [
-                str(getattr(record, "id", record_id))
-                for record_id, record in existing_records.items()
-            ]
-            self._store.delete_points(remove_ids)
+        self._store.delete_project(root.name, project_key=project_key)
 
         reported_paths: set[str] = set()
 

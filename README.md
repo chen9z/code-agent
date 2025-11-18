@@ -45,15 +45,29 @@ from retrieval.index import create_index
 
 index = create_index()
 index_info = index.index_project("/path/to/project")
-hits = index.search(index_info["project_name"], "function definition", limit=5)
+hits = index.search(
+    index_info["project_key"],
+    "function definition",
+    limit=5,
+)
 
-print(index_info["collection_name"], index_info["chunk_size"], len(hits))
+print(index_info["collection_name"], index_info["project_key"], len(hits))
+
+# 也可以在新进程中直接传入 project_path，让 search 自动 hydrate 索引：
+fresh_hits = index.search(
+    index_info["project_key"],
+    "function definition",
+    project_path=index_info["project_path"],
+)
+print(len(fresh_hits))
 ```
 
 ### Chunking & Retrieval Flow
 - Files are tokenized by `SemanticCodeIndexer` and split into ~`chunk_size` lines (default 200) with symbol-aware boundaries provided by Tree-sitter.
 - Each chunk is embedded via the configured model and stored in a local Qdrant collection keyed by project name under `storage/`.
 - Index responses now surface the Qdrant `collection_name` alongside `chunk_size`, making it easy to inspect storage or reuse the collection directly.
+- The `project_key` returned from indexing uniquely identifies a specific workspace snapshot (path + git commit when available) and can be passed back to `search` to disambiguate repositories that share the same `project_name`.
+- `search` 允许通过 `project_path` 直接指定仓库位置，方便在新进程里刷新/重用索引而不用提前调用 `index_project`。
 - Search embeds the query once, filters hits by optional directory patterns, and returns scored chunks with file paths and line spans for downstream tooling.
 
 ## Agent CLI

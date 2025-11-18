@@ -27,6 +27,7 @@ def main() -> int:
         project_index = create_index()
         index_info = project_index.index_project(str(path), show_progress=True)
         project_name = index_info.get("project_name", path.name)
+        project_key = index_info.get("project_key")
     except Exception as exc:  # pragma: no cover - CLI convenience
         print(f"Indexing failed: {exc}")
         return 1
@@ -35,8 +36,10 @@ def main() -> int:
     print(json.dumps(index_info, ensure_ascii=False, indent=2))
 
     try:
+        if not project_key:
+            raise RuntimeError("index_project did not return project_key")
         results = project_index.search(
-            project_name,
+            project_key,
             query_text,
             target_directories=None,
         )
