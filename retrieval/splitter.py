@@ -11,7 +11,6 @@ from adapters.workspace.semantic_splitter import (
     EXT_LANGUAGE,
     SemanticChunk,
     SemanticSplitter,
-    SplitterConfig,
 )
 
 try:
@@ -123,10 +122,7 @@ def chunk_code_file(
     if not language:
         return _line_chunks_from_text(str(path), text, size, language=None)
 
-    splitter = SemanticSplitter(
-        language,
-        config=SplitterConfig(max_lines=size, pre_context=pre_context),
-    )
+    splitter = SemanticSplitter(language, chunk_size=size)
     semantic_chunks = splitter.split(str(path), text)
     if not semantic_chunks:
         return _line_chunks_from_text(str(path), text, size, language=language)
