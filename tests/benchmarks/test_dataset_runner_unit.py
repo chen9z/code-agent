@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from adapters.llm.llm import BaseLLMClient
-from benchmarks.dataset.models import PreparedQuery, QuerySpec
+from benchmarks.dataset.models import QuerySpec
 from benchmarks.dataset.runner import DatasetRunner
 
 
@@ -54,8 +54,6 @@ def test_runner_logs_chunk(tmp_path: Path) -> None:
         commit="abc123",
         path=str(repo),
     )
-    prepared = PreparedQuery(spec=spec, snapshot_path=repo)
-
     llm = FakeLLMClient(
         {
             "path": "src/demo.py",
@@ -67,7 +65,7 @@ def test_runner_logs_chunk(tmp_path: Path) -> None:
     artifacts_root = tmp_path / "storage" / "dataset"
     runner = DatasetRunner(llm_client=llm, run_name="run1", artifacts_root=artifacts_root)
 
-    results = runner.run_queries([prepared])
+    results = runner.run_queries([(spec, repo)])
     assert results[0].success
 
     raw_file = artifacts_root / "run1" / "raw_samples" / "q-demo.jsonl"

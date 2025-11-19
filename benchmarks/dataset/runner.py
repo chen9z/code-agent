@@ -6,7 +6,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Iterator, List, Mapping, Optional
+from typing import Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from agent.prompts import DATASET_SYSTEM_PROMPT
 from agent.session import CodeAgentSession
@@ -16,7 +16,7 @@ from benchmarks.dataset.snapshot_manager import SnapshotManager
 from tools.dataset_log import DatasetLogTool, DatasetQueryContext
 from tools.registry import ToolRegistry, create_default_registry
 
-from benchmarks.dataset.models import DatasetRunResult, PreparedQuery, QuerySpec
+from benchmarks.dataset.models import DatasetRunResult, QuerySpec
 
 
 def load_query_specs(path: Path) -> List[QuerySpec]:
@@ -40,8 +40,8 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
     return entries
 
 
-def prepare_queries(specs: Iterable[QuerySpec], *, manager: SnapshotManager) -> List[PreparedQuery]:
-    prepared: List[PreparedQuery] = []
+def prepare_queries(specs: Iterable[QuerySpec], *, manager: SnapshotManager) -> List[tuple[QuerySpec, Path]]:
+    prepared: List[tuple[QuerySpec, Path]] = []
     for spec in specs:
         metadata = manager.materialize(
             repo_url=spec.repo_url or spec.path or "repo",
@@ -49,12 +49,7 @@ def prepare_queries(specs: Iterable[QuerySpec], *, manager: SnapshotManager) -> 
             commit=spec.commit,
             source_path=spec.path,
         )
-        prepared.append(
-            PreparedQuery(
-                spec=spec,
-                snapshot_path=Path(metadata.snapshot_path),
-            )
-        )
+        prepared.append((spec, Path(metadata.snapshot_path)))
     return prepared
 
 
@@ -154,19 +149,18 @@ class DatasetRunner:
         self.tool_timeout_seconds = float(cfg.cli_tool_timeout_seconds)
         self.max_iterations = 6
 
-    def run_queries(self, queries: Iterable[PreparedQuery]) -> List[DatasetRunResult]:
+    def run_queries(self, queries: Iterable[tuple[QuerySpec, Path]]) -> List[DatasetRunResult]:
         results: List[DatasetRunResult] = []
-        for prepared in queries:
-            spec = prepared.spec
+        for spec, snapshot_path in queries:
             context = DatasetQueryContext(
                 query_id=spec.query_id,
                 query=spec.query,
                 repo_url=spec.repo_url,
                 branch=spec.branch,
                 commit=spec.commit,
-                snapshot_path=prepared.snapshot_path,
+                snapshot_path=snapshot_path,
             )
-            workspace = prepared.snapshot_path
+            workspace = snapshot_path
             session = self._build_session(context=context, workspace=workspace)
             try:
                 with _workspace_context(workspace):

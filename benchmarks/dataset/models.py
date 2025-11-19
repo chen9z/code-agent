@@ -26,12 +26,6 @@ class SnapshotMetadata:
 
 
 @dataclass
-class PreparedQuery:
-    spec: QuerySpec
-    snapshot_path: Path
-
-
-@dataclass
 class DatasetRunResult:
     query_id: str
     success: bool
