@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -36,8 +37,16 @@ def test_write_success(tool: DatasetLogTool, tmp_path: Path) -> None:
     assert data["chunk"]["path"] == "src/hello.py"
     assert data["chunk"]["start_line"] == 1
     assert data["chunk"]["confidence"] == 0.9
-    raw_root = tmp_path / "test"
-    assert not raw_root.exists()
+    raw_file = tool.raw_samples_dir / f"{tool.context.query_id}.jsonl"
+    assert raw_file.exists()
+    payloads = [json.loads(line) for line in raw_file.read_text(encoding="utf-8").splitlines() if line]
+    assert payloads
+    record = payloads[0]
+    assert record["repo_url"] == "https://example.com/repo.git"
+    assert record["branch"] == "main"
+    assert record["commit"] == "deadbeef"
+    assert "schema_version" not in record
+    assert "repo" not in record
 
 
 def test_duplicate_rejected(tool: DatasetLogTool) -> None:

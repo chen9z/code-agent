@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from hashlib import sha1
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, Tuple
 
 from tools.base import BaseTool
 
@@ -31,7 +30,6 @@ class DatasetLogTool(BaseTool):
         context: DatasetQueryContext,
         artifacts_root: str | Path | None = None,
         run_name: Optional[str] = None,
-        schema_version: str = "2025.11",
     ) -> None:
         self.context = context
         self.snapshot_path = context.snapshot_path.expanduser().resolve()
@@ -40,8 +38,7 @@ class DatasetLogTool(BaseTool):
         self.run_dir = self.artifacts_root / self.run_name
         self.raw_samples_dir = self.run_dir / "raw_samples"
         self.raw_samples_dir.mkdir(parents=True, exist_ok=True)
-        self.schema_version = schema_version
-        self._fingerprints: Set[str] = set()
+        self._seen_ranges: Set[Tuple[str, int, int]] = set()
 
     # ------------------------------------------------------------------ metadata
     @property
@@ -113,6 +110,7 @@ class DatasetLogTool(BaseTool):
             if conf_value < 0 or conf_value > 1:
                 raise ValueError("confidence must be between 0 and 1")
 
+            range_key = self._range_key(str(normalized.as_posix()), start, end)
             record = self._build_record(
                 normalized,
                 start,
@@ -120,10 +118,9 @@ class DatasetLogTool(BaseTool):
                 conf_value,
                 snippet,
             )
-            fingerprint = record["chunk"]["fingerprint"]
-            if fingerprint in self._fingerprints:
+            if range_key in self._seen_ranges:
                 raise ValueError("chunk already recorded for this query")
-            self._fingerprints.add(fingerprint)
+            self._seen_ranges.add(range_key)
             self._persist_record(record)
             display = (
                 f"validated {record['chunk']['path']}:{record['chunk']['start_line']}-"
@@ -134,7 +131,6 @@ class DatasetLogTool(BaseTool):
                 "content": display,
                 "data": {
                     "display": display,
-                    "fingerprint": fingerprint,
                     "chunk": record["chunk"],
                 },
             }
@@ -184,8 +180,6 @@ class DatasetLogTool(BaseTool):
         snippet: str,
     ) -> Dict[str, Any]:
         normalized_path = str(relative_path.as_posix())
-        fingerprint_src = f"{normalized_path}:{start}-{end}:{snippet}".encode("utf-8")
-        fingerprint = sha1(fingerprint_src).hexdigest()
         timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         chunk = {
             "path": normalized_path,
@@ -193,18 +187,14 @@ class DatasetLogTool(BaseTool):
             "end_line": end,
             "confidence": round(confidence, 4),
             "content": snippet,
-            "fingerprint": fingerprint,
         }
         record = {
-            "schema_version": self.schema_version,
             "timestamp": timestamp,
             "query_id": self.context.query_id,
             "query": self.context.query,
-            "repo": {
-                "url": self.context.repo_url,
-                "branch": self.context.branch,
-                "commit": self.context.commit,
-            },
+            "repo_url": self.context.repo_url,
+            "branch": self.context.branch,
+            "commit": self.context.commit,
             "snapshot": {
                 "root": str(self.snapshot_path),
                 "path": chunk["path"],
@@ -218,3 +208,6 @@ class DatasetLogTool(BaseTool):
         with raw_file.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False))
             handle.write("\n")
+
+    def _range_key(self, path: str, start: int, end: int) -> Tuple[str, int, int]:
+        return (path, start, end)

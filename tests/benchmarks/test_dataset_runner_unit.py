@@ -5,7 +5,7 @@ from pathlib import Path
 
 from adapters.llm.llm import BaseLLMClient
 from benchmarks.dataset.models import QuerySpec
-from benchmarks.dataset.runner import DatasetRunner
+from benchmarks.dataset.runner import DatasetRunner, load_query_specs
 
 
 class FakeLLMClient(BaseLLMClient):
@@ -72,7 +72,38 @@ def test_runner_logs_chunk(tmp_path: Path) -> None:
     assert raw_file.exists()
     rows = [json.loads(line) for line in raw_file.read_text(encoding="utf-8").splitlines() if line]
     assert len(rows) == 1
-    chunk = rows[0]["chunk"]
+    record = rows[0]
+    assert record["repo_url"] == "repo-url"
+    assert record["branch"] == "main"
+    assert record["commit"] == "abc123"
+    assert "repo" not in record
+    chunk = record["chunk"]
     assert chunk["path"] == "src/demo.py"
     assert chunk["start_line"] == 1
     assert chunk["end_line"] == 1
+
+
+def test_load_query_specs_top_level_schema(tmp_path: Path) -> None:
+    queries = tmp_path / "queries.jsonl"
+    queries.write_text(
+        json.dumps(
+            {
+                "query_id": "q-top",
+                "query": "demo",
+                "repo_url": "repo",
+                "branch": "dev",
+                "commit": "cafebabe",
+                "repo_path": "/tmp/repo",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    specs = load_query_specs(queries)
+    assert len(specs) == 1
+    spec = specs[0]
+    assert spec.query_id == "q-top"
+    assert spec.repo_url == "repo"
+    assert spec.branch == "dev"
+    assert spec.commit == "cafebabe"
+    assert spec.path == "/tmp/repo"

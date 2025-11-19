@@ -90,5 +90,11 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
         for line in summary.dataset_path.read_text(encoding="utf-8").splitlines()
         if line
     ]
-    assert payloads[0]["query_id"] == "q1"
-    assert len(payloads[0]["golden_chunks"]) == 1
+    record = payloads[0]
+    assert record["query_id"] == "q1"
+    assert record["repo_url"] == "repo-url"
+    assert record["branch"] == "main"
+    assert record["commit"] == "demo"
+    assert "schema_version" not in record
+    assert "repo" not in record
+    assert len(record["golden_chunks"]) == 1

@@ -6,6 +6,7 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from hashlib import sha1
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
@@ -13,8 +14,6 @@ from agent.prompts import DATASET_SYSTEM_PROMPT
 from agent.session import CodeAgentSession
 from config.config import get_config
 from config.prompt import compose_system_prompt
-from benchmarks.dataset.dataset_builder import DatasetBuilder, DatasetSample
-from benchmarks.dataset.extractor import RawSampleExtractor
 from benchmarks.dataset.snapshot_manager import SnapshotManager
 from tools.dataset_log import DatasetLogTool, DatasetQueryContext
 from tools.registry import ToolRegistry, create_default_registry
@@ -38,14 +37,16 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
             if not line.strip():
                 continue
             payload = json.loads(line)
-            repo = payload.get("repo") or {}
-            repo_path = repo.get("path") or repo.get("local_path") or payload.get("repo_path")
+            repo_path = payload.get("repo_path") or payload.get("path")
+            repo_url = payload.get("repo_url") or repo_path or ""
+            branch = payload.get("branch") or "main"
+            commit = payload.get("commit") or "working"
             spec = QuerySpec(
                 query_id=payload["query_id"],
                 query=payload["query"],
-                repo_url=repo.get("url") or repo_path or "",
-                branch=repo.get("branch", "main"),
-                commit=repo.get("commit", "working"),
+                repo_url=repo_url,
+                branch=branch,
+                commit=commit,
                 path=repo_path,
             )
             entries.append(spec)
@@ -85,9 +86,7 @@ def build_dataset_from_raw(
             errors={"__runner__": ["raw_samples directory missing"]},
         )
 
-    extractor = RawSampleExtractor(raw_dir=raw_dir)
-    builder = DatasetBuilder(output_dir=dataset_dir, run_name=run_name)
-    dataset_path = builder.dataset_path
+    dataset_path = dataset_dir / f"dataset_{run_name}.jsonl"
     if dataset_path.exists():
         dataset_path.unlink()
 
@@ -97,23 +96,26 @@ def build_dataset_from_raw(
     total_chunks = 0
 
     for spec in spec_entries:
-        result = extractor.extract(spec.query_id)
-        if result.errors:
-            errors[spec.query_id] = result.errors
-        if not result.chunks:
+        chunks, chunk_errors = _extract_chunks(raw_dir=raw_dir, query_id=spec.query_id)
+        if chunk_errors:
+            errors[spec.query_id] = chunk_errors
+        if not chunks:
             missing.append(spec.query_id)
             continue
-        builder.append(
-            DatasetSample(
-                query_id=spec.query_id,
-                query=spec.query,
-                repo_url=spec.repo_url,
-                commit=spec.commit,
-                golden_chunks=result.chunks,
-            )
-        )
+
+        record = {
+            "query_id": spec.query_id,
+            "query": spec.query,
+            "repo_url": spec.repo_url,
+            "branch": spec.branch,
+            "commit": spec.commit,
+            "golden_chunks": chunks,
+        }
+        with dataset_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False))
+            handle.write("\n")
         total_samples += 1
-        total_chunks += len(result.chunks)
+        total_chunks += len(chunks)
 
     if total_samples == 0 and dataset_path.exists():
         dataset_path.unlink()
@@ -126,6 +128,52 @@ def build_dataset_from_raw(
         missing_queries=missing,
         errors=errors,
     )
+
+
+def _extract_chunks(*, raw_dir: Path, query_id: str) -> Tuple[List[Dict[str, object]], List[str]]:
+    raw_file = raw_dir / f"{query_id}.jsonl"
+    if not raw_file.exists():
+        return [], ["raw sample missing"]
+
+    seen: set[Tuple[str, int, int]] = set()
+    chunks: List[Dict[str, object]] = []
+    errors: List[str] = []
+
+    with raw_file.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                errors.append("json decode error")
+                continue
+
+            chunk = payload.get("chunk") or {}
+            path = chunk.get("path", "")
+            start_line = int(chunk.get("start_line", 0))
+            end_line = int(chunk.get("end_line", 0))
+            if not path or start_line <= 0 or end_line < start_line:
+                continue
+
+            key = (path, start_line, end_line)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            content = chunk.get("content", "")
+            chunks.append(
+                {
+                    "path": path,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "confidence": float(chunk.get("confidence", 0)),
+                    "content": content,
+                    "content_hash": sha1(content.encode("utf-8")).hexdigest(),
+                }
+            )
+
+    return chunks, errors
 
 
 def synthesize(args: argparse.Namespace) -> None:
