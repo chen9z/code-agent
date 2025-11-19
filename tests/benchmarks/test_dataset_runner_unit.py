@@ -93,7 +93,6 @@ def test_load_query_specs_top_level_schema(tmp_path: Path) -> None:
                 "repo_url": "repo",
                 "branch": "dev",
                 "commit": "cafebabe",
-                "repo_path": "/tmp/repo",
             }
         )
         + "\n",
@@ -106,4 +105,4 @@ def test_load_query_specs_top_level_schema(tmp_path: Path) -> None:
     assert spec.repo_url == "repo"
     assert spec.branch == "dev"
     assert spec.commit == "cafebabe"
-    assert spec.path == "/tmp/repo"
+    assert spec.path is None

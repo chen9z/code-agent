@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from adapters.llm.llm import BaseLLMClient
@@ -46,15 +47,26 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     repo.mkdir()
     (repo / "src").mkdir()
     (repo / "src" / "main.py").write_text("print('ok')\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Tester"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "tester@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "src/main.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+    commit = (
+        subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo)
+        .decode("utf-8")
+        .strip()
+    )
 
+    repo_url = str(repo)
     specs = [
         QuerySpec(
             query_id="q1",
             query="print ok",
-            repo_url="repo-url",
+            repo_url=repo_url,
             branch="main",
-            commit="demo",
-            path=str(repo),
+            commit=commit,
+            path=None,
         )
     ]
 
@@ -92,9 +104,9 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     ]
     record = payloads[0]
     assert record["query_id"] == "q1"
-    assert record["repo_url"] == "repo-url"
+    assert record["repo_url"] == repo_url
     assert record["branch"] == "main"
-    assert record["commit"] == "demo"
+    assert record["commit"] == commit
     assert "schema_version" not in record
     assert "repo" not in record
     assert len(record["golden_chunks"]) == 1

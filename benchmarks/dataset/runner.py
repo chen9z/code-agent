@@ -37,8 +37,9 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
             if not line.strip():
                 continue
             payload = json.loads(line)
-            repo_path = payload.get("repo_path") or payload.get("path")
-            repo_url = payload.get("repo_url") or repo_path or ""
+            repo_url = payload.get("repo_url")
+            if not repo_url:
+                raise ValueError(f"repo_url missing for query_id {payload.get('query_id')}")
             branch = payload.get("branch") or "main"
             commit = payload.get("commit") or "working"
             spec = QuerySpec(
@@ -47,7 +48,7 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
                 repo_url=repo_url,
                 branch=branch,
                 commit=commit,
-                path=repo_path,
+                path=None,
             )
             entries.append(spec)
     return entries
