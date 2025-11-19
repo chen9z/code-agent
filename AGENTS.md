@@ -17,7 +17,7 @@
   the current tree.
 - `uv run pytest` – execute the full regression suite; append `-k retrieval` for focused debugging.
 - `uv run pytest tests/test_codebase_retrieval.py -q` – fast signal for the semantic indexer pipeline.
-- `uv run python benchmarks/dataset/cli.py synthesize --queries demo.jsonl` – 运行 DatasetSynthesisAgent 流水线（参见 `docs/dataset_synthesis_plan.md`）。
+- `uv run python benchmarks/dataset/runner.py --queries demo.jsonl` – 运行 DatasetSynthesisAgent 流水线（参见 `docs/dataset_synthesis_plan.md`）。
 -
 `uv run python benchmarks/code_agent_benchmark.py --config benchmarks/examples/embedding_models.json --output benchmarks/results/latest.json` –
 compare embedding/model settings before shipping planner changes.
@@ -51,4 +51,3 @@ or benchmark logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECOND
 要遵守的原则：
 1. **Development Spirit: Remember: Our development should follow the spirit of Linus.**
 2. Output with Chinese.
-

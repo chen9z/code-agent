@@ -120,5 +120,5 @@ agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
 ## 下一步
 1. 确定 query 数据源与仓库访问方式，完成快照管理 PoC，并输出 `snapshot_metadata` 模板。
 2. 实现 DatasetSynthesisAgent + dataset_log_tool MVP，编写最小集成测试（mock 工具 + write_sample 输出）。
-3. 打通 orchestrator：`uv run python benchmarks/dataset/cli.py synthesize --queries demo.jsonl`，生成 10 条样本，验证 schema、指标 diff、脱敏策略。
+3. 打通 orchestrator：`uv run python benchmarks/dataset/runner.py --queries demo.jsonl`，生成 10 条样本，验证 schema、指标 diff、脱敏策略。
 4. 设计 CI 任务：每日/每周回放随机子集，产出 trend 报告。

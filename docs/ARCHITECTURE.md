@@ -18,7 +18,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 - `retrieval/codebase_indexer.py`：切片与 embedding pipeline，依赖 `adapters/llm.embedding` 与 `adapters/workspace.vector_store`。
 - Dataset runner 直接配置 `CodeAgentSession`（受限工具/温度 0）用于数据集生成。
 - `tools/dataset_log.py`：`dataset_log_write_chunk` 工具实现，逐条验证 golden_chunk 后附加到 `storage/dataset/<date>/raw_samples/*.jsonl`。
-- `benchmarks/dataset/cli.py`：数据集 orchestrator，串联快照→Agent→聚合→过滤全流程。
+- `benchmarks/dataset/runner.py`：数据集 orchestrator，串联快照→Agent→聚合→过滤全流程。
 - `adapters/llm/llm.py`：统一的 OpenAI/Opik 兼容客户端，提供 tracing hook。
 
 ## Data & Indexing
@@ -28,7 +28,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 
 ## Usage
 - 程序化入口：示例脚本可通过 `codebase_retrieval.main` 调用 `index_project`；复杂集成走 `retrieval.index.Index`。
-- 数据集流水线：运行 `uv run python benchmarks/dataset/cli.py synthesize --queries demo.jsonl`，详见 `docs/dataset_synthesis_plan.md`。
+- 数据集流水线：运行 `uv run python benchmarks/dataset/runner.py --queries demo.jsonl`，详见 `docs/dataset_synthesis_plan.md`。
 
 ## Extensibility Guidelines
 - 工具实现保持无状态/幂等，统一通过 `runtime.tool_runner.ToolExecutionRunner` 调度。
