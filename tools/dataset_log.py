@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from tools.base import BaseTool
 
@@ -24,7 +22,7 @@ class DatasetQueryContext:
 
 
 class DatasetLogTool(BaseTool):
-    """Tool that records validated golden chunks into per-query JSONL files."""
+    """Tool that validates golden chunks without persisting raw_samples."""
 
     def __init__(
         self,
@@ -39,8 +37,7 @@ class DatasetLogTool(BaseTool):
         self.artifacts_root = Path(artifacts_root or "storage/dataset").expanduser().resolve()
         self.run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%d")
         self.schema_version = schema_version
-        self.raw_samples_dir = self.artifacts_root / self.run_name / "raw_samples"
-        self.raw_samples_dir.mkdir(parents=True, exist_ok=True)
+        self._fingerprints: Set[str] = set()
 
     # ------------------------------------------------------------------ metadata
     @property
@@ -50,10 +47,7 @@ class DatasetLogTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Validate a golden chunk against the prepared snapshot and append it "
-            "to the per-query raw_samples JSONL file."
-        )
+        return "Validate a golden chunk against the prepared snapshot (raw_samples disabled)."
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -122,13 +116,12 @@ class DatasetLogTool(BaseTool):
                 conf_value,
                 snippet,
             )
-            file_path = self._raw_sample_file()
-            if self._is_duplicate(file_path, record["chunk"]["fingerprint"]):
+            fingerprint = record["chunk"]["fingerprint"]
+            if fingerprint in self._fingerprints:
                 raise ValueError("chunk already recorded for this query")
-
-            self._append_record(file_path, record)
+            self._fingerprints.add(fingerprint)
             display = (
-                f"logged {record['chunk']['path']}:{record['chunk']['start_line']}-"
+                f"validated {record['chunk']['path']}:{record['chunk']['start_line']}-"
                 f"{record['chunk']['end_line']}"
             )
             return {
@@ -136,8 +129,8 @@ class DatasetLogTool(BaseTool):
                 "content": display,
                 "data": {
                     "display": display,
-                    "file_path": str(file_path),
-                    "fingerprint": record["chunk"]["fingerprint"],
+                    "fingerprint": fingerprint,
+                    "chunk": record["chunk"],
                 },
             }
         except Exception as exc:  # pragma: no cover - exercised via tests
@@ -215,35 +208,4 @@ class DatasetLogTool(BaseTool):
         }
         return record
 
-    def _raw_sample_file(self) -> Path:
-        return self.raw_samples_dir / f"{self.context.query_id}.jsonl"
-
-    def _is_duplicate(self, file_path: Path, fingerprint: str) -> bool:
-        if not file_path.exists():
-            return False
-        with file_path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    payload = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                chunk = payload.get("chunk") or {}
-                if chunk.get("fingerprint") == fingerprint:
-                    return True
-        return False
-
-    def _append_record(self, file_path: Path, record: Dict[str, Any]) -> None:
-        serialized = json.dumps(record, ensure_ascii=False)
-        fd = os.open(file_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-        try:
-            with os.fdopen(fd, "a", encoding="utf-8") as handle:
-                handle.write(serialized)
-                handle.write("\n")
-        finally:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+    # raw_samples persistence is intentionally disabled

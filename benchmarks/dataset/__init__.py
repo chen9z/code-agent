@@ -2,7 +2,7 @@
 
 from .dataset_builder import DatasetBuilder, DatasetSample
 from .extractor import RawSampleExtractor
-from .models import DatasetRunResult, PreparedQuery, QuerySpec, RepoSpec
+from .models import DatasetRunResult, PreparedQuery, QuerySpec
 from .runner import DatasetRunner
 from .snapshot_manager import SnapshotManager, SnapshotMetadata
 
@@ -13,7 +13,6 @@ __all__ = [
     "DatasetRunner",
     "SnapshotManager",
     "SnapshotMetadata",
-    "RepoSpec",
     "QuerySpec",
     "PreparedQuery",
     "DatasetRunResult",

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from adapters.llm.llm import BaseLLMClient
-from benchmarks.dataset.models import PreparedQuery, QuerySpec, RepoSpec
+from benchmarks.dataset.models import PreparedQuery, QuerySpec
 from benchmarks.dataset.runner import DatasetRunner
 
 
@@ -49,7 +49,10 @@ def test_runner_logs_chunk(tmp_path: Path) -> None:
     spec = QuerySpec(
         query_id="q-demo",
         query="print demo",
-        repo=RepoSpec(url="repo-url", branch="main", commit="abc123", path=str(repo)),
+        repo_url="repo-url",
+        branch="main",
+        commit="abc123",
+        path=str(repo),
     )
     prepared = PreparedQuery(spec=spec, snapshot_path=repo)
 
@@ -68,6 +71,4 @@ def test_runner_logs_chunk(tmp_path: Path) -> None:
     assert results[0].success
 
     raw_file = artifacts_root / "run1" / "raw_samples" / "q-demo.jsonl"
-    assert raw_file.exists()
-    row = json.loads(raw_file.read_text(encoding="utf-8").strip())
-    assert row["chunk"]["path"] == "src/demo.py"
+    assert not raw_file.exists()

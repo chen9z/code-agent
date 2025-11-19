@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -33,14 +32,12 @@ def tool(snapshot_dir: Path, tmp_path: Path) -> DatasetLogTool:
 def test_write_success(tool: DatasetLogTool, tmp_path: Path) -> None:
     result = tool.execute(path="src/hello.py", start_line=1, end_line=2, confidence=0.9)
     assert result["status"] == "success"
-    raw_file = tmp_path / "test" / "raw_samples" / "q1.jsonl"
-    assert raw_file.exists()
-    rows = raw_file.read_text(encoding="utf-8").strip().splitlines()
-    assert len(rows) == 1
-    payload = json.loads(rows[0])
-    assert payload["chunk"]["path"] == "src/hello.py"
-    assert payload["chunk"]["start_line"] == 1
-    assert payload["chunk"]["confidence"] == 0.9
+    data = result["data"]
+    assert data["chunk"]["path"] == "src/hello.py"
+    assert data["chunk"]["start_line"] == 1
+    assert data["chunk"]["confidence"] == 0.9
+    raw_root = tmp_path / "test"
+    assert not raw_root.exists()
 
 
 def test_duplicate_rejected(tool: DatasetLogTool) -> None:

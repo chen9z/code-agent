@@ -4,11 +4,8 @@ import json
 from pathlib import Path
 
 from adapters.llm.llm import BaseLLMClient
-from benchmarks.dataset.cli import prepare_queries
-from benchmarks.dataset.dataset_builder import DatasetBuilder, DatasetSample
-from benchmarks.dataset.extractor import RawSampleExtractor
-from benchmarks.dataset.models import QuerySpec, RepoSpec
-from benchmarks.dataset.runner import DatasetRunner
+from benchmarks.dataset.models import QuerySpec
+from benchmarks.dataset.runner import DatasetRunner, prepare_queries
 from benchmarks.dataset.snapshot_manager import SnapshotManager
 
 
@@ -54,7 +51,10 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
         QuerySpec(
             query_id="q1",
             query="print ok",
-            repo=RepoSpec(url="repo-url", branch="main", commit="demo", path=str(repo)),
+            repo_url="repo-url",
+            branch="main",
+            commit="demo",
+            path=str(repo),
         )
     ]
 
@@ -74,21 +74,6 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     assert results[0].success
 
     raw_dir = artifacts_root / "run" / "raw_samples"
-    extractor = RawSampleExtractor(raw_dir=raw_dir)
-    extraction = extractor.extract("q1")
-    assert extraction.chunks
-
-    builder = DatasetBuilder(output_dir=artifacts_root / "run" / "datasets", run_name="run")
-    builder.append(
-        DatasetSample(
-            query_id="q1",
-            query="print ok",
-            repo_url="repo-url",
-            commit="demo",
-            golden_chunks=extraction.chunks,
-        )
-    )
-    dataset_path = artifacts_root / "run" / "datasets" / "dataset_run.jsonl"
-    assert dataset_path.exists()
-    content = dataset_path.read_text(encoding="utf-8").strip()
-    assert "print('ok')" in content
+    assert not raw_dir.exists()
+    dataset_path = artifacts_root / "run" / "datasets"
+    assert not dataset_path.exists()

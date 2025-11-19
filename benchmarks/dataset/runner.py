@@ -10,13 +10,11 @@ from agent.prompts import DATASET_SYSTEM_PROMPT
 from agent.session import CodeAgentSession
 from config.config import get_config
 from config.prompt import compose_system_prompt
-from benchmarks.dataset.dataset_builder import DatasetBuilder, DatasetSample
-from benchmarks.dataset.extractor import RawSampleExtractor
 from benchmarks.dataset.snapshot_manager import SnapshotManager
 from tools.dataset_log import DatasetLogTool, DatasetQueryContext
 from tools.registry import ToolRegistry, create_default_registry
 
-from benchmarks.dataset.models import DatasetRunResult, PreparedQuery, QuerySpec, RepoSpec
+from benchmarks.dataset.models import DatasetRunResult, PreparedQuery, QuerySpec
 
 
 def load_query_specs(path: Path) -> List[QuerySpec]:
@@ -29,14 +27,12 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
             repo = payload.get("repo") or {}
             repo_path = repo.get("path") or repo.get("local_path") or payload.get("repo_path")
             spec = QuerySpec(
-                query_id=str(payload["query_id"]),
+                query_id=payload["query_id"],
                 query=payload["query"],
-                repo=RepoSpec(
-                    url=repo.get("url") or repo_path or "",
-                    branch=repo.get("branch", "main"),
-                    commit=repo.get("commit", "working"),
-                    path=repo_path,
-                ),
+                repo_url=repo.get("url") or repo_path or "",
+                branch=repo.get("branch", "main"),
+                commit=repo.get("commit", "working"),
+                path=repo_path,
             )
             entries.append(spec)
     return entries
@@ -45,12 +41,11 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
 def prepare_queries(specs: Iterable[QuerySpec], *, manager: SnapshotManager) -> List[PreparedQuery]:
     prepared: List[PreparedQuery] = []
     for spec in specs:
-        repo = spec.repo
         metadata = manager.materialize(
-            repo_url=repo.url or repo.path or "repo",
-            branch=repo.branch,
-            commit=repo.commit,
-            source_path=repo.path,
+            repo_url=spec.repo_url or spec.path or "repo",
+            branch=spec.branch,
+            commit=spec.commit,
+            source_path=spec.path,
         )
         prepared.append(
             PreparedQuery(
@@ -74,31 +69,8 @@ def synthesize(args: argparse.Namespace) -> None:
     runner = DatasetRunner(run_name=run_name, artifacts_root=artifacts_root)
     run_results = runner.run_queries(prepared_queries)
 
-    raw_dir = artifacts_root / run_name / "raw_samples"
-    extractor = RawSampleExtractor(raw_dir=raw_dir)
-    dataset_dir = artifacts_root / run_name / "datasets"
-    builder = DatasetBuilder(output_dir=dataset_dir, run_name=run_name)
-
     anomalies_path = run_dir / "anomalies.jsonl"
     anomalies: List[dict] = []
-
-    recorded_samples = 0
-
-    for prepared in prepared_queries:
-        spec = prepared.spec
-        extraction = extractor.extract(spec.query_id)
-        if not extraction.chunks:
-            anomalies.append({"query_id": spec.query_id, "error": "no_chunks"})
-            continue
-        sample = DatasetSample(
-            query_id=spec.query_id,
-            query=spec.query,
-            repo_url=spec.repo.url,
-            commit=spec.repo.commit,
-            golden_chunks=extraction.chunks,
-        )
-        builder.append(sample)
-        recorded_samples += 1
 
     for result in run_results:
         if not result.success:
@@ -113,12 +85,9 @@ def synthesize(args: argparse.Namespace) -> None:
     _print_summary(
         run_name=run_name,
         run_dir=run_dir,
-        raw_dir=raw_dir,
-        dataset_path=builder.dataset_path,
         anomalies_path=anomalies_path,
         total_queries=len(prepared_queries),
         agent_success=sum(1 for result in run_results if result.success),
-        recorded_samples=recorded_samples,
         anomalies=anomalies,
     )
 
@@ -127,28 +96,22 @@ def _print_summary(
     *,
     run_name: str,
     run_dir: Path,
-    raw_dir: Path,
-    dataset_path: Path,
     anomalies_path: Path,
     total_queries: int,
     agent_success: int,
-    recorded_samples: int,
     anomalies: List[dict],
 ) -> None:
     print("[数据集] 运行名称:", run_name)
     print("[数据集] 运行目录:", run_dir)
-    print("[数据集] 原始样本目录:", raw_dir)
-    dataset_status = "已生成" if dataset_path.exists() else "尚未生成"
-    print(f"[数据集] 输出文件: {dataset_path} ({dataset_status})")
-    print(
-        f"[数据集] 查询总数 {total_queries}，Agent 执行成功 {agent_success} 个，生成样本 {recorded_samples} 个"
-    )
-    if anomalies:
-        print(f"[数据集] 记录了 {len(anomalies)} 个异常，详情见 {anomalies_path}")
-        for entry in anomalies:
-            print(f"  - {entry.get('query_id')}: {entry.get('error')}")
+    print("[数据集] 当前已禁用 raw_samples 持久化，仅回放 Agent 查询。")
+    print(f"[数据集] 查询总数 {total_queries}，Agent 执行成功 {agent_success} 个")
+    failed = total_queries - agent_success
+    if failed:
+        print(f"[数据集] 失败 {failed} 个，详情见 {anomalies_path}")
     else:
         print("[数据集] 未记录异常")
+    for entry in anomalies:
+        print(f"  - {entry.get('query_id')}: {entry.get('error')}")
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -186,9 +149,9 @@ class DatasetRunner:
             context = DatasetQueryContext(
                 query_id=spec.query_id,
                 query=spec.query,
-                repo_url=spec.repo.url,
-                branch=spec.repo.branch,
-                commit=spec.repo.commit,
+                repo_url=spec.repo_url,
+                branch=spec.branch,
+                commit=spec.commit,
                 snapshot_path=prepared.snapshot_path,
             )
             workspace = prepared.snapshot_path
@@ -208,7 +171,7 @@ class DatasetRunner:
         workspace: Path,
     ) -> CodeAgentSession:
         registry = self._build_registry(context=context, workspace=workspace)
-        environment = self._build_environment(context=context, workspace=workspace)
+        environment = self._build_environment(context=context)
         system_prompt = compose_system_prompt(DATASET_SYSTEM_PROMPT, environment=environment)
         return CodeAgentSession(
             registry=registry,
@@ -244,11 +207,11 @@ class DatasetRunner:
         self,
         *,
         context: DatasetQueryContext,
-        workspace: Path,
     ) -> Mapping[str, object]:
+        snapshot_root = str(context.snapshot_path)
         return {
-            "snapshot_root": str(workspace),
-            "cwd": str(workspace),
+            "snapshot_root": snapshot_root,
+            "cwd": snapshot_root,
             "query_id": context.query_id,
             "artifacts_root": str(self.artifacts_root),
         }

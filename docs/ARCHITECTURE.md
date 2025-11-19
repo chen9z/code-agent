@@ -17,14 +17,14 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 - `retrieval/index.py`：暴露 `index_project`、`search`、格式化工具，负责与 Qdrant/Tree-sitter 协作。
 - `retrieval/codebase_indexer.py`：切片与 embedding pipeline，依赖 `adapters/llm.embedding` 与 `adapters/workspace.vector_store`。
 - Dataset runner 直接配置 `CodeAgentSession`（受限工具/温度 0）用于数据集生成。
-- `tools/dataset_log.py`：`dataset_log_write_chunk` 工具实现，逐条验证 golden_chunk 后附加到 `storage/dataset/<date>/raw_samples/*.jsonl`。
+- `tools/dataset_log.py`：`dataset_log_write_chunk` 工具实现，逐条验证 golden_chunk（raw_samples 持久化当前禁用）。
 - `benchmarks/dataset/runner.py`：数据集 orchestrator，串联快照→Agent→聚合→过滤全流程。
 - `adapters/llm/llm.py`：统一的 OpenAI/Opik 兼容客户端，提供 tracing hook。
 
 ## Data & Indexing
 - Project key：`<project_name>`（默认为工作区 basename）。快照及向量集合写入 `./storage/`（gitignored）。
 - 检索 chunk 模型：`{path, start_line, end_line, chunk_id, score}`。`retrieval.splitter` 控制最大行数（默认约 200 行）。
-- 数据集 golden_chunk：`{path, start_line, end_line, confidence}`，由 `dataset_log_write_chunk` 在静态快照上校验后写入 JSONL；`benchmarks/dataset/extractor.py` 负责聚合。
+- 数据集 golden_chunk：`{path, start_line, end_line, confidence}`，由 `dataset_log_write_chunk` 在静态快照上校验（raw_samples JSONL 暂未写入）；`benchmarks/dataset/extractor.py` 可用于后续重新启用聚合。
 
 ## Usage
 - 程序化入口：示例脚本可通过 `codebase_retrieval.main` 调用 `index_project`；复杂集成走 `retrieval.index.Index`。
@@ -33,7 +33,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 ## Extensibility Guidelines
 - 工具实现保持无状态/幂等，统一通过 `runtime.tool_runner.ToolExecutionRunner` 调度。
 - Retrieval 逻辑应借助 `adapters/workspace` 处理文件与向量存储；不要直接操作 Qdrant API。
-- DatasetSynthesisAgent 工具需遵循单 chunk 原子写入。如果要扩展字段，在 `tools/dataset_log.py` 与 `docs/dataset_synthesis_plan.md` 同步 schema。
+- DatasetSynthesisAgent 工具需保持单 chunk 校验逻辑；若重新启用落盘，需要在 `tools/dataset_log.py` 与 `docs/dataset_synthesis_plan.md` 同步 schema 与策略。
 - 配置通过 `config.config.get_config()` 读取，勿在功能代码中直接访问环境变量。
 
 ## Roadmap (excerpt)

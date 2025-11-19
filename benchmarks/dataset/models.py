@@ -6,18 +6,13 @@ from typing import Optional
 
 
 @dataclass(frozen=True)
-class RepoSpec:
-    url: str
-    branch: str
-    commit: str
-    path: Optional[str] = None  # 本地快照来源
-
-
-@dataclass(frozen=True)
 class QuerySpec:
     query_id: str
     query: str
-    repo: RepoSpec
+    repo_url: str
+    branch: str
+    commit: str
+    path: Optional[str] = None  # 本地快照来源
 
 
 @dataclass

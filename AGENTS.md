@@ -46,7 +46,7 @@ update relevant docs (`README.md`, `docs/`, this guide), and ensure storage arti
 Secrets are read via `config.config.get_config()`; set `LLM_MODEL`, `LLM_API_KEY`, `OPENAI_API_KEY`, and related
 endpoints in your shell, never in code. Keep local `.env` files out of Git, and double-check that `storage/` snapshots
 or benchmark logs do not leak proprietary code. Use the `CLI_TOOL_TIMEOUT_SECONDS` override sparingly and document why
- longer tool windows are required。对 DatasetSynthesisAgent 来说，`dataset_log_write_chunk` 必须保持单 chunk 校验 + 原子写入，禁用未经授权的路径输出。
+ longer tool windows are required。对 DatasetSynthesisAgent 来说，`dataset_log_write_chunk` 仅负责单 chunk 校验（raw_samples 持久化已暂时禁用），仍需禁止未经授权的路径输出。
 
 要遵守的原则：
 1. **Development Spirit: Remember: Our development should follow the spirit of Linus.**
