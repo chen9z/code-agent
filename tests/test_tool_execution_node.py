@@ -333,3 +333,36 @@ def test_existing_timeout_is_preserved():
 
     call_kwargs = bash_tool.calls[0]
     assert call_kwargs.get("timeout") == 10
+
+
+def test_tool_runner_tracks_calls_when_opik_enabled(monkeypatch, registry: ToolRegistry):
+    captured = []
+
+    def fake_track(**track_kwargs):
+        captured.append(track_kwargs)
+
+        def decorator(func):
+            def wrapped(*args, **kwargs):
+                return func(*args, **kwargs)
+
+            return wrapped
+
+        return decorator
+
+    monkeypatch.setattr("runtime.tool_runner.opik_track", fake_track)
+    runner = ToolExecutionRunner(
+        registry,
+        max_parallel_workers=1,
+        opik_track_enabled=True,
+        opik_project_name="proj",
+    )
+
+    runner.run(
+        [{"name": "echo", "arguments": {"value": "tracked"}}],
+        messages=[],
+    )
+
+    assert captured, "track() should have been invoked"
+    span = captured[0]
+    assert span["metadata"]["tool_name"] == "echo"
+    assert span["project_name"] == "proj"

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from typing import Generator, List, Dict, Any
 from config.config import get_config
-
 from opik.integrations.openai import track_openai
 
 
@@ -55,7 +54,7 @@ class OpenAICompatLLMClient(BaseLLMClient):
 
         self.client = client
         self.default_temperature = temperature
-        self.opik_enabled = bool(track_openai and opik_enabled)
+        self.opik_enabled = bool(opik_enabled)
 
     def get_response(
             self,

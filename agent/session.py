@@ -16,6 +16,7 @@ from config.prompt import (
 )
 from runtime.tool_runner import ToolExecutionRunner, ToolResult
 from tools.registry import ToolRegistry, create_default_registry
+from opik import track as opik_track
 
 
 def build_code_agent_system_prompt(
@@ -110,6 +111,8 @@ class CodeAgentSession:
             if tool_timeout_seconds is not None and tool_timeout_seconds > 0
             else float(cfg.cli_tool_timeout_seconds)
         )
+        self._opik_project_name = cfg.llm_opik_project_name
+        self._opik_track = opik_track if cfg.llm_opik_enabled else None
 
         if system_prompt is None:
             resolved_prompt = build_code_agent_system_prompt(
@@ -123,6 +126,8 @@ class CodeAgentSession:
         self.executor = ToolExecutionRunner(
             self.registry,
             default_timeout_seconds=self.tool_timeout_seconds,
+            opik_track_enabled=bool(self._opik_track),
+            opik_project_name=self._opik_project_name,
         )
         self.messages: List[Dict[str, Any]] = []
 
@@ -134,6 +139,25 @@ class CodeAgentSession:
     ) -> Dict[str, Any]:
         if not user_input or not user_input.strip():
             raise ValueError("user_input cannot be empty")
+
+        runner = self._run_turn_impl
+        if self._opik_track:
+            metadata = self._build_turn_metadata(user_input)
+            runner = self._opik_track(
+                name="code_agent_turn",
+                type="general",
+                tags=["code-agent", "session"],
+                metadata=metadata,
+                project_name=self._opik_project_name,
+            )(runner)
+        return runner(user_input=user_input, output_callback=output_callback)
+
+    def _run_turn_impl(
+            self,
+            user_input: str,
+            *,
+            output_callback: Optional[OutputCallback] = None,
+    ) -> Dict[str, Any]:
         messages = _prepare_messages(self.messages, self.system_prompt, user_input)
         _emit(output_callback, create_emit_event("user", user_input))
         self._log_message("user", user_input)
@@ -180,6 +204,30 @@ class CodeAgentSession:
             self._debug("final response captured for turn")
         return result
 
+    def _build_turn_metadata(self, user_input: str) -> Dict[str, Any]:
+        content = user_input.strip()
+        env = None
+        if self.environment:
+            env = {
+                str(key): self._stringify_env_value(value)
+                for key, value in self.environment.items()
+            }
+        metadata: Dict[str, Any] = {
+            "model": self.model,
+            "workspace": str(self.workspace) if self.workspace else None,
+            "max_iterations": self.max_iterations,
+            "temperature": self.temperature,
+            "tool_timeout_seconds": self.tool_timeout_seconds,
+            "history_length": len(self.messages),
+            "input": content,
+            "environment": env,
+        }
+        return {
+            key: value
+            for key, value in metadata.items()
+            if value not in (None, "", {})
+        }
+
     def _call_llm(
             self,
             messages: List[Dict[str, Any]],
@@ -224,6 +272,12 @@ class CodeAgentSession:
             return
         self.tool_timeout_seconds = float(seconds)
         self.executor.set_default_timeout(self.tool_timeout_seconds)
+
+    @staticmethod
+    def _stringify_env_value(value: Any) -> Any:
+        if isinstance(value, Path):
+            return str(value)
+        return value
 
     def _debug(self, message: str) -> None:
         print(f"[CodeAgentSession] {message}")

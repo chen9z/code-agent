@@ -36,6 +36,8 @@ export OPENAI_API_KEY=sk-...            # compatibility fallback
 export OPENAI_API_BASE=https://api.openai.com/v1
 export CHAT_CODEBASE_PATH=/path/to/chat-codebase  # optional deep integration
 export CLI_TOOL_TIMEOUT_SECONDS=120     # optional: override default tool timeout in seconds
+export OPIK_PROJECT_NAME=code-agent-dev # optional: label spans inside Opik
+export OPIK_ENABLED=true                # toggle tracing on/off
 ```
 
 ## Python API
@@ -85,6 +87,10 @@ Type your prompts when the CLI shows `You: ` and enter `exit` (or `quit`) to fin
 
 Notes (concise): the agent uses native tool-calling; if multiple tools are planned in a turn they execute in parallel, and outputs are shown in the original plan order.
 Long Bash/Glob logs are truncated for readability. When you see `preview truncated` or `... (output truncated)` the console has already shown as much as it will retain.
+
+## Opik Tracking
+
+CLI 与 runtime 会在安装 `opik` 且 `OPIK_ENABLED` 为 true 时自动对会话与工具调用打 span；可通过 `OPIK_PROJECT_NAME` 调整写入的项目名，或直接设置 `OPIK_ENABLED=false` 临时关闭追踪，无需维护其他环境变量。
 
 ## Development
 

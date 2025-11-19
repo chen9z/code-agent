@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from tools.registry import ToolRegistry, ToolSpec
 from ui.emission import OutputCallback, OutputMessage, create_emit_event
+from opik import track as opik_track
 
 
 @dataclass
@@ -53,6 +54,8 @@ class ToolExecutionRunner:
             max_parallel_workers: int = 4,
             *,
             default_timeout_seconds: Optional[float] = None,
+            opik_track_enabled: bool = False,
+            opik_project_name: Optional[str] = None,
     ) -> None:
         if max_parallel_workers < 1:
             raise ValueError("max_parallel_workers must be at least 1")
@@ -63,6 +66,8 @@ class ToolExecutionRunner:
             if default_timeout_seconds is not None and default_timeout_seconds > 0
             else None
         )
+        self._opik_track = opik_track if opik_track_enabled else None
+        self._opik_project_name = opik_project_name
 
     def set_default_timeout(self, seconds: Optional[float]) -> None:
         if seconds is None or seconds <= 0:
@@ -156,34 +161,50 @@ class ToolExecutionRunner:
         return [res for res in ordered if res is not None]
 
     def _execute_call(self, call: ToolCall) -> ToolResult:
-        try:
-            spec: ToolSpec = self.registry.get(call.name)
-        except Exception as exc:  # pragma: no cover - exercised via tests
-            return ToolResult(
-                tool_call=call,
-                status="error",
-                content=str(exc),
-                data={},
-            )
+        def _run_tool() -> ToolResult:
+            try:
+                spec: ToolSpec = self.registry.get(call.name)
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                return ToolResult(
+                    tool_call=call,
+                    status="error",
+                    content=str(exc),
+                    data={},
+                )
 
-        effective_arguments = self._apply_timeout_default(call.name, call.arguments)
+            effective_arguments = self._apply_timeout_default(call.name, call.arguments)
 
-        try:
-            output = spec.tool.execute(**effective_arguments)
-        except Exception as exc:  # pragma: no cover - exercised via tests
+            try:
+                output = spec.tool.execute(**effective_arguments)
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                return ToolResult(
+                    tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
+                    status="error",
+                    content=str(exc),
+                    data={},
+                )
+
             return ToolResult(
                 tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
-                status="error",
-                content=str(exc),
-                data={},
+                status=output.get("status"),
+                content=output.get("content"),
+                data=output.get("data"),
             )
 
-        return ToolResult(
-            tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
-            status=output.get("status"),
-            content=output.get("content"),
-            data=output.get("data"),
-        )
+        runner = _run_tool
+        if self._opik_track:
+            metadata = {
+                "tool_name": call.name,
+                "tool_call_id": call.call_id,
+            }
+            runner = self._opik_track(
+                name=f"tool:{call.name}",
+                type="tool",
+                tags=["code-agent", "tool"],
+                metadata=metadata,
+                project_name=self._opik_project_name,
+            )(runner)
+        return runner()
 
     def _apply_timeout_default(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         normalized = str(name).lower() if isinstance(name, str) else ""

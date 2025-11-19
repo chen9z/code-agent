@@ -71,10 +71,7 @@ class AppConfig:
         llm_temperature = _to_float(os.getenv("TEMPERATURE"), defaults.llm_temperature)
         llm_max_tokens = _to_int(os.getenv("MAX_TOKENS"), defaults.llm_max_tokens)
         llm_opik_project_name = os.getenv("OPIK_PROJECT_NAME") or defaults.llm_opik_project_name
-        llm_opik_enabled = _to_bool(
-            os.getenv("OPIK_ENABLED"),
-            defaults.llm_opik_enabled,
-        )
+        llm_opik_enabled = _to_bool(os.getenv("OPIK_ENABLED"), defaults.llm_opik_enabled)
 
         cli_timeout_candidate = os.getenv("TOOL_TIMEOUT_SECONDS")
         cli_tool_timeout_seconds = _to_int(cli_timeout_candidate, defaults.cli_tool_timeout_seconds)
