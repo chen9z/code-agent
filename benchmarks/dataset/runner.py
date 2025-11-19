@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Mapping, Optional
+from typing import Iterable, Iterator, List, Mapping, Optional
 
 from agent.prompts import DATASET_SYSTEM_PROMPT
 from agent.session import CodeAgentSession
@@ -114,6 +116,16 @@ def _print_summary(
         print(f"  - {entry.get('query_id')}: {entry.get('error')}")
 
 
+@contextmanager
+def _workspace_context(target: Path) -> Iterator[None]:
+    original = Path.cwd()
+    os.chdir(target)
+    try:
+        yield
+    finally:
+        os.chdir(original)
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Dataset synthesis orchestrator")
     parser.add_argument("--queries", required=True, help="Path to queries JSONL file")
@@ -157,7 +169,8 @@ class DatasetRunner:
             workspace = prepared.snapshot_path
             session = self._build_session(context=context, workspace=workspace)
             try:
-                session.run_turn(spec.query)
+                with _workspace_context(workspace):
+                    session.run_turn(spec.query)
                 results.append(DatasetRunResult(query_id=spec.query_id, success=True, message=None))
             except Exception as exc:  # pragma: no cover - 捕获 agent 异常
                 results.append(DatasetRunResult(query_id=spec.query_id, success=False, message=str(exc)))
