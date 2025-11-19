@@ -299,7 +299,7 @@ class DatasetRunner:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         cfg = get_config()
         self.tool_timeout_seconds = float(cfg.cli_tool_timeout_seconds)
-        self.max_iterations = 6
+        self.max_iterations = 50
 
     def run_queries(self, queries: Iterable[tuple[QuerySpec, Path]]) -> List[DatasetRunResult]:
         results: List[DatasetRunResult] = []
