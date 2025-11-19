@@ -12,7 +12,7 @@
 - **最小改动**：忽略额外日志、回放管线，先把样本生成链路打通；后续如需更丰富审计，再基于 opik 日志补充。
 - **脱敏已完成**：用于合成的数据（query、repo）已完成脱敏/去标识，本文档不再单独处理隐私字段。
 
-> **2025-11-19 更新**：为减小磁盘占用，raw_samples 持久化暂时关闭；`dataset_log_write_chunk` 仅执行快照校验，不再写入 JSONL。下述涉及 raw_samples 的流程可在恢复持久化时重新启用。
+> **2025-11-19 更新**：raw_samples 持久化重新开启；`dataset_log_write_chunk` 会在校验成功后把记录写入 `storage/dataset/<run>/raw_samples/<query_id>.jsonl`，供后续 extractor 聚合。
 
 ## 总体流程
 1. **仓库快照 & 索引**
@@ -27,18 +27,18 @@
 
 3. **合成样本写出工具**
    - 输入：Agent 每次挑选出的一条 golden_chunk；query_id/query/repo 等静态信息由 orchestrator 注入（快照与 `{repo_url, branch, commit_id}` 一一对应，数据视为静态）。
-   - 操作：`dataset_log_tool`（`tools/dataset_log.py`）暴露 `write_chunk(payload)` 并在调用前校验 `path`/行号/内容。目前 raw_samples 持久化已关闭，工具只做校验与回显。
-   - 输出：即时返回的校验结果，供 Agent 判断是否继续（无本地 JSONL 累积）。
+   - 操作：`dataset_log_tool`（`tools/dataset_log.py`）暴露 `write_chunk(payload)` 并在调用前校验 `path`/行号/内容；校验通过后把记录追加到 `storage/dataset/<run>/raw_samples/<query_id>.jsonl`，并在同一查询内去重。
+   - 输出：即时返回的校验结果 + 持久化的 raw_samples JSONL，供 Agent 判断是否继续。
 
 4. **证据抽取与补全**
-   - 输入：`raw_samples/*.jsonl`（当前阶段禁用；若重新打开持久化即可复用）。
+   - 输入：`raw_samples/*.jsonl`（当前阶段已经生成，可直接复用）。
    - 操作：extractor 聚合同一 `query_id` 的所有 chunk、去重、可选地补充内容 hash/额外特征，并输出统一格式。
    - 输出：`golden_chunks[]`、`validation_status`（启用落盘后生效）。
 
 5. **样本构建**
    - 输入：query、repo meta（由 orchestrator 注入）、golden_chunks。
-   - 操作：生成统一 schema，保留必要版本字段：
-     ```json
+   - 操作：生成统一 schema，保留必要版本字段；`benchmarks/dataset/runner.py` 在回放完成后调用 `build_dataset_from_raw`（整合 `RawSampleExtractor` + `DatasetBuilder`）自动执行聚合。
+   ```json
      {
        "query_id": "...",
        "query": "...",
@@ -47,7 +47,7 @@
        "schema_version": "2025.11"
      }
      ```
-   - 输出：评测数据集文件（JSON/Parquet），附 `dataset_version` 及生成日期。
+   - 输出：评测数据集文件（JSON/Parquet），默认写入 `storage/dataset/<run>/datasets/dataset_<run>.jsonl` 并携带 `dataset_version` 与生成日期。
 
 6. **指标与过滤**
    - 当前阶段先不记录/汇总指标；仅执行基础过滤：剔除无命中、写入失败、命中文件过多或 snippet 高重复的样本，并按仓库/语言/任务类型分桶配额。
@@ -63,12 +63,12 @@
 ```
 benchmarks/dataset/
   snapshot_manager.py       # 拉取仓库 + 索引缓存 + 元数据校验
-  runner.py                 # DatasetSynthesisAgent 批量回放
-  extractor.py              # raw_samples(jsonl) → golden_chunks（聚合 + 补齐字段，当前未启用）
+  runner.py                 # DatasetSynthesisAgent 批量回放 + raw_samples 聚合
+  extractor.py              # raw_samples(jsonl) → golden_chunks（聚合 + 补齐字段，主流程暂未调用）
   dataset_builder.py        # 组合 schema + 版本管理
   metrics.py                # （暂缓）指标计算，如需开启在此实现
 agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
-  tools/dataset_log.py        # dataset_log_tool，仅做快照校验（raw_samples 已禁用）
+  tools/dataset_log.py        # dataset_log_tool，快照校验 + raw_samples JSONL 落盘
  storage/dataset/<date>/           # 输出数据/异常
 ```
 
@@ -87,7 +87,7 @@ agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
     }
   }
   ```
-  工具在内部合并 orchestrator 注入的 `query_id/query/repo/...`，先校验 path/行号/片段与静态快照一致；raw_samples 落盘暂未开启，但仍需保证单次调用幂等（同一 chunk 重复写入需检测并拒绝）。
+  工具在内部合并 orchestrator 注入的 `query_id/query/repo/...`，先校验 path/行号/片段与静态快照一致；校验通过后写入 raw_samples JSONL，并保证单次调用幂等（同一 chunk 重复写入需检测并拒绝）。
 - **版本记录**：工具输出字段变化时 bump `schema_version` 并更新 `tests/tools/test_dataset_log.py`。
 
 （opik 已记录完整请求/响应，此处无需另外定义本地日志格式）
@@ -106,8 +106,8 @@ agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
 | 阶段 | 任务 | 产出 |
 | --- | --- | --- |
 | Snapshot & Index | 拉取仓库、构建 Qdrant 索引 | 快照目录 + index metadata |
-| Runner | DatasetSynthesisAgent 批量回放脚本 | raw golden_chunks（仅校验，无 `raw_samples`） |
-| Evidence Extractor | 解析 raw_samples 补齐 golden_chunks | `raw_samples` 暂未生成 |
+| Runner | DatasetSynthesisAgent 批量回放脚本 | raw golden_chunks + `raw_samples/*.jsonl` + `dataset_<run>.jsonl` |
+| Evidence Extractor | 解析 raw_samples 补齐 golden_chunks | `raw_samples` 已生成，等待聚合 |
 | Dataset Builder | 组合 query/meta/golden_chunks → 数据集 | `datasets/rag_gt.jsonl` |
 | Metrics & Filter | （暂缓）指标计算、过滤策略实现 | filtered dataset |
 | Automation & QC | Orchestrator + 抽样审查工具 | CLI/CI pipeline + QC 报告 |
@@ -115,11 +115,11 @@ agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
 ## 风险与缓解
 - **仓库获取失败**：配置镜像、重试、离线缓存。
 - **索引耗时**：记录 build_time，支持增量/复用。
-- **样本质量参差**：`dataset_log_tool` 在校验阶段即验证文件/行号/内容，落盘恢复后 extractor 再补充聚合信息。
+- **样本质量参差**：`dataset_log_tool` 在校验阶段即验证文件/行号/内容，raw_samples JSONL 将用于 extractor 做进一步聚合与质检。
 - **指标偏差**：明确定义 schema 与过滤规则，定期人工抽查，迭代阈值。
 
 ## 下一步
 1. 确定 query 数据源与仓库访问方式，完成快照管理 PoC，并输出 `snapshot_metadata` 模板。
 2. 实现 DatasetSynthesisAgent + dataset_log_tool MVP，编写最小集成测试（mock 工具 + 校验输出）。
-3. 打通 orchestrator：`uv run python benchmarks/dataset/runner.py --queries demo.jsonl`，当前仅验证 Agent 回放（raw_samples/样本写出仍关闭）。
+3. 打通 orchestrator：`uv run python benchmarks/dataset/runner.py --queries demo.jsonl`，确认 Agent 回放、raw_samples 写出与 `dataset_<run>.jsonl` 聚合都正常。
 4. 设计 CI 任务：每日/每周回放随机子集，产出 trend 报告。

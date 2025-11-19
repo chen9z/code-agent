@@ -69,4 +69,10 @@ def test_runner_logs_chunk(tmp_path: Path) -> None:
     assert results[0].success
 
     raw_file = artifacts_root / "run1" / "raw_samples" / "q-demo.jsonl"
-    assert not raw_file.exists()
+    assert raw_file.exists()
+    rows = [json.loads(line) for line in raw_file.read_text(encoding="utf-8").splitlines() if line]
+    assert len(rows) == 1
+    chunk = rows[0]["chunk"]
+    assert chunk["path"] == "src/demo.py"
+    assert chunk["start_line"] == 1
+    assert chunk["end_line"] == 1

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha1
@@ -22,7 +23,7 @@ class DatasetQueryContext:
 
 
 class DatasetLogTool(BaseTool):
-    """Tool that validates golden chunks without persisting raw_samples."""
+    """Tool that validates golden chunks and persists raw_samples JSONL."""
 
     def __init__(
         self,
@@ -36,6 +37,9 @@ class DatasetLogTool(BaseTool):
         self.snapshot_path = context.snapshot_path.expanduser().resolve()
         self.artifacts_root = Path(artifacts_root or "storage/dataset").expanduser().resolve()
         self.run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%d")
+        self.run_dir = self.artifacts_root / self.run_name
+        self.raw_samples_dir = self.run_dir / "raw_samples"
+        self.raw_samples_dir.mkdir(parents=True, exist_ok=True)
         self.schema_version = schema_version
         self._fingerprints: Set[str] = set()
 
@@ -47,7 +51,7 @@ class DatasetLogTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Validate a golden chunk against the prepared snapshot (raw_samples disabled)."
+        return "Validate a golden chunk against the prepared snapshot and persist raw_samples."
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -120,6 +124,7 @@ class DatasetLogTool(BaseTool):
             if fingerprint in self._fingerprints:
                 raise ValueError("chunk already recorded for this query")
             self._fingerprints.add(fingerprint)
+            self._persist_record(record)
             display = (
                 f"validated {record['chunk']['path']}:{record['chunk']['start_line']}-"
                 f"{record['chunk']['end_line']}"
@@ -208,4 +213,8 @@ class DatasetLogTool(BaseTool):
         }
         return record
 
-    # raw_samples persistence is intentionally disabled
+    def _persist_record(self, record: Dict[str, Any]) -> None:
+        raw_file = self.raw_samples_dir / f"{self.context.query_id}.jsonl"
+        with raw_file.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False))
+            handle.write("\n")

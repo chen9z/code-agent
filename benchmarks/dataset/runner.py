@@ -4,19 +4,31 @@ import argparse
 import json
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Iterator, List, Mapping, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Mapping, Optional, Tuple
 
 from agent.prompts import DATASET_SYSTEM_PROMPT
 from agent.session import CodeAgentSession
 from config.config import get_config
 from config.prompt import compose_system_prompt
+from benchmarks.dataset.dataset_builder import DatasetBuilder, DatasetSample
+from benchmarks.dataset.extractor import RawSampleExtractor
 from benchmarks.dataset.snapshot_manager import SnapshotManager
 from tools.dataset_log import DatasetLogTool, DatasetQueryContext
 from tools.registry import ToolRegistry, create_default_registry
 
 from benchmarks.dataset.models import DatasetRunResult, QuerySpec
+
+
+@dataclass
+class DatasetAggregateSummary:
+    dataset_path: Optional[Path]
+    samples: int
+    chunks: int
+    missing_queries: List[str] = field(default_factory=list)
+    errors: Dict[str, List[str]] = field(default_factory=dict)
 
 
 def load_query_specs(path: Path) -> List[QuerySpec]:
@@ -53,6 +65,69 @@ def prepare_queries(specs: Iterable[QuerySpec], *, manager: SnapshotManager) -> 
     return prepared
 
 
+def build_dataset_from_raw(
+    *,
+    specs: Iterable[QuerySpec],
+    run_dir: Path,
+    run_name: str,
+) -> DatasetAggregateSummary:
+    spec_entries = list(specs)
+    raw_dir = run_dir / "raw_samples"
+    dataset_dir = run_dir / "datasets"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    if not raw_dir.exists():
+        return DatasetAggregateSummary(
+            dataset_path=None,
+            samples=0,
+            chunks=0,
+            missing_queries=[spec.query_id for spec in spec_entries],
+            errors={"__runner__": ["raw_samples directory missing"]},
+        )
+
+    extractor = RawSampleExtractor(raw_dir=raw_dir)
+    builder = DatasetBuilder(output_dir=dataset_dir, run_name=run_name)
+    dataset_path = builder.dataset_path
+    if dataset_path.exists():
+        dataset_path.unlink()
+
+    missing: List[str] = []
+    errors: Dict[str, List[str]] = {}
+    total_samples = 0
+    total_chunks = 0
+
+    for spec in spec_entries:
+        result = extractor.extract(spec.query_id)
+        if result.errors:
+            errors[spec.query_id] = result.errors
+        if not result.chunks:
+            missing.append(spec.query_id)
+            continue
+        builder.append(
+            DatasetSample(
+                query_id=spec.query_id,
+                query=spec.query,
+                repo_url=spec.repo_url,
+                commit=spec.commit,
+                golden_chunks=result.chunks,
+            )
+        )
+        total_samples += 1
+        total_chunks += len(result.chunks)
+
+    if total_samples == 0 and dataset_path.exists():
+        dataset_path.unlink()
+        dataset_path = None
+
+    return DatasetAggregateSummary(
+        dataset_path=dataset_path,
+        samples=total_samples,
+        chunks=total_chunks,
+        missing_queries=missing,
+        errors=errors,
+    )
+
+
 def synthesize(args: argparse.Namespace) -> None:
     artifacts_root = Path(args.artifacts_root).expanduser().resolve()
     run_name = args.run_name or datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -79,6 +154,12 @@ def synthesize(args: argparse.Namespace) -> None:
                 handle.write(json.dumps(row, ensure_ascii=False))
                 handle.write("\n")
 
+    dataset_summary = build_dataset_from_raw(
+        specs=specs,
+        run_dir=run_dir,
+        run_name=run_name,
+    )
+
     _print_summary(
         run_name=run_name,
         run_dir=run_dir,
@@ -86,6 +167,7 @@ def synthesize(args: argparse.Namespace) -> None:
         total_queries=len(prepared_queries),
         agent_success=sum(1 for result in run_results if result.success),
         anomalies=anomalies,
+        dataset_summary=dataset_summary,
     )
 
 
@@ -97,10 +179,11 @@ def _print_summary(
     total_queries: int,
     agent_success: int,
     anomalies: List[dict],
+    dataset_summary: DatasetAggregateSummary,
 ) -> None:
     print("[数据集] 运行名称:", run_name)
     print("[数据集] 运行目录:", run_dir)
-    print("[数据集] 当前已禁用 raw_samples 持久化，仅回放 Agent 查询。")
+    print(f"[数据集] raw_samples 输出目录: {run_dir / 'raw_samples'}")
     print(f"[数据集] 查询总数 {total_queries}，Agent 执行成功 {agent_success} 个")
     failed = total_queries - agent_success
     if failed:
@@ -109,6 +192,24 @@ def _print_summary(
         print("[数据集] 未记录异常")
     for entry in anomalies:
         print(f"  - {entry.get('query_id')}: {entry.get('error')}")
+
+    if dataset_summary.dataset_path:
+        print(
+            f"[数据集] 聚合输出: {dataset_summary.dataset_path} "
+            f"(samples={dataset_summary.samples}, chunks={dataset_summary.chunks})"
+        )
+    else:
+        print("[数据集] 未生成聚合数据文件")
+
+    if dataset_summary.missing_queries:
+        preview = ", ".join(dataset_summary.missing_queries[:5])
+        suffix = "..." if len(dataset_summary.missing_queries) > 5 else ""
+        print(f"  - 无 chunk 的 query: {preview}{suffix}")
+
+    if dataset_summary.errors:
+        for query_id, messages in dataset_summary.errors.items():
+            joined = "; ".join(messages)
+            print(f"  - {query_id}: {joined}")
 
 
 @contextmanager
@@ -145,6 +246,8 @@ class DatasetRunner:
         self.llm_client = llm_client
         self.run_name = run_name or datetime.now(timezone.utc).strftime("%Y%m%d")
         self.artifacts_root = Path(artifacts_root or "storage/dataset").expanduser().resolve()
+        self.run_dir = self.artifacts_root / self.run_name
+        self.run_dir.mkdir(parents=True, exist_ok=True)
         cfg = get_config()
         self.tool_timeout_seconds = float(cfg.cli_tool_timeout_seconds)
         self.max_iterations = 6

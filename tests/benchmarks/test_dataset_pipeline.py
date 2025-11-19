@@ -5,7 +5,7 @@ from pathlib import Path
 
 from adapters.llm.llm import BaseLLMClient
 from benchmarks.dataset.models import QuerySpec
-from benchmarks.dataset.runner import DatasetRunner, prepare_queries
+from benchmarks.dataset.runner import DatasetRunner, prepare_queries, build_dataset_from_raw
 from benchmarks.dataset.snapshot_manager import SnapshotManager
 
 
@@ -74,6 +74,21 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     assert results[0].success
 
     raw_dir = artifacts_root / "run" / "raw_samples"
-    assert not raw_dir.exists()
-    dataset_path = artifacts_root / "run" / "datasets"
-    assert not dataset_path.exists()
+    assert raw_dir.exists()
+    raw_file = raw_dir / "q1.jsonl"
+    rows = [json.loads(line) for line in raw_file.read_text(encoding="utf-8").splitlines() if line]
+    assert len(rows) == 1
+    assert rows[0]["query_id"] == "q1"
+    run_dir = artifacts_root / "run"
+    summary = build_dataset_from_raw(specs=specs, run_dir=run_dir, run_name="run")
+    assert summary.samples == 1
+    assert summary.chunks == 1
+    assert not summary.missing_queries
+    assert summary.dataset_path is not None
+    payloads = [
+        json.loads(line)
+        for line in summary.dataset_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert payloads[0]["query_id"] == "q1"
+    assert len(payloads[0]["golden_chunks"]) == 1
