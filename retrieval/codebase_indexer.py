@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from config.config import get_config
 from retrieval.splitter import chunk_code_file, iter_repository_files
+from concurrent.futures import ProcessPoolExecutor
+
 from adapters.llm.embedding import (
     EmbeddingClientProtocol,
     DefaultEmbeddingClient,
@@ -309,7 +311,8 @@ class SemanticCodeIndexer:
                             payload=payload,
                         )
                     )
-                self._store.upsert_points(points, batch_size=self._batch_size)
+                # Use wait=False for better performance, only wait on last batch if needed
+                self._store.upsert_points(points, batch_size=self._batch_size, wait=False)
 
             chunk_count += len(batch_entries)
             entry_buffer.clear()
@@ -317,31 +320,49 @@ class SemanticCodeIndexer:
         def enqueue_entry(item: CodeChunkEmbedding) -> None:
             entry_buffer.append(item)
             flush_entries()
-        for file_path in iter_repository_files(root):
-            absolute = str(file_path)
-            relative_path = file_path.relative_to(root).as_posix()
-            try:
-                chunks = chunk_code_file(file_path, chunk_size=self._chunk_size)
-            except Exception:
-                continue
 
-            record_progress("分块文件", absolute, hint=relative_path)
+        # Collect all files first
+        all_files = list(iter_repository_files(root))
+        self._emit_progress(f"正在索引 {len(all_files)} 个文件...", show=show_progress)
 
-            for chunk in chunks:
-                snippet_text = chunk.content.rstrip("\n")
-                if not snippet_text.strip():
+        # Use ProcessPoolExecutor for CPU-bound chunking
+        with ProcessPoolExecutor() as executor:
+            # Submit all tasks
+            future_to_path = {
+                executor.submit(chunk_code_file, path, self._chunk_size): path 
+                for path in all_files
+            }
+            
+            for future in future_to_path:
+                path = future_to_path[future]
+                absolute = str(path)
+                try:
+                    relative_path = path.relative_to(root).as_posix()
+                    chunks = future.result()
+                except Exception as exc:
+                    logger.warning(f"Failed to chunk {path}: {exc}")
                     continue
-                item = CodeChunkEmbedding(
-                    relative_path=relative_path,
-                    absolute_path=absolute,
-                    start_line=chunk.start_line,
-                    end_line=chunk.end_line,
-                    language=chunk.language,
-                    content=snippet_text,
-                    metadata=getattr(chunk, "metadata", {}) or {},
-                )
-                enqueue_entry(item)
-                file_paths.add(item.absolute_path)
+                
+                # record_progress("分块文件", absolute, hint=relative_path)
+
+                for chunk in chunks:
+                    snippet_text = chunk.content.rstrip("\n")
+                    if not snippet_text.strip():
+                        continue
+                    item = CodeChunkEmbedding(
+                        relative_path=relative_path,
+                        absolute_path=absolute,
+                        start_line=chunk.start_line,
+                        end_line=chunk.end_line,
+                        language=chunk.language,
+                        content=snippet_text,
+                        metadata=getattr(chunk, "metadata", {}) or {},
+                    )
+                    enqueue_entry(item)
+                    file_paths.add(item.absolute_path)
+                
+                if len(file_paths) % 10 == 0:
+                     self._emit_progress(f"已处理 {len(file_paths)}/{len(all_files)} 个文件", show=show_progress)
 
         flush_entries(force=True)
 
@@ -356,6 +377,7 @@ class SemanticCodeIndexer:
             project_name=root.name,
             collection_name=collection_name,
         )
+
 
     def _emit_progress(self, message: str, *, show: bool) -> None:
         if not show:

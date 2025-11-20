@@ -91,6 +91,7 @@ class Span:
     end: int
     kind: SpanKind = SpanKind.CODE
 
+
 def _get_parser(language: str) -> Optional[Parser]:
     if not is_language_supported(language):
         return None
@@ -106,62 +107,13 @@ def _get_parser(language: str) -> Optional[Parser]:
     return parser
 
 
-def _byte_offsets(lines: Sequence[str]) -> List[int]:
+def _byte_offsets(lines: Sequence[bytes]) -> List[int]:
     offsets = [0]
     total = 0
     for line in lines:
-        total += len(line.encode("utf-8"))
+        total += len(line)
         offsets.append(total)
     return offsets
-
-
-def _char_byte_offsets(text: str) -> List[int]:
-    offsets = [0]
-    total = 0
-    for ch in text:
-        total += len(ch.encode("utf-8"))
-        offsets.append(total)
-    return offsets
-
-
-def _char_index(offsets: Sequence[int], byte_idx: int) -> int:
-    return max(0, bisect_right(offsets, byte_idx) - 1)
-
-
-def _char_length(offsets: Sequence[int], start: int, end: int) -> int:
-    if end <= start:
-        return 0
-    return _char_index(offsets, end) - _char_index(offsets, start)
-
-
-def _char_to_byte(offsets: Sequence[int], idx: int) -> int:
-    if idx <= 0:
-        return 0
-    if idx >= len(offsets):
-        return offsets[-1]
-    return offsets[idx]
-
-
-def _byte_span_char_len(
-        text: str,
-        start_byte: int,
-        end_byte: int,
-        *,
-        char_offsets: Optional[Sequence[int]] = None,
-        encoded: Optional[bytes] = None,
-) -> int:
-    """以字节区间计算对应的字符长度。
-
-    优先使用预计算的 `char_offsets`，其次复用已编码的 `encoded`，最后回退到 encode。
-    """
-    if end_byte <= start_byte:
-        return 0
-    if char_offsets is not None:
-        return _char_length(char_offsets, start_byte, end_byte)
-    start = max(0, start_byte)
-    end = max(start, end_byte)
-    data = encoded if encoded is not None else text.encode("utf-8")
-    return len(data[start:end].decode("utf-8", errors="ignore"))
 
 
 def _byte_to_line(line_offsets: Sequence[int], byte_idx: int, total_lines: int) -> int:
@@ -191,33 +143,37 @@ class SemanticSplitter:
         self.language = language
         self.chunk_size = chunk_size
 
-    def split(self, path: str, text: str) -> List[Document]:
-        text = text or ""
+    def split(self, path: str, text: bytes) -> List[Document]:
         if not text:
             return []
+        
         lines = text.splitlines(keepends=True)
-        encoded = text.encode("utf-8")
         line_offsets = _byte_offsets(lines)
-        char_offsets = _char_byte_offsets(text)
+        
         parser = _get_parser(self.language)
         if parser is None:
-            return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
+            return self._fallback_chunks(path, text, lines, line_offsets)
+            
         try:
-            tree = parser.parse(encoded)
+            tree = parser.parse(text)
         except Exception as exc:
             logger.warning("tree-sitter parse failure for %s (%s)", path, exc)
-            return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
+            return self._fallback_chunks(path, text, lines, line_offsets)
+            
         root = tree.root_node
         if root is None:
-            return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
-        spans = self._chunk_node(root, text, char_offsets=char_offsets, encoded=encoded)
+            return self._fallback_chunks(path, text, lines, line_offsets)
+            
+        spans = self._chunk_node(root)
         self._connect_chunks(spans)
-        spans = self._coalesce_chunks(spans, char_offsets)
+        spans = self._coalesce_chunks(spans)
+        
         if not spans:
-            return self._fallback_chunks(path, text, lines, line_offsets, char_offsets)
+            return self._fallback_chunks(path, text, lines, line_offsets)
+            
         return self._build_chunks_from_spans(
             path=path,
-            encoded=encoded,
+            encoded=text,
             lines=lines,
             spans=spans,
             line_offsets=line_offsets,
@@ -226,20 +182,24 @@ class SemanticSplitter:
     def _fallback_chunks(
             self,
             path: str,
-            text: str,
-            lines: Sequence[str],
+            text: bytes,
+            lines: Sequence[bytes],
             line_offsets: Sequence[int],
-            char_offsets: Sequence[int],
     ) -> List[Document]:
         size = max(1, self.chunk_size)
-        total_chars = len(char_offsets) - 1
-        start_char = 0
+        total_bytes = len(text)
+        start_byte = 0
         chunks: List[Document] = []
-        while start_char < total_chars:
-            end_char = min(total_chars, start_char + size)
-            start_byte = _char_to_byte(char_offsets, start_char)
-            end_byte = _char_to_byte(char_offsets, end_char)
-            content = text[start_char:end_char]
+        
+        while start_byte < total_bytes:
+            end_byte = min(total_bytes, start_byte + size)
+            # Ensure we don't split in the middle of a multi-byte character if possible
+            # But for fallback simple byte slicing is acceptable or we can align to utf-8
+            # For simplicity here we just slice bytes, decoding will handle errors
+            
+            content_bytes = text[start_byte:end_byte]
+            content = content_bytes.decode("utf-8", errors="replace")
+            
             if content.strip():
                 chunks.append(
                     Document(
@@ -251,17 +211,10 @@ class SemanticSplitter:
                         metadata={"kind": SpanKind.CODE.name},
                     )
                 )
-            start_char = end_char
+            start_byte = end_byte
         return chunks
 
-    def _chunk_node(
-            self,
-            node,
-            text,
-            *,
-            char_offsets: Optional[Sequence[int]] = None,
-            encoded: Optional[bytes] = None,
-    ) -> List[Span]:
+    def _chunk_node(self, node) -> List[Span]:
         span = Span(node.start_byte, node.start_byte)
         chunks: List[Span] = []
         symbol_types = set(_node_types(self.language))
@@ -291,13 +244,7 @@ class SemanticSplitter:
 
             child_start = comment_range[0] if comment_range else child.start_byte
             child_end = child.end_byte
-            child_len = _byte_span_char_len(
-                text,
-                child_start,
-                child_end,
-                char_offsets=char_offsets,
-                encoded=encoded,
-            )
+            child_len = child_end - child_start
 
             if comment_range and span.end > span.start:
                 chunks.append(span)
@@ -312,12 +259,7 @@ class SemanticSplitter:
                     chunks.append(Span(start, child_end))
                     continue
 
-                child_spans = self._chunk_node(
-                    child,
-                    text,
-                    char_offsets=char_offsets,
-                    encoded=encoded,
-                )
+                child_spans = self._chunk_node(child)
                 if comment_range and child_spans:
                     child_spans[0].start = min(child_spans[0].start, comment_range[0])
                 elif comment_range:
@@ -325,13 +267,7 @@ class SemanticSplitter:
                 chunks.extend(child_spans)
                 continue
 
-            if _byte_span_char_len(
-                    text,
-                    span.start,
-                    child_end,
-                    char_offsets=char_offsets,
-                    encoded=encoded,
-            ) > self.chunk_size:
+            if (child_end - span.start) > self.chunk_size:
                 if span.end > span.start:
                     chunks.append(span)
                 start = comment_range[0] if comment_range else child.start_byte
@@ -352,11 +288,11 @@ class SemanticSplitter:
         for pre, cur in zip(chunks[:-1], chunks[1:]):
             pre.end = cur.start
 
-    def _coalesce_chunks(self, chunks: List[Span], char_offsets: Sequence[int]) -> List[Span]:
+    def _coalesce_chunks(self, chunks: List[Span]) -> List[Span]:
         new_chunks = []
         current_chunk = Span(0, 0)
         for chunk in chunks:
-            if _char_length(char_offsets, current_chunk.start, chunk.end) < self.chunk_size:
+            if (chunk.end - current_chunk.start) < self.chunk_size:
                 current_chunk.end = chunk.end
             else:
                 if current_chunk.end > current_chunk.start:
@@ -370,7 +306,7 @@ class SemanticSplitter:
             self,
             path: str,
             encoded: bytes,
-            lines: Sequence[str],
+            lines: Sequence[bytes],
             spans: List[Span],
             line_offsets: Sequence[int],
     ) -> List[Document]:
@@ -378,7 +314,7 @@ class SemanticSplitter:
         total_lines = len(lines)
         for span in spans:
             content_bytes = encoded[span.start:span.end]
-            content = content_bytes.decode("utf-8", errors="ignore")
+            content = content_bytes.decode("utf-8", errors="replace")
             if not content.strip():
                 continue
             chunk = Document(

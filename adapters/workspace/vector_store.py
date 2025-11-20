@@ -111,7 +111,7 @@ class LocalQdrantStore:
             ),
         )
 
-    def upsert_points(self, points: Sequence[QdrantPoint], *, batch_size: int = 128) -> None:
+    def upsert_points(self, points: Sequence[QdrantPoint], *, batch_size: int = 128, wait: bool = True) -> None:
         if not points:
             return
         vector_size = len(points[0].vector)
@@ -127,10 +127,10 @@ class LocalQdrantStore:
                 )
             batch.append(point)
             if len(batch) >= batch_size:
-                self._flush(batch)
+                self._flush(batch, wait=wait)
                 batch = []
         if batch:
-            self._flush(batch)
+            self._flush(batch, wait=wait)
 
     def list_point_ids(self, project_key: str) -> Dict[str, qmodels.Record]:
         filter_ = qmodels.Filter(
@@ -273,7 +273,7 @@ class LocalQdrantStore:
         except Exception:
             pass
 
-    def _flush(self, points: Sequence[QdrantPoint]) -> None:
+    def _flush(self, points: Sequence[QdrantPoint], wait: bool = True) -> None:
         payload = [
             qmodels.PointStruct(
                 id=point.id,
@@ -285,5 +285,5 @@ class LocalQdrantStore:
         self.client.upsert(
             collection_name=self.config.collection,
             points=payload,
-            wait=True,
+            wait=wait,
         )

@@ -108,17 +108,23 @@ def chunk_code_file(
 ) -> List[Chunk]:
     """Chunk a single source file using the shared SemanticSplitter."""
 
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    if not text:
+    try:
+        content_bytes = path.read_bytes()
+    except Exception:
+        return []
+
+    if not content_bytes:
         return []
 
     language = EXT_LANGUAGE.get(path.suffix.lower())
     if not language:
+        text = content_bytes.decode("utf-8", errors="replace")
         return _line_chunks_from_text(str(path), text, chunk_size, language=None)
 
     splitter = SemanticSplitter(language, chunk_size)
-    semantic_chunks = splitter.split(str(path), text)
+    semantic_chunks = splitter.split(str(path), content_bytes)
     if not semantic_chunks:
+        text = content_bytes.decode("utf-8", errors="replace")
         return _line_chunks_from_text(str(path), text, chunk_size, language=language)
     return [_convert_chunk(chunk) for chunk in semantic_chunks]
 
