@@ -65,7 +65,7 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
             query="print ok",
             repo_url=repo_url,
             branch="main",
-            commit=commit,
+            commit_id=commit,
             path=None,
         )
     ]
@@ -106,7 +106,8 @@ def test_end_to_end_pipeline(tmp_path: Path) -> None:
     assert record["query_id"] == "q1"
     assert record["repo_url"] == repo_url
     assert record["branch"] == "main"
-    assert record["commit"] == commit
+    assert record["commit_id"] == commit
     assert "schema_version" not in record
     assert "repo" not in record
     assert len(record["golden_chunks"]) == 1
+    assert record["golden_chunks"][0]["confidence"] == 0.9

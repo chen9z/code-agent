@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 class SnapshotMetadata:
     repo_url: str
     branch: str
-    commit: str
+    commit_id: str
     snapshot_path: str
     created_at: str
     index_built: bool = False
@@ -35,14 +35,15 @@ class SnapshotManager:
         *,
         repo_url: str,
         branch: str = "main",
-        commit: str = "working",
+        commit_id: str = "",
         source_path: Optional[str | Path] = None,
         refresh: bool = False,
     ) -> SnapshotMetadata:
         source = Path(source_path).expanduser().resolve() if source_path else None
         slug_source = source.name if source else self._repo_basename(repo_url)
         slug = self._slugify(slug_source)
-        target = self.snapshots_root / slug / commit
+        commit_segment = commit_id or branch or "working"
+        target = self.snapshots_root / slug / commit_segment
         target.parent.mkdir(parents=True, exist_ok=True)
 
         if refresh and target.exists():
@@ -52,21 +53,26 @@ class SnapshotManager:
             if source is not None:
                 self._copy_from_local(source=source, target=target)
             else:
-                self._clone_repo(repo_url=repo_url, branch=branch, commit=commit, target=target)
+                self._clone_repo(
+                    repo_url=repo_url,
+                    branch=branch,
+                    commit_id=commit_id,
+                    target=target,
+                )
 
-        return self._write_metadata(repo_url, branch, commit, target)
+        return self._write_metadata(repo_url, branch, commit_id, target)
 
     def _write_metadata(
         self,
         repo_url: str,
         branch: str,
-        commit: str,
+        commit_id: str,
         snapshot_path: Path,
     ) -> SnapshotMetadata:
         metadata = SnapshotMetadata(
             repo_url=repo_url,
             branch=branch,
-            commit=commit,
+            commit_id=commit_id,
             snapshot_path=str(snapshot_path.resolve()),
             created_at=datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             index_built=False,
@@ -105,7 +111,7 @@ class SnapshotManager:
             ignore=shutil.ignore_patterns(".git", "artifacts", "storage"),
         )
 
-    def _clone_repo(self, *, repo_url: str, branch: str, commit: str, target: Path) -> None:
+    def _clone_repo(self, *, repo_url: str, branch: str, commit_id: str, target: Path) -> None:
         tmp_dir = target.parent / f"{target.name}.tmp"
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
@@ -114,7 +120,7 @@ class SnapshotManager:
             clone_cmd.extend(["--branch", branch])
         clone_cmd.extend([repo_url, str(tmp_dir)])
         self._run_git(clone_cmd, error_prefix="git clone failed")
-        checkout_ref = commit if commit and commit != "working" else branch
+        checkout_ref = commit_id if commit_id and commit_id != "working" else branch
         if checkout_ref:
             self._run_git([
                 "git",

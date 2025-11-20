@@ -41,13 +41,13 @@ def load_query_specs(path: Path) -> List[QuerySpec]:
             if not repo_url:
                 raise ValueError(f"repo_url missing for query_id {payload.get('query_id')}")
             branch = payload.get("branch") or "main"
-            commit = payload.get("commit") or "working"
+            commit_id = payload.get("commit_id") or ""
             spec = QuerySpec(
                 query_id=payload["query_id"],
                 query=payload["query"],
                 repo_url=repo_url,
                 branch=branch,
-                commit=commit,
+                commit_id=commit_id,
                 path=None,
             )
             entries.append(spec)
@@ -60,7 +60,7 @@ def prepare_queries(specs: Iterable[QuerySpec], *, manager: SnapshotManager) -> 
         metadata = manager.materialize(
             repo_url=spec.repo_url or spec.path or "repo",
             branch=spec.branch,
-            commit=spec.commit,
+            commit_id=spec.commit_id,
             source_path=spec.path,
         )
         prepared.append((spec, Path(metadata.snapshot_path)))
@@ -109,7 +109,7 @@ def build_dataset_from_raw(
             "query": spec.query,
             "repo_url": spec.repo_url,
             "branch": spec.branch,
-            "commit": spec.commit,
+            "commit_id": spec.commit_id,
             "golden_chunks": chunks,
         }
         with dataset_path.open("a", encoding="utf-8") as handle:
@@ -309,7 +309,7 @@ class DatasetRunner:
                 query=spec.query,
                 repo_url=spec.repo_url,
                 branch=spec.branch,
-                commit=spec.commit,
+                commit_id=spec.commit_id,
                 snapshot_path=snapshot_path,
             )
             workspace = snapshot_path

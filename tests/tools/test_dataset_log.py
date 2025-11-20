@@ -24,7 +24,7 @@ def tool(snapshot_dir: Path, tmp_path: Path) -> DatasetLogTool:
         query="find hi",
         repo_url="https://example.com/repo.git",
         branch="main",
-        commit="deadbeef",
+        commit_id="deadbeef",
         snapshot_path=snapshot_dir,
     )
     return DatasetLogTool(context=ctx, artifacts_root=tmp_path, run_name="test")
@@ -44,7 +44,7 @@ def test_write_success(tool: DatasetLogTool, tmp_path: Path) -> None:
     record = payloads[0]
     assert record["repo_url"] == "https://example.com/repo.git"
     assert record["branch"] == "main"
-    assert record["commit"] == "deadbeef"
+    assert record["commit_id"] == "deadbeef"
     assert "schema_version" not in record
     assert "repo" not in record
 

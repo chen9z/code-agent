@@ -61,7 +61,6 @@ class GlobTool(BaseTool):
     def execute(self, *, pattern: str, path: str | None = None) -> Dict[str, Any]:
         try:
             search_dir = Path(path) if path else Path.cwd()
-            print("glob path:", search_dir)
             if not search_dir.exists():
                 raise FileNotFoundError(f"Search directory does not exist: {search_dir}")
             if not search_dir.is_dir():

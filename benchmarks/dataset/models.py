@@ -10,7 +10,7 @@ class QuerySpec:
     query: str
     repo_url: str
     branch: str
-    commit: str
+    commit_id: str
     path: Optional[str] = None  # 本地快照来源
 
 
@@ -18,7 +18,7 @@ class QuerySpec:
 class SnapshotMetadata:
     repo_url: str
     branch: str
-    commit: str
+    commit_id: str
     snapshot_path: str
     created_at: str
     index_built: bool = False

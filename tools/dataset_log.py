@@ -17,7 +17,7 @@ class DatasetQueryContext:
     query: str
     repo_url: str
     branch: str
-    commit: str
+    commit_id: str
     snapshot_path: Path
 
 
@@ -194,7 +194,7 @@ class DatasetLogTool(BaseTool):
             "query": self.context.query,
             "repo_url": self.context.repo_url,
             "branch": self.context.branch,
-            "commit": self.context.commit,
+            "commit_id": self.context.commit_id,
             "snapshot": {
                 "root": str(self.snapshot_path),
                 "path": chunk["path"],
