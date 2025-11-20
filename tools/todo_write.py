@@ -2,11 +2,22 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
 _ALLOWED_STATUSES = {"pending", "in_progress", "completed"}
+
+
+class TodoWriteArguments(BaseModel):
+    todos: List[Dict[str, Any]] = Field(
+        ...,
+        description="The updated todo list with status/content/activeForm fields for each entry.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def _build_display_entries(todos: List[Dict[str, str]]) -> str:
@@ -38,6 +49,8 @@ def _error_display(message: str) -> str:
 
 class TodoWriteTool(BaseTool):
     """Structured todo list tool for tracking coding tasks during a session."""
+
+    ArgumentsModel = TodoWriteArguments
 
     @property
     def name(self) -> str:
@@ -228,45 +241,6 @@ The assistant did not use the todo list because this is a single command executi
 
 When in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
 '''
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "required": ["todos"],
-            "properties": {
-                "todos": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": [
-                            "content",
-                            "status",
-                            "activeForm"
-                        ],
-                        "properties": {
-                            "status": {
-                                "enum": [
-                                    "pending",
-                                    "in_progress",
-                                    "completed"
-                                ],
-                                "type": "string"
-                            },
-                            "content": {
-                                "type": "string",
-                                "minLength": 1
-                            },
-                            "activeForm": {
-                                "type": "string",
-                                "minLength": 1
-                            }
-                        },
-                    },
-                    "description": "The updated todo list"
-                }
-            }
-        }
-
     def execute(self, *, todos: List[Dict[str, Any]]) -> ToolResult:
         try:
             normalized = self._validate_and_normalize(todos)

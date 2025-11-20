@@ -6,6 +6,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
@@ -91,8 +93,28 @@ def _build_error_display(message: str) -> str:
     return text or "Unknown error"
 
 
+class GrepArguments(BaseModel):
+    query: str = Field(..., description="Regex pattern to search for.")
+    case_sensitive: bool | None = Field(
+        default=None,
+        description="Override default case-sensitivity (true for case sensitive, false for ignore case).",
+    )
+    include_pattern: str | None = Field(
+        default=None,
+        description="Optional glob that restricts the search to matching files (e.g. '*.py').",
+    )
+    exclude_pattern: str | None = Field(
+        default=None,
+        description="Optional glob that excludes matching files from the search.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class GrepSearchTool(BaseTool):
     """Tool that performs regex searches using ripgrep."""
+
+    ArgumentsModel = GrepArguments
 
     @property
     def name(self) -> str:
@@ -123,31 +145,6 @@ Use the include or exclude patterns to filter the search scope by file type or s
 | path\to\file         | path\\to\\file        |
 | hello world           | hello world              |
 | foo\(bar\)          | foo\\(bar\\)         |"""
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The regex pattern to search for",
-                },
-                "case_sensitive": {
-                    "type": "boolean",
-                    "description": "Whether the search should be case sensitive",
-                },
-                "include_pattern": {
-                    "type": "string",
-                    "description": "Glob pattern for files to include (e.g. '*.ts' for TypeScript files)",
-                },
-                "exclude_pattern": {
-                    "type": "string",
-                    "description": "Glob pattern for files to exclude",
-                },
-            },
-            "required": ["query"],
-        }
 
     def execute(
         self,

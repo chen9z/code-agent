@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
@@ -23,8 +25,26 @@ def format_line_with_arrow(line_number: int, content: str) -> str:
     return f"{line_number:{LINE_NUMBER_WIDTH}}\t{content}"
 
 
+class ReadArguments(BaseModel):
+    file_path: str = Field(..., description="Absolute path to the file to read.")
+    limit: int | None = Field(
+        default=None,
+        ge=1,
+        description=("Number of lines to read. Provide only when the file is too large to stream entirely."),
+    )
+    offset: int | None = Field(
+        default=None,
+        ge=1,
+        description="1-based line number to start reading from.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class ReadTool(BaseTool):
     """Tool that reads files with optional pagination support."""
+
+    ArgumentsModel = ReadArguments
 
     @property
     def name(self) -> str:
@@ -44,31 +64,6 @@ Usage:
 - This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
 - You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
 - If you want to search for a certain content/pattern, prefer Grep tool over ReadFile.'''
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "required": ["file_path"],
-            "properties": {
-                "limit": {
-                    "type": "number",
-                    "description": (
-                        "The number of lines to read. Only provide if the file is too large to read at once"
-                    ),
-                },
-                "offset": {
-                    "type": "number",
-                    "description": (
-                        "The line number to start reading from. Only provide if the file is too large to read at once"
-                    ),
-                },
-                "file_path": {
-                    "type": "string",
-                    "description": "Absolute path to the file to read.",
-                },
-            },
-        }
 
     def execute(
             self,

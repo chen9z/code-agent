@@ -36,6 +36,8 @@ class DatasetQueryContext:
 class DatasetLogTool(BaseTool):
     """Tool that validates golden chunks and persists raw_samples JSONL."""
 
+    ArgumentsModel = DatasetLogArguments
+
     def __init__(
         self,
         *,
@@ -61,35 +63,6 @@ class DatasetLogTool(BaseTool):
     @property
     def description(self) -> str:
         return "Validate a golden chunk against the prepared snapshot and persist raw_samples."
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "required": ["path", "start_line", "end_line", "confidence"],
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Path to the file relative to the snapshot root.",
-                },
-                "start_line": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "1-based starting line of the snippet (inclusive).",
-                },
-                "end_line": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "1-based ending line of the snippet (inclusive).",
-                },
-                "confidence": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 1,
-                    "description": "Confidence score between 0 and 1.",
-                },
-            },
-        }
 
     # ------------------------------------------------------------------ execution
     def execute(

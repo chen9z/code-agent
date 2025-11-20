@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
@@ -168,13 +169,15 @@ class CodeAgentSession:
 
         final_content: Optional[str] = None
         while True:
-            response = self._call_llm(messages)
+            response = self._call_llm(messages, output_callback=output_callback)
             assistant_content = response.get("content")
             if assistant_content:
                 _emit(output_callback, create_emit_event("assistant", assistant_content))
                 self._log_message("assistant", assistant_content)
             tool_calls = response.get("tool_calls")
             if not tool_calls:
+                if response.get("retry"):
+                    continue
                 final_content = assistant_content
                 break
             outputs = self.executor.run(
@@ -232,6 +235,7 @@ class CodeAgentSession:
     def _call_llm(
             self,
             messages: List[Dict[str, Any]],
+            output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         tools = list(self.registry.to_openai_tools())
         response = self.llm_client.create_with_tools(
@@ -266,6 +270,34 @@ class CodeAgentSession:
                 if call.get("name")
             ]
         messages.append(assistant_message)
+
+        errors = plan.get("tool_call_errors") or []
+        if errors:
+            for error in errors:
+                call_id = str(error.get("id") or "call-error")
+                tool_name = str(error.get("name") or "system_error")
+                warning = error.get("message") or "Failed to parse tool arguments"
+                if self.verbose:
+                    self._debug(f"tool_call_id={call_id} parse_error={warning}")
+                logging.warning("Failed to parse tool arguments for %s (%s): %s", tool_name, call_id, warning)
+                payload = {
+                    "tool": tool_name,
+                    "tool_call_id": call_id,
+                    "error": warning,
+                    "raw_arguments": error.get("raw_arguments"),
+                }
+                _emit(output_callback, create_emit_event("tool_error", warning, payload=payload))
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": tool_name.lower(),
+                        "content": warning,
+                    }
+                )
+            if not tool_calls:
+                plan["retry"] = True
+
         return plan
 
     def set_tool_timeout_seconds(self, seconds: Optional[float]) -> None:
@@ -302,7 +334,7 @@ class CodeAgentSession:
     def _parse_tool_response(response: Any) -> Dict[str, Any]:
         message = CodeAgentSession._extract_message(response)
         if not message:
-            return {"tool_calls": [], "content": None}
+            return {"tool_calls": [], "content": None, "tool_call_errors": []}
 
         tool_calls = CodeAgentSession._extract_tool_calls(message)
         content_text = CodeAgentSession._message_content_to_str(
@@ -311,17 +343,30 @@ class CodeAgentSession:
 
         if tool_calls:
             normalized_calls: List[Dict[str, Any]] = []
+            errors: List[Dict[str, Any]] = []
             for idx, call in enumerate(tool_calls):
                 function = CodeAgentSession._get_attr(call, "function", {})
                 name = CodeAgentSession._get_attr(function, "name")
                 arguments_str = CodeAgentSession._get_attr(function, "arguments", "{}")
+                call_id = CodeAgentSession._get_attr(call, "id", f"call-{idx}")
                 try:
                     arguments = json.loads(arguments_str) if arguments_str else {}
-                except json.JSONDecodeError:
-                    arguments = {}
+                except json.JSONDecodeError as exc:
+                    error_message = (
+                        f"Failed to parse arguments for tool '{name}': {exc.msg} (column {exc.colno})"
+                    )
+                    errors.append(
+                        {
+                            "id": call_id,
+                            "name": str(name) if name else "",
+                            "message": error_message,
+                            "raw_arguments": arguments_str,
+                        }
+                    )
+                    continue
                 normalized_calls.append(
                     {
-                        "id": CodeAgentSession._get_attr(call, "id", f"call-{idx}"),
+                        "id": call_id,
                         "name": str(name) if name else "",
                         "arguments": arguments,
                     }
@@ -329,11 +374,13 @@ class CodeAgentSession:
             return {
                 "tool_calls": [c for c in normalized_calls if c["name"]],
                 "content": content_text,
+                "tool_call_errors": errors,
             }
 
         return {
             "tool_calls": [],
             "content": content_text,
+            "tool_call_errors": [],
         }
 
     @staticmethod

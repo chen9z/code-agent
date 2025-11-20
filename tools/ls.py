@@ -4,12 +4,26 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 import fnmatch
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
+class LSArguments(BaseModel):
+    path: str = Field(..., description="Absolute path to the directory to list.")
+    ignore: List[str] | None = Field(
+        default=None,
+        description="Optional glob patterns to exclude from the listing.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class LSTool(BaseTool):
     """Tool that lists directory contents with optional ignore patterns."""
+
+    ArgumentsModel = LSArguments
 
     @property
     def name(self) -> str:
@@ -18,24 +32,6 @@ class LSTool(BaseTool):
     @property
     def description(self) -> str:
         return """Lists files and directories in a given path. The path parameter must be an absolute path, not a relative path. You can optionally provide an array of glob patterns to ignore with the ignore parameter. You should generally prefer the Glob and Grep tools, if you know which directories to search."""
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "The absolute path to the directory to list (must be absolute, not relative)",
-                },
-                "ignore": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of glob patterns to ignore",
-                },
-            },
-            "required": ["path"],
-        }
 
     def execute(self, *, path: str, ignore: Iterable[str] | None = None) -> ToolResult:
         try:

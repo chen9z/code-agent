@@ -3,12 +3,28 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
+class EditArguments(BaseModel):
+    file_path: str = Field(..., description="Absolute path to the file to modify.")
+    old_string: str = Field(..., description="Text to replace. Use empty string only when creating new files.")
+    new_string: str = Field(..., description="Replacement text or file contents when creating a file.")
+    replace_all: bool = Field(
+        default=False,
+        description="Set true to replace every occurrence of old_string within the file.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class EditTool(BaseTool):
     """Tool that performs exact string replacements in files."""
+
+    ArgumentsModel = EditArguments
 
     @property
     def name(self) -> str:
@@ -25,32 +41,6 @@ Usage:
 - Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
 - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`. 
 - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance."""
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "The absolute path to the file to modify",
-                },
-                "old_string": {
-                    "type": "string",
-                    "description": "The text to replace",
-                },
-                "new_string": {
-                    "type": "string",
-                    "description": "The text to replace it with (must be different from old_string)",
-                },
-                "replace_all": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "Replace all occurences of old_string (default false)",
-                },
-            },
-            "required": ["file_path", "old_string", "new_string"],
-        }
 
     def execute(
         self,

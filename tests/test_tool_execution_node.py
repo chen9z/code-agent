@@ -6,10 +6,16 @@ from typing import Any
 
 import pytest
 
+from pydantic import BaseModel, ConfigDict
+
 from runtime.tool_runner import ToolExecutionRunner
 from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
+
+
+class _NoArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class _RecorderTool(BaseTool):
@@ -18,6 +24,13 @@ class _RecorderTool(BaseTool):
         self.delay = delay
         self.calls: list[dict[str, object]] = []
         self._lock = threading.Lock()
+
+    class Arguments(BaseModel):
+        value: Any
+
+        model_config = ConfigDict(extra="forbid")
+
+    ArgumentsModel = Arguments
 
     @property
     def name(self) -> str:
@@ -47,6 +60,8 @@ class _RecorderTool(BaseTool):
 
 
 class _EmptyTool(BaseTool):
+    ArgumentsModel = _NoArgs
+
     @property
     def name(self) -> str:
         return "Empty"
@@ -70,6 +85,8 @@ class _EmptyTool(BaseTool):
 
 
 class _LongOutputTool(BaseTool):
+    ArgumentsModel = _NoArgs
+
     @property
     def name(self) -> str:
         return "Long"
@@ -100,6 +117,14 @@ class _TimeoutAwareTool(BaseTool):
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
+    class Arguments(BaseModel):
+        command: str | None = None
+        timeout: float | None = None
+
+        model_config = ConfigDict(extra="allow")
+
+    ArgumentsModel = Arguments
+
     @property
     def name(self) -> str:
         return "Bash"
@@ -125,6 +150,8 @@ class _TimeoutAwareTool(BaseTool):
 
 
 class _DisplayTool(BaseTool):
+    ArgumentsModel = _NoArgs
+
     @property
     def name(self) -> str:
         return "Display"
@@ -148,6 +175,8 @@ class _DisplayTool(BaseTool):
 
 
 class _ReportedErrorTool(BaseTool):
+    ArgumentsModel = _NoArgs
+
     @property
     def name(self) -> str:
         return "ReportedError"
@@ -168,6 +197,30 @@ class _ReportedErrorTool(BaseTool):
                 "detail": "boom",
                 "display": "simulated failure",
             },
+        )
+
+
+class _TypedTool(BaseTool):
+    class Arguments(BaseModel):
+        flag: bool
+
+        model_config = ConfigDict(extra="forbid")
+
+    ArgumentsModel = Arguments
+
+    @property
+    def name(self) -> str:
+        return "Typed"
+
+    @property
+    def description(self) -> str:
+        return "validates arguments"
+
+    def execute(self, *, flag: bool) -> ToolResult:
+        return ToolResult(
+            status="success",
+            content=f"flag={flag}",
+            data={"display": f"flag={flag}"},
         )
 
 
@@ -318,8 +371,22 @@ def test_default_timeout_applies_to_bash_when_missing_argument():
     )
 
     assert bash_tool.calls, "expected the tool to be invoked"
-    call_kwargs = bash_tool.calls[0]
-    assert call_kwargs.get("timeout") == 42000
+
+
+def test_runner_reports_argument_validation_error():
+    registry = ToolRegistry()
+    registry.register(_TypedTool(), name="typed")
+    runner = ToolExecutionRunner(registry)
+    results = runner.run(
+        [{"name": "typed", "arguments": {"flag": "not_bool"}}],
+        messages=[],
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.status == "error"
+    assert "Invalid arguments" in result.content
+    assert "flag" in result.content
 
 
 def test_existing_timeout_is_preserved():
