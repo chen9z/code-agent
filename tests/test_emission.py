@@ -12,7 +12,7 @@ def test_emit_event_preserves_string_representation():
     )
 
     assert isinstance(event, EmitEvent)
-    assert isinstance(event, str)
+    assert str(event).startswith("[plan] Run lint")
     assert event.kind == "plan"
     assert event.body == "Run lint"
     assert event.display[0][0] == "result"

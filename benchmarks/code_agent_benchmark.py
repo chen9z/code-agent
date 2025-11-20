@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
-from code_agent import CodeAgentSession
+from agent.session import CodeAgentSession
 
 
 @dataclass

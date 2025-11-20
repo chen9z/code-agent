@@ -81,4 +81,4 @@ def test_cli_help_command_emits_message():
 
     assert handled is True
     assert outputs
-    assert "help" in outputs[-1].lower()
+    assert "help" in str(outputs[-1]).lower()

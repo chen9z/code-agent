@@ -3,6 +3,7 @@ from __future__ import annotations
 """Shared utilities for streaming structured agent output."""
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple, Union
 
 DisplayItem = Tuple[str, Union[str, None]]
@@ -18,59 +19,28 @@ __all__ = [
 ]
 
 
-class EmitEvent(str):
-    """String-compatible event object that carries structured payload data."""
-
-    __slots__ = ("kind", "body", "payload")
+@dataclass
+class EmitEvent:
+    """Structured event object that carries payload data."""
 
     kind: str
-    body: str
-    payload: Any
+    body: str = ""
+    payload: Any = field(default=None)
 
-    def __new__(
-        cls,
-        kind: str,
-        body: str = "",
-        *,
-        payload: Any = None,
-    ) -> "EmitEvent":
-        normalized_kind = (kind or "").strip()
-        normalized_body = body or ""
-        display_entries = _extract_display(payload)
+    def __str__(self) -> str:
+        normalized_kind = (self.kind or "").strip()
+        normalized_body = self.body or ""
+        display_entries = _extract_display(self.payload)
         composed_body = _compose_body(normalized_body, display_entries)
 
         if normalized_kind:
             prefix = f"[{normalized_kind}]"
-            text = f"{prefix} {composed_body}" if composed_body else prefix
-        else:
-            text = composed_body
-
-        event = str.__new__(cls, text)
-        event.kind = normalized_kind
-        event.body = normalized_body
-        event.payload = payload
-        return event
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return a serializable representation of the event."""
-
-        return {
-            "kind": self.kind,
-            "body": self.body,
-            "payload": self.payload,
-            "display": list(self.display),
-            "text": str(self),
-        }
-
-    def __repr__(self) -> str:  # pragma: no cover - convenience only
-        return (
-            f"EmitEvent(kind={self.kind!r}, body={self.body!r}, payload={self.payload!r})"
-        )
+            return f"{prefix} {composed_body}" if composed_body else prefix
+        return composed_body
 
     @property
     def display(self) -> Tuple[DisplayItem, ...]:
         """Return display-friendly key/value tuples derived from the payload."""
-
         return _extract_display(self.payload)
 
 
@@ -81,7 +51,6 @@ def create_emit_event(
     payload: Any = None,
 ) -> EmitEvent:
     """Helper to mirror the `[tag] message` convention with a single payload field."""
-
     return EmitEvent(kind, body, payload=payload)
 
 
@@ -93,6 +62,7 @@ def _extract_display(payload: Any) -> Tuple[DisplayItem, ...]:
     if raw_display is None:
         return ()
 
+    candidates: Iterable[Any]
     if isinstance(raw_display, Mapping):
         candidates = raw_display.items()
     elif isinstance(raw_display, str):

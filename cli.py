@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, P
 
 from rich.console import Console
 
+from agent.session import CodeAgentSession
 from ui.emission import OutputCallback, create_emit_event
 from ui.rich_output import create_rich_output, stringify_payload
 
@@ -45,91 +46,41 @@ def _emit_help(output_callback: OutputCallback) -> None:
     )
 
 
-def run_code_agent_cli(
+def run_interactive_session(
+    session: AgentSessionProtocol,
     *,
-    session: Optional[AgentSessionProtocol] = None,
-    session_factory: Optional[Callable[[], AgentSessionProtocol]] = None,
     input_iter: Optional[Iterable[str]] = None,
     output_callback: Optional[OutputCallback] = None,
     console: Optional[Console] = None,
-    emit_result: Optional[Callable[[Mapping[str, Any], OutputCallback], None]] = None,
 ) -> int:
-    active_session = _resolve_session(session, session_factory)
+    """Run the interactive loop for the agent session."""
     active_console = console or Console()
     emitter = output_callback or create_rich_output(active_console)
+    
     iterator: Iterator[str]
     if input_iter is not None:
         iterator = iter(input_iter)
     else:
         iterator = _stdin_iterator(active_console)
 
-    emit_hook = emit_result or _emit_result
     emitter(create_emit_event("system", "Entering Code Agent. Type exit to quit."))
+    
     for raw in iterator:
         message = raw.strip()
         if not message:
             continue
         if message.lower() in {"exit", "quit"}:
             break
-        if message.startswith(":") and _handle_cli_command(message, active_session, emitter):
+        if message.startswith(":") and _handle_cli_command(message, session, emitter):
             continue
-        result = active_session.run_turn(message, output_callback=emitter)
-        emit_hook(result, emitter)
+            
+        result = session.run_turn(message, output_callback=emitter)
+        _emit_result_if_needed(result, emitter)
+        
     return 0
 
-def run_cli_main(
-    argv: Optional[Sequence[str]] = None,
-    *,
-    session_factory: Callable[[], AgentSessionProtocol],
-    emit_result: Optional[Callable[[Mapping[str, Any], OutputCallback], None]] = None,
-) -> int:
-    parser = _create_cli_parser()
-    args = parser.parse_args(argv)
-    tool_timeout = args.tool_timeout
 
-    workspace = Path(args.workspace).expanduser().resolve()
-    if not workspace.exists():
-        raise FileNotFoundError(f"Workspace does not exist: {workspace}")
-    if not workspace.is_dir():
-        raise NotADirectoryError(f"Workspace is not a directory: {workspace}")
-
-    prompt_text = " ".join(args.prompt).strip() if args.prompt else ""
-    console = Console()
-    emitter = create_rich_output(console)
-
-    original_cwd = Path.cwd()
-    try:
-        os.chdir(workspace)
-        session = session_factory()
-        if tool_timeout is not None:
-            setter = getattr(session, "set_tool_timeout_seconds", None)
-            if callable(setter):
-                setter(tool_timeout)
-        if prompt_text:
-            session.run_turn(prompt_text, output_callback=emitter)
-            return 0
-        return run_code_agent_cli(
-            session=session,
-            output_callback=emitter,
-            console=console,
-            emit_result=emit_result,
-        )
-    finally:
-        os.chdir(original_cwd)
-
-
-def _resolve_session(
-    session: Optional[AgentSessionProtocol],
-    session_factory: Optional[Callable[[], AgentSessionProtocol]],
-) -> AgentSessionProtocol:
-    if session is not None:
-        return session
-    if session_factory is None:
-        raise ValueError("session or session_factory must be provided")
-    return session_factory()
-
-
-def _emit_result(result: Mapping[str, Any], output_callback: OutputCallback) -> None:
+def _emit_result_if_needed(result: Mapping[str, Any], output_callback: OutputCallback) -> None:
     final = result.get("content")
     if not final:
         tool_plan = result.get("tool_plan") or {}
@@ -172,31 +123,6 @@ def _stdin_iterator(console: Optional[Console] = None) -> Iterator[str]:
 
 
 def _create_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Code Agent module CLI")
-    parser.add_argument(
-        "-w",
-        "--workspace",
-        default=".",
-        help="Workspace path to operate within during the session.",
-    )
-    parser.add_argument(
-        "-p",
-        "--prompt",
-        nargs="+",
-        help="Prompt to execute once before exiting the CLI.",
-    )
-    parser.add_argument(
-        "--tool-timeout",
-        type=float,
-        dest="tool_timeout",
-        help="Override the default tool timeout in seconds.",
-    )
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    """Standalone CLI entrypoint so `python cli.py` just works."""
-
     parser = argparse.ArgumentParser(description="Code Agent command-line interface")
     parser.add_argument(
         "-w",
@@ -210,6 +136,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         nargs="+",
         help="Prompt to run in a one-off non-interactive session.",
     )
+    parser.add_argument(
+        "--tool-timeout",
+        type=float,
+        dest="tool_timeout",
+        help="Override the default tool timeout in seconds.",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Main entrypoint for the CLI."""
+    parser = _create_cli_parser()
     args = parser.parse_args(argv)
 
     workspace = Path(args.workspace).expanduser().resolve()
@@ -219,19 +157,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise NotADirectoryError(f"Workspace is not a directory: {workspace}")
 
     prompt = " ".join(args.prompt).strip() if args.prompt else ""
-
-    from code_agent import CodeAgentSession  # Local import to avoid circular dependency.
-
+    
     original_cwd = Path.cwd()
     console = Console()
     emitter = create_rich_output(console)
+    
     try:
         os.chdir(workspace)
+        # Create session directly
         session = CodeAgentSession(max_iterations=100, workspace=workspace)
+        
+        if args.tool_timeout is not None:
+            session.set_tool_timeout_seconds(args.tool_timeout)
+
         if prompt:
             session.run_turn(prompt, output_callback=emitter)
             return 0
-        return run_code_agent_cli(
+            
+        return run_interactive_session(
             session=session,
             output_callback=emitter,
             console=console,
