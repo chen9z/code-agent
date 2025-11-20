@@ -22,7 +22,7 @@ from adapters.llm.embedding import (
     DefaultEmbeddingClient,
     create_embedding_client,
 )
-from adapters.workspace.vector_store import LocalQdrantStore, QdrantConfig, QdrantPoint
+from adapters.workspace.vector_store import LocalQdrantStore, QdrantPoint
 from qdrant_client.http import models as qmodels
 
 EmbeddingClient = DefaultEmbeddingClient
@@ -112,7 +112,6 @@ class SemanticCodeIndexer:
             embedding_client: Optional[EmbeddingClientProtocol] = None,
             batch_size: Optional[int] = None,
             vector_store: Optional[LocalQdrantStore] = None,
-            qdrant_config: Optional[QdrantConfig] = None,
     ) -> None:
         cfg = get_config()
         # 优先使用 AppConfig.rag_chunk_size；缺省回退到 200 行以内的合理窗口
@@ -124,8 +123,7 @@ class SemanticCodeIndexer:
         store_path = os.getenv("CODEBASE_QDRANT_PATH", "storage")
         store_root = Path(store_path).expanduser()
         store_root.mkdir(parents=True, exist_ok=True)
-        config = qdrant_config or QdrantConfig(path=str(store_root))
-        self._store = vector_store or LocalQdrantStore(config)
+        self._store = vector_store or LocalQdrantStore(path=str(store_root))
         self._embedder: EmbeddingClientProtocol = embedding_client or create_embedding_client(
             batch_size=batch,
             timeout=api_timeout,
@@ -257,12 +255,11 @@ class SemanticCodeIndexer:
 
         reported_paths: set[str] = set()
 
-        def record_progress(stage: str, path_value: str, *, hint: str | None = None) -> None:
+        def record_progress(stage: str, path_value: str) -> None:
             path_str = str(path_value)
             if path_str in reported_paths:
                 return
-            rel_display = self._format_path_for_progress(root, path_str, hint)
-            self._emit_progress(f"{stage}: {rel_display}", show=show_progress)
+            self._emit_progress(f"{stage}: {path_str}", show=show_progress)
             reported_paths.add(path_str)
 
         chunk_count = 0
@@ -386,15 +383,7 @@ class SemanticCodeIndexer:
         print(f"[code-index] {message}")
         logger.info(message)
 
-    @staticmethod
-    def _format_path_for_progress(root: Path, absolute_path: str, hint: str | None = None) -> str:
-        candidate = Path(absolute_path)
-        try:
-            return candidate.resolve().relative_to(root).as_posix()
-        except ValueError:
-            if hint:
-                return hint
-            return candidate.name
+
 
     @staticmethod
     def _make_point_id(project_key: str, item: CodeChunkEmbedding) -> str:

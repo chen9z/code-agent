@@ -3,21 +3,10 @@ from __future__ import annotations
 """Utilities for persisting parsed symbols into a local Qdrant vector store."""
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
-
-
-@dataclass
-class QdrantConfig:
-    """Configuration options for local Qdrant usage."""
-
-    path: str = "./storage/qdrant"
-    collection: str = "code_symbols"
-    vector_size: Optional[int] = None
-    distance: qmodels.Distance = qmodels.Distance.COSINE
 
 
 @dataclass
@@ -32,82 +21,31 @@ class QdrantPoint:
 class LocalQdrantStore:
     """Thin wrapper around the Qdrant client for symbol indexing."""
 
-    def __init__(self, config: Optional[QdrantConfig] = None) -> None:
-        self.config = config or QdrantConfig()
-        self.client = QdrantClient(path=self.config.path)
-        self._vector_size: Optional[int] = self.config.vector_size
-        if self._vector_size is not None:
-            self._ensure_collection(self._vector_size)
+    def __init__(self, path: str = "./storage/qdrant") -> None:
+        self.client = QdrantClient(path=path)
+        self.collection_name: Optional[str] = None
+        self._vector_size: Optional[int] = None
 
     def use_collection(self, collection_name: str, vector_size: Optional[int] = None) -> None:
         """Switch active collection and optionally ensure it exists."""
-
-        self.config.collection = collection_name
+        self.collection_name = collection_name
         if vector_size is not None:
             self._ensure_collection(vector_size)
 
-    @property
-    def vector_size(self) -> Optional[int]:
-        return self._vector_size
-
-    def ensure_collection(self, vector_size: int) -> None:
-        self._ensure_collection(vector_size)
-
-    def collection_exists(self, collection_name: str) -> bool:
-        """Return whether the given collection exists without mutating state."""
-
-        if self.config.collection == collection_name:
-            return self._collection_exists()
-
-        original_collection = self.config.collection
-        try:
-            self.config.collection = collection_name
-            return self._collection_exists()
-        finally:
-            self.config.collection = original_collection
-
-    def describe_collection(self) -> Optional[Any]:
-        try:
-            return self.client.get_collection(self.config.collection)
-        except AttributeError:
-            # Older qdrant-client versions
-            try:
-                return self.client.get_collection(self.config.collection)
-            except Exception:
-                return None
-        except Exception:
-            return None
-
-    def _collection_exists(self) -> bool:
-        try:
-            return bool(self.client.collection_exists(self.config.collection))  # type: ignore[attr-defined]
-        except AttributeError:
-            try:
-                self.client.get_collection(self.config.collection)
-                return True
-            except Exception:
-                return False
-        except Exception:
-            return False
-
-    def _ensure_collection(self, vector_size: Optional[int] = None) -> None:
-        size = vector_size or self._vector_size or self.config.vector_size
-        if size is None:
-            raise ValueError("vector_size is required to initialize Qdrant collection")
-
-        if self._vector_size is None:
-            self._vector_size = size
-        if self.config.vector_size is None:
-            self.config.vector_size = size
-
-        if self._collection_exists():
+    def _ensure_collection(self, vector_size: int) -> None:
+        if not self.collection_name:
+            raise ValueError("Collection name not set. Call use_collection() first.")
+            
+        self._vector_size = vector_size
+        
+        if self.client.collection_exists(self.collection_name):
             return
 
         self.client.create_collection(
-            collection_name=self.config.collection,
+            collection_name=self.collection_name,
             vectors_config=qmodels.VectorParams(
-                size=size,
-                distance=self.config.distance,
+                size=vector_size,
+                distance=qmodels.Distance.COSINE,
             ),
         )
 
@@ -133,6 +71,9 @@ class LocalQdrantStore:
             self._flush(batch, wait=wait)
 
     def list_point_ids(self, project_key: str) -> Dict[str, qmodels.Record]:
+        if not self.collection_name:
+            return {}
+            
         filter_ = qmodels.Filter(
             must=[
                 qmodels.FieldCondition(
@@ -146,7 +87,7 @@ class LocalQdrantStore:
         while True:
             try:
                 points, offset = self.client.scroll(
-                    collection_name=self.config.collection,
+                    collection_name=self.collection_name,
                     scroll_filter=filter_,
                     limit=256,
                     offset=offset,
@@ -162,13 +103,12 @@ class LocalQdrantStore:
                 break
         return records
 
-
     def delete_points(self, ids: Sequence[str]) -> None:
-        if not ids:
+        if not ids or not self.collection_name:
             return
         try:
             self.client.delete(
-                collection_name=self.config.collection,
+                collection_name=self.collection_name,
                 points_selector=qmodels.PointIdsList(points=list(ids)),
                 wait=True,
             )
@@ -177,6 +117,8 @@ class LocalQdrantStore:
 
     def delete_project(self, project_name: str, *, project_key: Optional[str] = None) -> None:
         """Delete all points belonging to a project."""
+        if not self.collection_name:
+            return
 
         must: List[qmodels.FieldCondition] = []
         if project_name:
@@ -198,7 +140,7 @@ class LocalQdrantStore:
 
         try:
             self.client.delete(
-                collection_name=self.config.collection,
+                collection_name=self.collection_name,
                 points_selector=qmodels.FilterSelector(filter=qmodels.Filter(must=must)),
                 wait=True,
             )
@@ -206,6 +148,9 @@ class LocalQdrantStore:
             return
 
     def count(self, project_key: str) -> int:
+        if not self.collection_name:
+            return 0
+            
         filter_ = qmodels.Filter(
             must=[
                 qmodels.FieldCondition(
@@ -216,7 +161,7 @@ class LocalQdrantStore:
         )
         try:
             result = self.client.count(
-                collection_name=self.config.collection,
+                collection_name=self.collection_name,
                 exact=True,
                 count_filter=filter_,
             )
@@ -233,7 +178,7 @@ class LocalQdrantStore:
         score_threshold: Optional[float] = None,
         payload_filter: Optional[qmodels.Filter] = None,
     ) -> List[qmodels.ScoredPoint]:
-        if limit <= 0:
+        if limit <= 0 or not self.collection_name:
             return []
         must = [
             qmodels.FieldCondition(
@@ -252,7 +197,7 @@ class LocalQdrantStore:
             filter_ = qmodels.Filter(must=must)
         try:
             response = self.client.query_points(
-                collection_name=self.config.collection,
+                collection_name=self.collection_name,
                 query=list(vector),
                 query_filter=filter_,
                 limit=limit,
@@ -272,8 +217,14 @@ class LocalQdrantStore:
             self.client.close()
         except Exception:
             pass
+            
+    def collection_exists(self, collection_name: str) -> bool:
+        return self.client.collection_exists(collection_name)
 
     def _flush(self, points: Sequence[QdrantPoint], wait: bool = True) -> None:
+        if not self.collection_name:
+            return
+            
         payload = [
             qmodels.PointStruct(
                 id=point.id,
@@ -283,7 +234,7 @@ class LocalQdrantStore:
             for point in points
         ]
         self.client.upsert(
-            collection_name=self.config.collection,
+            collection_name=self.collection_name,
             points=payload,
             wait=wait,
         )
