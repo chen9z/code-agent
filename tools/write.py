@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
@@ -40,7 +41,7 @@ Usage:
             "required": ["file_path", "content"],
         }
 
-    def execute(self, *, file_path: str, content: str) -> Dict[str, Any]:
+    def execute(self, *, file_path: str, content: str) -> ToolResult:
         try:
             path = Path(file_path)
             if not path.is_absolute():
@@ -67,22 +68,19 @@ Usage:
                 "file_path": str(resolved),
                 "bytes_written": bytes_written,
             }
-            return {
-                "status": "success",
-                "content": success_message,
-                "data": data,
-            }
+            data["display"] = success_message
+            return ToolResult(status="success", content=success_message, data=data)
         except Exception as exc:  # pragma: no cover - exercised via tests
             message = str(exc)
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "file_path": file_path,
                     "display": _build_error_display(message),
                 },
-            }
+            )
 
 
 def _build_error_display(message: str) -> str:

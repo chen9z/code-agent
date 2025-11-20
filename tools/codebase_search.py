@@ -5,12 +5,41 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from retrieval.codebase_indexer import EmbeddingClient, SemanticCodeIndexer
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
+
+
+class CodebaseSearchArgs(BaseModel):
+    query: str = Field(..., description="The natural language search query to run against the semantic index.")
+    limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Maximum number of matches to return (1-20).",
+    )
+    project_root: Optional[str | Path] = Field(
+        default=None,
+        description="Optional project root override. Defaults to the configured workspace root.",
+    )
+    refresh_index: Optional[bool] = Field(
+        default=None,
+        description="Force a refresh of the semantic index before searching.",
+    )
+    target_directories: Optional[Sequence[str]] = Field(
+        default=None,
+        description="Restrict the search to the provided glob directory patterns.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class CodebaseSearchTool(BaseTool):
     """Semantic search across the local repository using cached embeddings."""
+
+    ArgumentsModel = CodebaseSearchArgs
 
     def __init__(
         self,
@@ -47,44 +76,21 @@ If it makes sense to only search in particular directories, please specify them 
 Unless there is a clear reason to use your own search query, please just reuse the user's exact query with their wording.
 Their exact wording/phrasing can often be helpful for the semantic search query. Keeping the same exact question format can also be helpful.'''
 
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "properties": {
-                "query": {
-                    "description": "The search query to find relevant code. You should reuse the user's exact query/most recent message with their wording unless there is a clear reason not to.",
-                    "type": "string",
-                },
-                "target_directories": {
-                    "description": "Glob patterns for directories to search over",
-                    "items": {"type": "string"},
-                    "type": "array",
-                },
-            },
-            "required": ["query"],
-            "type": "object",
-        }
-
     # Execution --------------------------------------------------------------------
     def execute(
         self,
         *,
         query: str,
-        limit: float | int | None = None,
+        limit: int | None = None,
         project_root: Optional[str] = None,
         refresh_index: Optional[bool] = None,
         target_directories: Optional[Sequence[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> ToolResult:
         if not query or not isinstance(query, str) or not query.strip():
             message = "query must be a non-empty string"
             return _error_response(message, {"query": query})
 
-        try:
-            limit_val = int(limit) if limit is not None else 5
-        except (TypeError, ValueError):
-            message = "limit must be an integer"
-            return _error_response(message, {"limit": limit})
-        limit_val = max(1, min(limit_val, 20))
+        limit_val = limit if limit is not None else 5
 
         candidate_root: Optional[str | Path]
         if project_root:
@@ -160,20 +166,12 @@ def _error_display(message: str) -> str:
     return text or "Unknown error"
 
 
-def _error_response(message: str, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _error_response(message: str, extra: Optional[Dict[str, Any]] = None) -> ToolResult:
     payload = dict(extra or {})
     payload["error"] = message
     payload["display"] = _error_display(message)
-    return {
-        "status": "error",
-        "content": message,
-        "data": payload,
-    }
+    return ToolResult(status="error", content=message, data=payload)
 
 
-def _success_response(content: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "status": "success",
-        "content": content,
-        "data": data,
-    }
+def _success_response(content: str, data: Dict[str, Any]) -> ToolResult:
+    return ToolResult(status="success", content=content, data=data)

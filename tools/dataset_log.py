@@ -6,7 +6,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set, Tuple
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
+
+
+class DatasetLogArguments(BaseModel):
+    path: str = Field(..., description="Path to the file relative to the snapshot root.")
+    start_line: int = Field(..., ge=1, description="1-based starting line of the snippet (inclusive).")
+    end_line: int = Field(..., ge=1, description="1-based ending line of the snippet (inclusive).")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score between 0 and 1.")
+
+    model_config = ConfigDict(extra="forbid")
 
 
 @dataclass(frozen=True)
@@ -87,7 +99,7 @@ class DatasetLogTool(BaseTool):
         start_line: int,
         end_line: int,
         confidence: float,
-    ) -> Dict[str, Any]:
+    ) -> ToolResult:
         try:
             normalized = self._normalize_path(path)
             absolute = (self.snapshot_path / normalized).resolve()
@@ -126,23 +138,23 @@ class DatasetLogTool(BaseTool):
                 f"validated {record['chunk']['path']}:{record['chunk']['start_line']}-"
                 f"{record['chunk']['end_line']}"
             )
-            return {
-                "status": "success",
-                "content": display,
-                "data": {
+            return ToolResult(
+                status="success",
+                content=display,
+                data={
                     "display": display,
                     "chunk": record["chunk"],
                 },
-            }
+            )
         except Exception as exc:  # pragma: no cover - exercised via tests
             message = str(exc)
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "display": message,
                 },
-            }
+            )
 
     # ------------------------------------------------------------------ helpers
     def _normalize_path(self, raw: str) -> Path:

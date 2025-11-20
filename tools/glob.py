@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
@@ -58,7 +59,7 @@ class GlobTool(BaseTool):
             },
         }
 
-    def execute(self, *, pattern: str, path: str | None = None) -> Dict[str, Any]:
+    def execute(self, *, pattern: str, path: str | None = None) -> ToolResult:
         try:
             search_dir = Path(path) if path else Path.cwd()
             if not search_dir.exists():
@@ -88,11 +89,7 @@ class GlobTool(BaseTool):
                 "display": _build_display(matches),
             }
 
-            return {
-                "status": "success",
-                "content": content_text,
-                "data": data,
-            }
+            return ToolResult(status="success", content=content_text, data=data)
         except Exception as exc:
             message = str(exc)
             error_payload: Dict[str, Any] = {
@@ -101,8 +98,4 @@ class GlobTool(BaseTool):
             }
             if path:
                 error_payload["search_path"] = path
-            return {
-                "status": "error",
-                "content": message,
-                "data": error_payload,
-            }
+            return ToolResult(status="error", content=message, data=error_payload)

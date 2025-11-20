@@ -1,5 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Type
+
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from runtime.tool_types import ToolResult, ToolValidationError
+
+
+class _EmptyArgumentsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 class BaseTool(ABC):
@@ -8,6 +16,7 @@ class BaseTool(ABC):
     DEFAULT_MAX_CHARS = 50_000
     DEFAULT_MAX_LINE_LENGTH = 2_000
     _TRUNCATION_SUFFIX = "… (truncated)"
+    ArgumentsModel: Type[BaseModel] = _EmptyArgumentsModel
 
     @property
     @abstractmethod
@@ -22,15 +31,24 @@ class BaseTool(ABC):
         pass
 
     @property
-    @abstractmethod
     def parameters(self) -> Dict[str, Any]:
-        """Return the JSON schema for the tool's parameters."""
-        pass
+        """Return the JSON schema generated from the arguments Pydantic model."""
+        return self.ArgumentsModel.model_json_schema()
 
     @abstractmethod
-    def execute(self, **kwargs) -> Any:
+    def execute(self, **kwargs) -> ToolResult:
         """Execute the tool with the given parameters."""
         pass
+
+    def validate_arguments(self, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Validate and normalize incoming arguments via the declared Pydantic model."""
+
+        payload = dict(arguments or {})
+        try:
+            parsed = self.ArgumentsModel.model_validate(payload)
+        except ValidationError as exc:  # pragma: no cover - exercised via tests
+            raise ToolValidationError(str(exc), raw_arguments=payload) from exc
+        return parsed.model_dump()
 
     def clip_text(
         self,
@@ -97,6 +115,6 @@ class BaseTool(ABC):
 
         return result, truncated
 
-    def __call__(self, **kwargs) -> Any:
+    def __call__(self, **kwargs) -> ToolResult:
         """Make the tool callable."""
         return self.execute(**kwargs)

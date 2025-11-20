@@ -2,47 +2,12 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from opik import track as opik_track
+from runtime.tool_types import ToolCall, ToolResult, ToolValidationError
 from tools.registry import ToolRegistry, ToolSpec
 from ui.emission import OutputCallback, OutputMessage, create_emit_event
-from opik import track as opik_track
-
-
-@dataclass
-class ToolCall:
-    name: str
-    arguments: Dict[str, Any]
-    call_id: str
-
-
-@dataclass
-class ToolResult:
-    """Standardized record for tool execution outcomes."""
-
-    tool_call: ToolCall
-    status: str = "unknown"
-    content: str = ""
-    data: Dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def result_text(self) -> str:
-        return self.content or ""
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "inputs": {
-                "name": self.tool_call.name,
-                "arguments": self.tool_call.arguments,
-                "call_id": self.tool_call.call_id,
-            },
-            "result": {
-                "status": self.status,
-                "content": self.content,
-                "data": self.data,
-            },
-        }
 
 
 class ToolExecutionRunner:
@@ -101,6 +66,9 @@ class ToolExecutionRunner:
             output_callback: Optional[OutputCallback],
     ) -> None:
         for tool_result in tool_results:
+            if tool_result.tool_call is None:
+                logging.error("Tool result is missing call metadata: %s", tool_result)
+                continue
             tool_name = str(tool_result.tool_call.name).lower()
             call_id = tool_result.tool_call.call_id
             messages.append(
@@ -165,31 +133,53 @@ class ToolExecutionRunner:
             try:
                 spec: ToolSpec = self.registry.get(call.name)
             except Exception as exc:  # pragma: no cover - exercised via tests
+                message = str(exc)
                 return ToolResult(
-                    tool_call=call,
                     status="error",
-                    content=str(exc),
-                    data={},
-                )
+                    content=message,
+                    data={"display": message},
+                ).attach_call(call)
 
             effective_arguments = self._apply_timeout_default(call.name, call.arguments)
-
             try:
-                output = spec.tool.execute(**effective_arguments)
-            except Exception as exc:  # pragma: no cover - exercised via tests
+                validated_arguments = spec.tool.validate_arguments(effective_arguments)
+            except ToolValidationError as exc:
+                message = f"Invalid arguments for tool '{spec.name}': {exc}"
                 return ToolResult(
-                    tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
                     status="error",
-                    content=str(exc),
-                    data={},
+                    content=message,
+                    data={
+                        "display": message,
+                        "error": message,
+                        "arguments": getattr(exc, "raw_arguments", dict(effective_arguments)),
+                    },
+                ).attach_call(
+                    ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id)
                 )
 
-            return ToolResult(
-                tool_call=ToolCall(name=call.name, arguments=effective_arguments, call_id=call.call_id),
-                status=output.get("status"),
-                content=output.get("content"),
-                data=output.get("data"),
-            )
+            resolved_call = ToolCall(name=call.name, arguments=validated_arguments, call_id=call.call_id)
+
+            try:
+                output = spec.tool.execute(**validated_arguments)
+            except Exception as exc:  # pragma: no cover - exercised via tests
+                message = str(exc)
+                return ToolResult(
+                    status="error",
+                    content=message,
+                    data={"display": message},
+                ).attach_call(resolved_call)
+
+            if not isinstance(output, ToolResult):
+                message = (
+                    f"Tool '{spec.name}' returned {type(output).__name__} instead of ToolResult"
+                )
+                return ToolResult(
+                    status="error",
+                    content=message,
+                    data={"display": message},
+                ).attach_call(resolved_call)
+
+            return output.attach_call(resolved_call)
 
         runner = _run_tool
         if self._opik_track:

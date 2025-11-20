@@ -6,6 +6,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 MAX_MATCHES = 50
@@ -49,26 +50,18 @@ def _success_response(
     content: str,
     data: Dict[str, Any],
     display: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> ToolResult:
     payload_data = dict(data)
     if display:
         payload_data["display"] = display
-    return {
-        "status": "success",
-        "content": content,
-        "data": payload_data,
-    }
+    return ToolResult(status="success", content=content, data=payload_data)
 
 
-def _error_response(*, message: str, data: Dict[str, Any]) -> Dict[str, Any]:
+def _error_response(*, message: str, data: Dict[str, Any]) -> ToolResult:
     payload = dict(data)
     payload["display"] = _build_error_display(message)
     payload.setdefault("error", message)
-    return {
-        "status": "error",
-        "content": message,
-        "data": payload,
-    }
+    return ToolResult(status="error", content=message, data=payload)
 
 
 def _build_display_matches(matches: List[Dict[str, Any]]) -> str:
@@ -163,7 +156,7 @@ Use the include or exclude patterns to filter the search scope by file type or s
         case_sensitive: bool | None = None,
         include_pattern: str | None = None,
         exclude_pattern: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> ToolResult:
         if not query:
             message = "query must be a non-empty string"
             return _error_response(message=message, data={"query": query})

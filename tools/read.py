@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 MAX_LINE_LENGTH = 2000
@@ -75,7 +76,7 @@ Usage:
             file_path: str,
             limit: float | int | None = None,
             offset: float | int | None = None,
-    ) -> Dict[str, Any]:
+    ) -> ToolResult:
         try:
             path = Path(file_path)
             if not path.is_absolute():
@@ -133,19 +134,15 @@ Usage:
                 "display": display_summary,
             }
 
-            return {
-                "status": "success",
-                "content": result,
-                "data": metadata,
-            }
+            return ToolResult(status="success", content=result, data=metadata)
         except Exception as exc:  # pragma: no cover - exercised via tests
             message = str(exc)
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "file_path": file_path,
                     "display": _error_display(message),
                 },
-            }
+            )

@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from runtime.tool_runner import ToolExecutionRunner, ToolResult
+from runtime.tool_runner import ToolExecutionRunner
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 from tools.registry import ToolRegistry
 
@@ -35,14 +36,14 @@ class _RecorderTool(BaseTool):
             time.sleep(self.delay)
         with self._lock:
             self.calls.append(kwargs)
-        return {
-            "status": "success",
-            "content": f"{self._name}: {kwargs}",
-            "data": {
+        return ToolResult(
+            status="success",
+            content=f"{self._name}: {kwargs}",
+            data={
                 "echo": kwargs,
                 "display": f"{self._name}: {kwargs}",
             },
-        }
+        )
 
 
 class _EmptyTool(BaseTool):
@@ -59,13 +60,13 @@ class _EmptyTool(BaseTool):
         return {"type": "object", "properties": {}}
 
     def execute(self, **kwargs):
-        return {
-            "status": "success",
-            "content": "",
-            "data": {
+        return ToolResult(
+            status="success",
+            content="",
+            data={
                 "display": "(empty)",
             },
-        }
+        )
 
 
 class _LongOutputTool(BaseTool):
@@ -84,15 +85,15 @@ class _LongOutputTool(BaseTool):
     def execute(self, **kwargs):
         lines = [f"line {i}" for i in range(200)]
         payload = "\n".join(lines)
-        return {
-            "status": "success",
-            "content": payload,
-            "data": {
+        return ToolResult(
+            status="success",
+            content=payload,
+            data={
                 "stdout": payload,
                 "command": "generate",
                 "display": payload,
             },
-        }
+        )
 
 
 class _TimeoutAwareTool(BaseTool):
@@ -113,14 +114,14 @@ class _TimeoutAwareTool(BaseTool):
 
     def execute(self, **kwargs):
         self.calls.append(kwargs)
-        return {
-            "status": "success",
-            "content": "done",
-            "data": {
+        return ToolResult(
+            status="success",
+            content="done",
+            data={
                 "stdout": "done",
                 "display": "done",
             },
-        }
+        )
 
 
 class _DisplayTool(BaseTool):
@@ -137,13 +138,13 @@ class _DisplayTool(BaseTool):
         return {"type": "object", "properties": {}}
 
     def execute(self, **kwargs):
-        return {
-            "status": "success",
-            "content": "",
-            "data": {
+        return ToolResult(
+            status="success",
+            content="",
+            data={
                 "display": "custom display",
             },
-        }
+        )
 
 
 class _ReportedErrorTool(BaseTool):
@@ -160,14 +161,14 @@ class _ReportedErrorTool(BaseTool):
         return {"type": "object", "properties": {}}
 
     def execute(self, **kwargs):
-        return {
-            "status": "error",
-            "content": "simulated failure",
-            "data": {
+        return ToolResult(
+            status="error",
+            content="simulated failure",
+            data={
                 "detail": "boom",
                 "display": "simulated failure",
             },
-        }
+        )
 
 
 @pytest.fixture()
@@ -257,7 +258,7 @@ def test_missing_tool_returns_error(registry: ToolRegistry):
 def test_emits_full_tool_output_without_truncation():
     registry = ToolRegistry()
     registry.register(_LongOutputTool(), name="long")
-    messages: list[str] = []
+    messages: list[Any] = []
     runner = ToolExecutionRunner(registry)
     history: list[dict[str, Any]] = []
 
@@ -267,7 +268,7 @@ def test_emits_full_tool_output_without_truncation():
         output_callback=messages.append,
     )
 
-    preview_messages = [msg for msg in messages if msg.startswith("[tool]")]
+    preview_messages = [text for text in (str(msg) for msg in messages) if text.startswith("[tool]")]
 
     assert preview_messages, "Expected a tool message"
     assert all("preview truncated" not in msg for msg in preview_messages)
@@ -279,7 +280,7 @@ def test_runner_uses_tool_display_entries():
     registry = ToolRegistry()
     registry.register(_DisplayTool(), name="display")
     runner = ToolExecutionRunner(registry)
-    emitted: list[str] = []
+    emitted: list[Any] = []
 
     runner.run(
         [{"name": "display", "arguments": {}}],
@@ -287,14 +288,14 @@ def test_runner_uses_tool_display_entries():
         output_callback=emitted.append,
     )
 
-    assert any("custom display" in message for message in emitted), "Expected custom display text"
+    assert any("custom display" in str(message) for message in emitted), "Expected custom display text"
 
 
 def test_runner_honors_tool_reported_status():
     registry = ToolRegistry()
     registry.register(_ReportedErrorTool(), name="reported_error")
     runner = ToolExecutionRunner(registry)
-    emitted: list[str] = []
+    emitted: list[Any] = []
 
     results = runner.run(
         [{"name": "reported_error", "arguments": {}}],
@@ -303,7 +304,7 @@ def test_runner_honors_tool_reported_status():
     )
 
     assert results[0].status == "error"
-    assert any("simulated failure" in message for message in emitted)
+    assert any("simulated failure" in str(message) for message in emitted)
 
 
 def test_default_timeout_applies_to_bash_when_missing_argument():

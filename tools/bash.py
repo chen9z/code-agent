@@ -7,9 +7,50 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 MAX_TIMEOUT_MS = 600_000
+
+
+class BashArguments(BaseModel):
+    command: str = Field(..., description="The bash command to execute.")
+    timeout: float | int | None = Field(
+        default=None,
+        description="Optional timeout in milliseconds (1-600000).",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional short description of what the command does.",
+    )
+    run_in_background: bool = Field(
+        default=False,
+        description="Run the command as a persistent background shell session.",
+    )
+    dangerouslyDisableSandbox: bool = Field(
+        default=False,
+        description="Internal flag to bypass sandbox restrictions when explicitly authorized.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BashOutputArguments(BaseModel):
+    bash_id: str = Field(..., description="Identifier of the background shell to inspect.")
+    filter: str | None = Field(
+        default=None,
+        description="Optional regular expression filter applied to incremental output.",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class KillBashArguments(BaseModel):
+    shell_id: str = Field(..., description="Identifier of the background shell to terminate.")
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def _build_error_display(message: str) -> str:
@@ -122,6 +163,8 @@ BACKGROUND_SHELLS: Dict[str, BackgroundShell] = {}
 
 class BashTool(BaseTool):
     """Executes bash commands, optionally in background."""
+
+    ArgumentsModel = BashArguments
 
     @property
     def name(self) -> str:
@@ -264,39 +307,6 @@ Important:
 # Other common operations
 - View comments on a Github PR: gh api repos/foo/bar/pulls/123/comments"""
 
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "required": ["command"],
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The command to execute",
-                },
-                "timeout": {
-                    "type": "number",
-                    "description": "Optional timeout in milliseconds (max 600000)",
-                },
-                "description": {
-                    "type": "string",
-                    "description": '''Clear, concise description of what this command does in 5-10 words, in active voice. Examples:\nInput: ls\nOutput: List files in current directory\n\nInput: git status\nOutput: Show working tree status\n\nInput: npm install\nOutput: Install package dependencies\n\nInput: mkdir foo\nOutput: Create directory 'foo' '''
-                },
-                "run_in_background": {
-                    "type": "boolean",
-                    "description": (
-                        "Set to true to run this command in the background. Use BashOutput to read the output later."
-                    ),
-                },
-                "dangerouslyDisableSandbox": {
-                    "type": "boolean",
-                    "description": (
-                        "Set this to true to dangerously override sandbox mode and run commands without sandboxing."
-                    ),
-                },
-            },
-        }
-
     def execute(
             self,
             *,
@@ -305,20 +315,15 @@ Important:
             description: str | None = None,
             run_in_background: bool | None = None,
             dangerouslyDisableSandbox: bool | None = None,
-    ) -> Dict[str, Any]:
+    ) -> ToolResult:
         description_text = description.strip() if isinstance(description, str) else ""
 
-        def build_payload(status: str, content: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        def build_payload(status: str, content: str, data: Dict[str, Any]) -> ToolResult:
             payload = dict(data)
             if description_text:
                 payload["description"] = description_text
             if dangerouslyDisableSandbox:
                 payload["dangerouslyDisableSandbox"] = bool(dangerouslyDisableSandbox)
-            response: Dict[str, Any] = {
-                "status": status,
-                "content": content,
-                "data": payload,
-            }
             display_text: str | None = None
             if status == "error":
                 display_text = _build_error_display(content)
@@ -327,8 +332,7 @@ Important:
                 display_text = success_display
             if display_text:
                 payload["display"] = display_text
-                response["display"] = display_text
-            return response
+            return ToolResult(status=status, content=content, data=payload)
 
         def summarize_output(stdout: str, stderr: str, fallback: str) -> str:
             for candidate in (stdout.strip(), stderr.strip()):
@@ -431,6 +435,8 @@ Important:
 class BashOutputTool(BaseTool):
     """Retrieves incremental output from background bash shells."""
 
+    ArgumentsModel = BashOutputArguments
+
     @property
     def name(self) -> str:
         return "BashOutput"
@@ -441,53 +447,34 @@ class BashOutputTool(BaseTool):
 - Always returns only new output since the last check.
 - Supports optional regex filtering to show only matching lines."""
 
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "bash_id": {
-                    "type": "string",
-                    "description": "The ID of the background shell to retrieve output from",
-                },
-                "filter": {
-                    "type": "string",
-                    "description": (
-                        "Optional regular expression to filter the output lines. Only lines matching this regex will be included in the result."
-                    ),
-                },
-            },
-            "required": ["bash_id"],
-        }
-
-    def execute(self, *, bash_id: str, filter: str | None = None) -> Dict[str, Any]:
+    def execute(self, *, bash_id: str, filter: str | None = None) -> ToolResult:
         shell = BACKGROUND_SHELLS.get(bash_id)
         if shell is None:
             message = f"No background shell found for id {bash_id}"
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "bash_id": bash_id,
                     "display": _build_error_display(message),
                 },
-            }
+            )
 
         if filter is not None:
             try:
                 re.compile(filter)
             except re.error as exc:
                 message = f"Invalid filter regex: {exc}"
-                return {
-                    "status": "error",
-                    "content": message,
-                    "data": {
+                return ToolResult(
+                    status="error",
+                    content=message,
+                    data={
                         "error": message,
                         "bash_id": bash_id,
                         "display": _build_error_display(message),
                     },
-                }
+                )
 
         try:
             shell.refresh()
@@ -508,9 +495,7 @@ class BashOutputTool(BaseTool):
                 result_parts.append(clipped_stdout.rstrip("\n"))
             if clipped_stderr:
                 result_parts.append(f"STDERR:\n{clipped_stderr.rstrip('\n')}")
-            result_text = "\n\n".join(part for part in result_parts if part)
-            if not result_text:
-                result_text = shell.status
+            result_text = "\n\n".join(part for part in result_parts if part) or shell.status
             data = {
                 "bash_id": bash_id,
                 "stdout": clipped_stdout,
@@ -518,27 +503,26 @@ class BashOutputTool(BaseTool):
                 "shell_status": shell.status,
                 "exit_code": exit_code,
                 "truncated": stdout_truncated or stderr_truncated,
+                "display": result_text,
             }
-            return {
-                "status": "success",
-                "content": result_text,
-                "data": data,
-            }
+            return ToolResult(status="success", content=result_text, data=data)
         except ValueError as exc:
             message = str(exc)
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "bash_id": bash_id,
                     "display": _build_error_display(message),
                 },
-            }
+            )
 
 
 class KillBashTool(BaseTool):
     """Terminates background bash shells by ID."""
+
+    ArgumentsModel = KillBashArguments
 
     @property
     def name(self) -> str:
@@ -549,44 +533,32 @@ class KillBashTool(BaseTool):
         return """Kills a running background bash shell by its ID.
 Use this tool when you need to terminate a long-running shell."""
 
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "shell_id": {
-                    "type": "string",
-                    "description": "The ID of the background shell to kill",
-                }
-            },
-            "required": ["shell_id"],
-        }
-
-    def execute(self, *, shell_id: str) -> Dict[str, Any]:
+    def execute(self, *, shell_id: str) -> ToolResult:
         shell = BACKGROUND_SHELLS.get(shell_id)
         if shell is None:
             message = f"No background shell found for id {shell_id}"
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "shell_id": shell_id,
                     "display": _build_error_display(message),
                 },
-            }
+            )
 
         if shell.status != "running":
             shell.close()
             BACKGROUND_SHELLS.pop(shell_id, None)
-            return {
-                "status": "success",
-                "content": "already finished",
-                "data": {
+            return ToolResult(
+                status="success",
+                content="already finished",
+                data={
                     "shell_id": shell_id,
                     "shell_status": shell.status,
+                    "display": f"{shell_id} ({shell.status})",
                 },
-            }
+            )
 
         shell.process.terminate()
         try:
@@ -605,8 +577,5 @@ Use this tool when you need to terminate a long-running shell."""
             "stdout": shell.stdout_buffer,
             "stderr": shell.stderr_buffer,
         }
-        return {
-            "status": "success",
-            "content": "killed",
-            "data": data,
-        }
+        data["display"] = f"{shell_id} (terminated)"
+        return ToolResult(status="success", content="killed", data=data)

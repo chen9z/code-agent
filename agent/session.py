@@ -14,7 +14,8 @@ from config.prompt import (
     _BASE_SYSTEM_PROMPT,
     compose_system_prompt,
 )
-from runtime.tool_runner import ToolExecutionRunner, ToolResult
+from runtime.tool_runner import ToolExecutionRunner
+from runtime.tool_types import ToolResult
 from tools.registry import ToolRegistry, create_default_registry
 from opik import track as opik_track
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 import fnmatch
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
@@ -36,7 +37,7 @@ class LSTool(BaseTool):
             "required": ["path"],
         }
 
-    def execute(self, *, path: str, ignore: Iterable[str] | None = None) -> Dict[str, Any]:
+    def execute(self, *, path: str, ignore: Iterable[str] | None = None) -> ToolResult:
         try:
             directory = Path(path)
             if not directory.is_absolute():
@@ -86,17 +87,18 @@ class LSTool(BaseTool):
 
             result = "\n".join(entries) if entries else "[empty directory]"
 
-            return {
-                "status": "success",
-                "content": result,
-                "data": {
+            return ToolResult(
+                status="success",
+                content=result,
+                data={
                     "path": str(resolved),
                     "entries": entries,
                     "directories": directories,
                     "files": files,
                     "ignore": ignore_patterns,
+                    "display": result,
                 },
-            }
+            )
         except Exception as exc:  # pragma: no cover - errors exercised via tests
             error_payload: Dict[str, Any] = {
                 "error": str(exc),
@@ -105,11 +107,7 @@ class LSTool(BaseTool):
             if ignore is not None:
                 error_payload["ignore"] = list(ignore)
             error_payload["display"] = _build_error_display(str(exc))
-            return {
-                "status": "error",
-                "content": str(exc),
-                "data": error_payload,
-            }
+            return ToolResult(status="error", content=str(exc), data=error_payload)
 
 
 def _build_error_display(message: str) -> str:

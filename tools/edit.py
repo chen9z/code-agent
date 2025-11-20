@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
@@ -58,7 +59,7 @@ Usage:
         old_string: str,
         new_string: str,
         replace_all: bool | None = None,
-    ) -> Dict[str, Any]:
+    ) -> ToolResult:
         try:
             path = Path(file_path)
             if not path.is_absolute():
@@ -133,23 +134,20 @@ Usage:
             data = {
                 "file_path": str(resolved),
                 "replacements": replacements,
+                "display": f"{replacements} change(s) in {resolved.name}",
             }
-            return {
-                "status": "success",
-                "content": "ok",
-                "data": data,
-            }
+            return ToolResult(status="success", content="ok", data=data)
         except Exception as exc:  # pragma: no cover - exercised via tests
             message = str(exc)
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "file_path": file_path,
                     "display": _build_error_display(message),
                 },
-            }
+            )
 
 
 def _build_error_display(message: str) -> str:

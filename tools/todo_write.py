@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from runtime.tool_types import ToolResult
 from tools.base import BaseTool
 
 
@@ -266,7 +267,7 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
             }
         }
 
-    def execute(self, *, todos: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def execute(self, *, todos: List[Dict[str, Any]]) -> ToolResult:
         try:
             normalized = self._validate_and_normalize(todos)
             formatted = self._format_summary(normalized)
@@ -274,21 +275,17 @@ When in doubt, use this tool. Being proactive with task management demonstrates 
                 "todos": normalized,
                 "display": _build_display_entries(normalized),
             }
-            return {
-                "status": "success",
-                "content": formatted,
-                "data": data,
-            }
+            return ToolResult(status="success", content=formatted, data=data)
         except Exception as exc:  # pragma: no cover - exercised via tests
             message = str(exc)
-            return {
-                "status": "error",
-                "content": message,
-                "data": {
+            return ToolResult(
+                status="error",
+                content=message,
+                data={
                     "error": message,
                     "display": _error_display(message),
                 },
-            }
+            )
 
     def _validate_and_normalize(self, todos: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         if not isinstance(todos, list):
