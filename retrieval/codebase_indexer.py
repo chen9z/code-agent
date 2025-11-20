@@ -114,8 +114,8 @@ class SemanticCodeIndexer:
             vector_store: Optional[LocalQdrantStore] = None,
     ) -> None:
         cfg = get_config()
-        # 优先使用 AppConfig.rag_chunk_size；缺省回退到 200 行以内的合理窗口
-        chunk_size = int(getattr(cfg, "rag_chunk_size", 200) or 200)
+        # 优先使用 AppConfig.rag_chunk_size；缺省回退到 2048 行以内的合理窗口
+        chunk_size = int(getattr(cfg, "rag_chunk_size", 2048) or 2048)
 
         batch = int(batch_size or os.getenv("CODEBASE_EMBEDDING_BATCH", "16"))
         api_timeout = float(os.getenv("CODEBASE_EMBEDDING_TIMEOUT", "120"))

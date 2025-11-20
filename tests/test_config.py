@@ -40,7 +40,7 @@ def test_config_default_values():
 
         assert config.rag_embedding_model == "openai-like"
         assert config.rag_rerank_model == "api"
-        assert config.rag_chunk_size == 200
+        assert config.rag_chunk_size == 2048
         assert config.llm_model == "deepseek-chat"
         assert config.llm_temperature == 0.1
         assert config.llm_max_tokens == 2000
@@ -88,7 +88,7 @@ def test_invalid_environment_values_reset_to_default():
 
         assert config.llm_temperature == 0.1
         assert config.llm_max_tokens == 2000
-        assert config.rag_chunk_size == 200
+        assert config.rag_chunk_size == 2048
         assert config.cli_tool_timeout_seconds == 60
         assert config.llm_opik_enabled is True
 

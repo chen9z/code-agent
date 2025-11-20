@@ -48,7 +48,7 @@ def _to_bool(value: Optional[str], default: bool) -> bool:
 class AppConfig:
     rag_embedding_model: str = "openai-like"
     rag_rerank_model: str = "api"
-    rag_chunk_size: int = 200
+    rag_chunk_size: int = 2048
     llm_model: str = "deepseek-chat"
     llm_api_base: Optional[str] = None
     llm_api_key: Optional[str] = None

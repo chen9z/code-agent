@@ -65,7 +65,7 @@ print(len(fresh_hits))
 ```
 
 ### Chunking & Retrieval Flow
-- Files are tokenized by `SemanticCodeIndexer` and split into ~`chunk_size` lines (default 200) with symbol-aware boundaries provided by Tree-sitter.
+- Files are tokenized by `SemanticCodeIndexer` and split into ~`chunk_size` lines (default 2048) with symbol-aware boundaries provided by Tree-sitter.
 - Each chunk is embedded via the configured model and stored in a local Qdrant collection keyed by project name under `storage/`.
 - Index responses now surface the Qdrant `collection_name` alongside `chunk_size`, making it easy to inspect storage or reuse the collection directly.
 - The `project_key` returned from indexing uniquely identifies a specific workspace snapshot (path + git commit when available) and can be passed back to `search` to disambiguate repositories that share the same `project_name`.

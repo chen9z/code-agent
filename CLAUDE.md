@@ -90,7 +90,7 @@ export CHAT_CODEBASE_PATH=/path/to/chat-codebase  # optional deep integration
 # RAG Configuration
 export RAG_EMBEDDING_MODEL=openai-like
 export RAG_RERANK_MODEL=api
-export RAG_CHUNK_SIZE=200
+export RAG_CHUNK_SIZE=2048
 
 # LLM Configuration
 export LLM_TEMPERATURE=0.1
@@ -173,7 +173,7 @@ print(result["final_response"])
 ### Tree-sitter Integration
 - `adapters/workspace/semantic_splitter.py` - 基于 tree-sitter 的统一 AST 分片
 - 支持多语言语义分块（函数/类），并对未覆盖区域行级补齐
-- 通过 `config.rag_chunk_size` 控制分片行数，默认 200
+- 通过 `config.rag_chunk_size` 控制分片行数，默认 2048
 - 无额外 `.scm` 查询文件与符号导出流程（已移除 ParsedSymbol/TagKind）
 
 ### Vector Store Integration

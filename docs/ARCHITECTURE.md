@@ -23,7 +23,7 @@ This project is a code agent focused on local repository understanding. Flow/Nod
 
 ## Data & Indexing
 - Project key：`<project_name>`（默认为工作区 basename）。快照及向量集合写入 `./storage/`（gitignored）。
-- 检索 chunk 模型：`{path, start_line, end_line, chunk_id, score}`。`retrieval.splitter` 控制最大行数（默认约 200 行）。
+- 检索 chunk 模型：`{path, start_line, end_line, chunk_id, score}`。`retrieval.splitter` 控制最大行数（默认约 2048 行）。
 - 数据集 golden_chunk：`{path, start_line, end_line, confidence}`，由 `dataset_log_write_chunk` 在静态快照上校验并写入 raw_samples JSONL；`build_dataset_from_raw` 内联聚合逻辑负责后续整合。
 
 ## Usage
