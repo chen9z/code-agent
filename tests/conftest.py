@@ -1,15 +1,22 @@
 """Pytest configuration for code-agent tests."""
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 
 from retrieval.codebase_indexer import EmbeddingClient
 
 # Add the project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+# Load .env so opik/other integrations inherit expected credentials in tests.
+load_dotenv(dotenv_path=project_root / ".env", override=False)
+if not os.getenv("OPIK_API_KEY"):
+    os.environ["OPIK_ENABLED"] = "false"
 
 
 @pytest.fixture(autouse=True)
