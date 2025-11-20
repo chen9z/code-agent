@@ -27,6 +27,7 @@ compare embedding/model settings before shipping planner changes.
 Target Python 3.11, four-space indentation, and PEP 8 line widths (~100 chars). Prefer explicit type hints (see
 `code_agent.py`) and docstrings for public helpers. Modules, files, and functions stay `snake_case`; classes are
 PascalCase. Use `pathlib.Path` for filesystem work and keep most side effects inside CLI wrappers or nodes.
+- 禁止在模块内维护 `__all__ = [...]` 风格的显式导出列表；需要限制导出的场景用命名约定或惰性 `__getattr__` 等机制处理，避免再写 `__all__`。
 
 ## Testing Guidelines
 

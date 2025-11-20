@@ -6,13 +6,13 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Protocol, Sequence
 
 from rich.console import Console
 
 from agent.session import CodeAgentSession
 from ui.emission import OutputCallback, create_emit_event
-from ui.rich_output import create_rich_output, stringify_payload
+from ui.rich_output import create_rich_output
 
 
 class AgentSessionProtocol(Protocol):
@@ -23,27 +23,6 @@ class AgentSessionProtocol(Protocol):
         output_callback: Optional[OutputCallback] = None,
     ) -> Dict[str, Any]:
         ...
-
-
-def _handle_cli_command(
-    command: str,
-    session: AgentSessionProtocol,
-    output_callback: OutputCallback,
-) -> bool:
-    normalized = command.strip()
-    if normalized in {":help", ":?"}:
-        _emit_help(output_callback)
-        return True
-    return False
-
-
-def _emit_help(output_callback: OutputCallback) -> None:
-    output_callback(
-        create_emit_event(
-            "system",
-            "Commands: :help to show this message; type exit to quit.",
-        )
-    )
 
 
 def run_interactive_session(
@@ -71,42 +50,9 @@ def run_interactive_session(
             continue
         if message.lower() in {"exit", "quit"}:
             break
-        if message.startswith(":") and _handle_cli_command(message, session, emitter):
-            continue
-            
-        result = session.run_turn(message, output_callback=emitter)
-        _emit_result_if_needed(result, emitter)
-        
+        session.run_turn(message, output_callback=emitter)
+
     return 0
-
-
-def _emit_result_if_needed(result: Mapping[str, Any], output_callback: OutputCallback) -> None:
-    final = result.get("content")
-    if not final:
-        tool_plan = result.get("tool_plan") or {}
-        if isinstance(tool_plan, Mapping):
-            final = tool_plan.get("content")
-    if not final:
-        return
-
-    history = result.get("messages") or result.get("history")
-    already_emitted = False
-    if isinstance(history, list):
-        for message in reversed(history):
-            if message.get("role") != "assistant":
-                continue
-            content = stringify_payload(message.get("content", ""))
-            if content == stringify_payload(final):
-                already_emitted = True
-            break
-
-    if not already_emitted:
-        output_callback(
-            create_emit_event(
-                "assistant",
-                stringify_payload(final),
-            )
-        )
 
 
 def _stdin_iterator(console: Optional[Console] = None) -> Iterator[str]:
