@@ -169,3 +169,120 @@ def test_build_dataset_from_raw_defaults_confidence(tmp_path: Path) -> None:
         if line
     ]
     assert payloads[0]["golden_chunks"][0]["confidence"] == 0.0
+
+def test_build_dataset_from_raw_dedup_prefers_higher_confidence(tmp_path: Path) -> None:
+    run_dir = tmp_path / "storage" / "dataset" / "run-high"
+    raw_dir = run_dir / "raw_samples"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw_file = raw_dir / "q-high.jsonl"
+    raw_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "chunk": {
+                            "path": "src/demo.py",
+                            "start_line": 10,
+                            "end_line": 22,
+                            "confidence": 0.6,
+                            "content": "first",
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "chunk": {
+                            "path": "src/demo.py",
+                            "start_line": 11,
+                            "end_line": 20,
+                            "confidence": 0.9,
+                            "content": "second",
+                        }
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    spec = QuerySpec(
+        query_id="q-high",
+        query="demo",
+        repo_url="repo",
+        branch="main",
+        commit_id="head",
+        path=None,
+    )
+
+    summary = build_dataset_from_raw(specs=[spec], run_dir=run_dir, run_name="run-high")
+    payloads = [
+        json.loads(line)
+        for line in summary.dataset_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    chunks = payloads[0]["golden_chunks"]
+    assert len(chunks) == 1
+    chunk = chunks[0]
+    assert chunk["confidence"] == 0.9
+    assert chunk["start_line"] == 11
+    assert chunk["end_line"] == 20
+
+
+def test_build_dataset_from_raw_dedup_prefers_shorter_when_conf_equal(tmp_path: Path) -> None:
+    run_dir = tmp_path / "storage" / "dataset" / "run-short"
+    raw_dir = run_dir / "raw_samples"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    raw_file = raw_dir / "q-short.jsonl"
+    raw_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "chunk": {
+                            "path": "src/demo.py",
+                            "start_line": 5,
+                            "end_line": 25,
+                            "confidence": 0.8,
+                            "content": "long",
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "chunk": {
+                            "path": "src/demo.py",
+                            "start_line": 10,
+                            "end_line": 15,
+                            "confidence": 0.8,
+                            "content": "short",
+                        }
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    spec = QuerySpec(
+        query_id="q-short",
+        query="demo",
+        repo_url="repo",
+        branch="main",
+        commit_id="head",
+        path=None,
+    )
+
+    summary = build_dataset_from_raw(specs=[spec], run_dir=run_dir, run_name="run-short")
+    payloads = [
+        json.loads(line)
+        for line in summary.dataset_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    chunks = payloads[0]["golden_chunks"]
+    assert len(chunks) == 1
+    chunk = chunks[0]
+    assert chunk["start_line"] == 10
+    assert chunk["end_line"] == 15
+    assert chunk["confidence"] == 0.8

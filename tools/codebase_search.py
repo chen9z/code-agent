@@ -132,33 +132,94 @@ Their exact wording/phrasing can often be helpful for the semantic search query.
             }
             return _success_response("[no semantic matches]", data)
 
-        results = [
-            {
-                "path": hit.chunk.relative_path,
-                "absolute_path": hit.chunk.absolute_path,
-                "start_line": hit.chunk.start_line,
-                "end_line": hit.chunk.end_line,
-                "score": hit.score,
-                "language": hit.chunk.language,
-                "snippet": hit.chunk.content,
-            }
-            for hit in hits
-        ]
+        # Group hits by file path
+        from itertools import groupby
+        
+        # Group hits by file path, but we want to present files in order of relevance (best score first).
+        # 1. Group hits by file
+        hits_by_file = {}
+        for hit in hits:
+            path = hit.chunk.relative_path
+            if path not in hits_by_file:
+                hits_by_file[path] = []
+            hits_by_file[path].append(hit)
+            
+        # 2. Determine file order by the maximum score of any hit in that file
+        # (Assuming 'hits' is already sorted by score descending from the searcher? Yes, usually.)
+        # But let's be safe and compute max score per file.
+        file_scores = []
+        for path, file_hits in hits_by_file.items():
+            max_score = max(h.score for h in file_hits)
+            file_scores.append((path, max_score))
+            
+        # Sort files by max score descending
+        file_scores.sort(key=lambda x: x[1], reverse=True)
+        
+        formatted_results = []
+        raw_results = []
+        
+        for relative_path, _ in file_scores:
+            file_hits = hits_by_file[relative_path]
+            
+            # Sort hits within the file by line number for display
+            file_hits.sort(key=lambda h: h.chunk.start_line)
+            if not file_hits:
+                continue
+                
+            # Merge logic
+            file_content_parts = []
+            last_end_line = -1
+            
+            file_content_parts.append(f"## File: {relative_path}")
+            
+            for hit in file_hits:
+                chunk = hit.chunk
+                
+                # Add gap if needed
+                if last_end_line != -1 and chunk.start_line > last_end_line + 1:
+                    file_content_parts.append("\n# ...\n")
+                elif last_end_line != -1:
+                    # Ensure newline between adjacent chunks if not already present
+                    file_content_parts.append("\n")
+                
+                # Add context annotation
+                context_list = chunk.metadata.get("context")
+                if context_list and isinstance(context_list, list):
+                    context_str = " > ".join(context_list)
+                    file_content_parts.append(f"# Context: {context_str}")
+                
+                # Add chunk content
+                file_content_parts.append(chunk.content)
+                
+                last_end_line = chunk.end_line
+                
+                # Collect raw result for data payload
+                raw_results.append({
+                    "path": chunk.relative_path,
+                    "absolute_path": chunk.absolute_path,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
+                    "score": hit.score,
+                    "language": chunk.language,
+                    "snippet": chunk.content,
+                    "context": context_list,  # Pass context to model data
+                })
+            
+            formatted_results.append("\n".join(file_content_parts))
+
+        final_content = "\n\n".join(formatted_results)
+        
         data = {
             "query": query,
             "project_root": str(root),
             "project_name": index.project_name,
-            "results": results,
-            "count": len(results),
+            "results": raw_results,
+            "count": len(raw_results),
             "index": self._indexer.index_metadata(index),
             "target_directories": list(target_directories or []),
         }
-        content_lines = [
-            f"{entry['path']}:{entry['start_line']}-{entry['end_line']}"
-            for entry in results
-        ]
-        summary = "\n".join(f"- {line}" for line in content_lines) or "[no semantic matches]"
-        return _success_response(summary, data)
+        
+        return _success_response(final_content, data)
 
 
 def _error_display(message: str) -> str:

@@ -90,6 +90,7 @@ class Span:
     start: int
     end: int
     kind: SpanKind = SpanKind.CODE
+    context: Tuple[str, ...] = ()
 
 
 def _get_parser(language: str) -> Optional[Parser]:
@@ -152,16 +153,19 @@ class SemanticSplitter:
         
         parser = _get_parser(self.language)
         if parser is None:
+            print(f"DEBUG: Parser is None for {self.language}")
             return self._fallback_chunks(path, text, lines, line_offsets)
             
         try:
             tree = parser.parse(text)
         except Exception as exc:
+            print(f"DEBUG: Parse exception: {exc}")
             logger.warning("tree-sitter parse failure for %s (%s)", path, exc)
             return self._fallback_chunks(path, text, lines, line_offsets)
             
         root = tree.root_node
         if root is None:
+            print("DEBUG: Root is None")
             return self._fallback_chunks(path, text, lines, line_offsets)
             
         spans = self._chunk_node(root)
@@ -169,6 +173,7 @@ class SemanticSplitter:
         spans = self._coalesce_chunks(spans)
         
         if not spans:
+            print("DEBUG: No spans generated")
             return self._fallback_chunks(path, text, lines, line_offsets)
             
         return self._build_chunks_from_spans(
@@ -214,8 +219,15 @@ class SemanticSplitter:
             start_byte = end_byte
         return chunks
 
-    def _chunk_node(self, node) -> List[Span]:
-        span = Span(node.start_byte, node.start_byte)
+    def _chunk_node(self, node, context: Tuple[str, ...] = ()) -> List[Span]:
+        # Determine if current node adds to context
+        new_context = context
+        if node.type in _node_types(self.language):
+            name = _get_node_name(node)
+            if name:
+                new_context = context + (name,)
+
+        span = Span(node.start_byte, node.start_byte, context=new_context)
         chunks: List[Span] = []
         symbol_types = set(_node_types(self.language))
         pending_comment: Optional[List[int]] = None
@@ -223,7 +235,8 @@ class SemanticSplitter:
         def flush_pending_comment() -> None:
             nonlocal pending_comment
             if pending_comment and pending_comment[1] > pending_comment[0]:
-                chunks.append(Span(pending_comment[0], pending_comment[1], SpanKind.COMMENT))
+                # Comments inherit the current context
+                chunks.append(Span(pending_comment[0], pending_comment[1], SpanKind.COMMENT, context=new_context))
             pending_comment = None
 
         for child in node.children:
@@ -248,22 +261,50 @@ class SemanticSplitter:
 
             if comment_range and span.end > span.start:
                 chunks.append(span)
-                span = Span(comment_range[0], comment_range[0])
+                span = Span(comment_range[0], comment_range[0], context=new_context)
 
-            if child_len > self.chunk_size:
+            # Force recursion if node is a context provider, to ensure we capture the context change
+            # Or if it's too large
+            # Or if it contains a context provider (e.g. a block containing a class)
+            is_context_node = child.type in symbol_types
+            has_context_child = any(c.type in symbol_types for c in child.children)
+            
+            if child_len > self.chunk_size or is_context_node or has_context_child:
                 if span.end > span.start:
                     chunks.append(span)
-                span = Span(child_end, child_end)
+                
+                # If it's a context node but small, we still want to recurse to capture inner context.
+                # But if we recurse, we might get multiple small spans.
+                # _coalesce_chunks will merge them if context matches.
+                
+                # Note: if we recurse for a small class, we get spans for its methods.
+                # The class definition line itself (e.g. "class Foo:") needs to be handled.
+                # In tree-sitter, "class_definition" includes the body.
+                # If we recurse, we process children.
+                # The children include "class", "name", ":", "block".
+                # "class", "name", ":" are small and not context nodes.
+                # They will be appended to a span with the *outer* context (because we are in the parent's loop).
+                # Wait.
+                # If I call `_chunk_node(child, context=new_context)`, the `child` is the class_definition.
+                # Inside `_chunk_node`, `new_context` is updated to include "Foo".
+                # Then it iterates children of class_definition.
+                # "class" -> span with context "Foo".
+                # "name" -> span with context "Foo".
+                # "block" -> recurse...
+                
+                # So yes, forcing recursion works.
+                
+                span = Span(child_end, child_end, context=new_context)
                 if len(child.children) == 0:
                     start = comment_range[0] if comment_range else child.start_byte
-                    chunks.append(Span(start, child_end))
+                    chunks.append(Span(start, child_end, context=new_context))
                     continue
 
-                child_spans = self._chunk_node(child)
+                child_spans = self._chunk_node(child, context=new_context)
                 if comment_range and child_spans:
                     child_spans[0].start = min(child_spans[0].start, comment_range[0])
                 elif comment_range:
-                    chunks.append(Span(comment_range[0], comment_range[1], SpanKind.COMMENT))
+                    chunks.append(Span(comment_range[0], comment_range[1], SpanKind.COMMENT, context=new_context))
                 chunks.extend(child_spans)
                 continue
 
@@ -271,12 +312,12 @@ class SemanticSplitter:
                 if span.end > span.start:
                     chunks.append(span)
                 start = comment_range[0] if comment_range else child.start_byte
-                span = Span(start, child_end)
+                span = Span(start, child_end, context=new_context)
             else:
                 if span.end == span.start and comment_range:
-                    span = Span(comment_range[0], child_end)
+                    span = Span(comment_range[0], child_end, context=new_context)
                 else:
-                    span = Span(span.start, child_end)
+                    span = Span(span.start, child_end, context=new_context)
 
         flush_pending_comment()
 
@@ -290,16 +331,20 @@ class SemanticSplitter:
 
     def _coalesce_chunks(self, chunks: List[Span]) -> List[Span]:
         new_chunks = []
-        current_chunk = Span(0, 0)
-        for chunk in chunks:
-            if (chunk.end - current_chunk.start) < self.chunk_size:
+        if not chunks:
+            return []
+            
+        current_chunk = chunks[0]
+        
+        for chunk in chunks[1:]:
+            # Only coalesce if context matches
+            if (chunk.end - current_chunk.start) < self.chunk_size and chunk.context == current_chunk.context:
                 current_chunk.end = chunk.end
             else:
-                if current_chunk.end > current_chunk.start:
-                    new_chunks.append(current_chunk)
-                current_chunk = Span(chunk.start, chunk.end, chunk.kind)
-        if current_chunk.end > current_chunk.start:
-            new_chunks.append(current_chunk)
+                new_chunks.append(current_chunk)
+                current_chunk = chunk # Start new chunk
+                
+        new_chunks.append(current_chunk)
         return new_chunks
 
     def _build_chunks_from_spans(
@@ -317,13 +362,18 @@ class SemanticSplitter:
             content = content_bytes.decode("utf-8", errors="replace")
             if not content.strip():
                 continue
+            
+            metadata = {"kind": span.kind.name if span.kind else SpanKind.CODE.name}
+            if span.context:
+                metadata["context"] = list(span.context)
+                
             chunk = Document(
                 path=path,
                 content=content,
                 start_line=_byte_to_line(line_offsets, span.start, total_lines),
                 end_line=_byte_to_line(line_offsets, span.end, total_lines),
                 language=self.language,
-                metadata={"kind": span.kind.name if span.kind else SpanKind.CODE.name},
+                metadata=metadata,
             )
             chunks.append(chunk)
         chunks.sort(key=lambda c: (c.start_line, c.end_line))

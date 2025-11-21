@@ -174,7 +174,62 @@ def _extract_chunks(*, raw_dir: Path, query_id: str) -> Tuple[List[Dict[str, obj
                 }
             )
 
-    return chunks, errors
+    deduped = _dedupe_overlapping_chunks(chunks)
+    return deduped, errors
+
+
+def _dedupe_overlapping_chunks(
+    chunks: List[Dict[str, object]],
+    *,
+    overlap_threshold: float = 0.8,
+) -> List[Dict[str, object]]:
+    """Drop highly-overlapping snippets, keeping the highest quality variant."""
+
+    deduped: List[Dict[str, object]] = []
+    for candidate in chunks:
+        handled = False
+        for idx, existing in enumerate(deduped):
+            if existing["path"] != candidate["path"]:
+                continue
+            overlap = _overlap_size(existing, candidate)
+            if overlap <= 0:
+                continue
+
+            existing_len = existing["end_line"] - existing["start_line"] + 1
+            candidate_len = candidate["end_line"] - candidate["start_line"] + 1
+            coverage_existing = overlap / existing_len
+            coverage_candidate = overlap / candidate_len
+            if max(coverage_existing, coverage_candidate) >= overlap_threshold:
+                preferred = _prefer_chunk(existing, candidate)
+                if preferred is candidate:
+                    deduped[idx] = candidate
+                handled = True
+                break
+        if not handled:
+            deduped.append(candidate)
+    return deduped
+
+
+def _overlap_size(a: Mapping[str, object], b: Mapping[str, object]) -> int:
+    start = max(int(a["start_line"]), int(b["start_line"]))
+    end = min(int(a["end_line"]), int(b["end_line"]))
+    return end - start + 1
+
+
+def _prefer_chunk(existing: Dict[str, object], candidate: Dict[str, object]) -> Dict[str, object]:
+    conf_existing = float(existing.get("confidence", 0))
+    conf_candidate = float(candidate.get("confidence", 0))
+    if conf_candidate > conf_existing:
+        return candidate
+    if conf_candidate < conf_existing:
+        return existing
+
+    existing_span = existing["end_line"] - existing["start_line"]
+    candidate_span = candidate["end_line"] - candidate["start_line"]
+    if candidate_span < existing_span:
+        return candidate
+    return existing
+
 
 
 def synthesize(args: argparse.Namespace) -> None:

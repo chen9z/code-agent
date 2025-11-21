@@ -276,7 +276,16 @@ class SemanticCodeIndexer:
                 return
 
             batch_entries = list(entry_buffer)
-            texts = [item.content for item in batch_entries]
+            texts = []
+            for item in batch_entries:
+                # Prepend context if available
+                context_list = item.metadata.get("context")
+                if context_list and isinstance(context_list, list):
+                    context_str = " > ".join(context_list)
+                    texts.append(f"{context_str}\n{item.content}")
+                else:
+                    texts.append(item.content)
+            
             embeddings = self._embedder.embed_batch(texts, task="code")
             if len(embeddings) != len(batch_entries):
                 raise RuntimeError("Embedding service returned mismatched vector count")

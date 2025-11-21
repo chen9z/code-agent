@@ -1,1 +1,7 @@
 {"query_id": "q1", "query": "项目中使用了哪些 tools", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
+{"query_id": "q2", "query": "DatasetSynthesisAgent 如何写入 golden chunk？", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
+{"query_id": "q3", "query": "语义索引是如何构建与刷新 embeddings 的？", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
+{"query_id": "q4", "query": "codebase_search 工具如何确定默认 project_root 并返回结果？", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
+{"query_id": "q5", "query": "TodoWrite 工具的参数与使用限制是什么？", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
+{"query_id": "q6", "query": "CLI 如何配置和启动 CodeAgent 会话？", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
+{"query_id": "q7", "query": "Dataset runner 运行结束后会产出哪些统计信息？", "repo_url": "https://github.com/chen9z/code-agent.git", "branch": "master", "commit_id": ""}
