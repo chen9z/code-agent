@@ -123,3 +123,17 @@ agent/prompts/dataset.md    # DatasetSynthesisAgent system prompt
 2. 实现 DatasetSynthesisAgent + dataset_log_tool MVP，编写最小集成测试（mock 工具 + 校验输出）。
 3. 打通 orchestrator：`uv run python benchmarks/dataset/runner.py --queries demo.jsonl`，确认 Agent 回放、raw_samples 写出与 `dataset_<run>.jsonl` 聚合都正常。
 4. 设计 CI 任务：每日/每周回放随机子集，产出 trend 报告。
+
+## 评测优先优化计划（2025-11-21）
+
+为提升评测数据集质量，需在现有流程上优先落实以下动作：
+
+1. **扩充分层查询库**：按模块（工具、索引、Runner、CLI…）和难度划分查询矩阵，持续引入真实/代表性问题，确保每层至少若干条 query。
+2. **强化证据多样性**：在 system prompt 中要求每个 query 覆盖定义、实现、引用、测试、负例等多类型证据，并通过 `todo_write` 清单逐项勾选，避免只提交 docstring。
+3. **引导可信置信度**：明确 0.0–1.0 区间使用规则，强制记录 `confidence_reason`（或在 todo 中说明依据），同时鼓励提交 0.2/0.5 等低分样本以丰富评测维度。
+4. **加入负/干扰样本**：对检索候选进行人工或 Agent 判定，记录“已验证无关/未命中”的片段，供 rerank/embedding 评测使用。
+5. **抽样质检**：在 `storage/dataset/<run>/datasets/` 生成 `eval_manifest.json`，对新增 query 抽样人工审核（行号、内容、置信度），并把结果写入 manifest，形成可追溯 QA。
+6. **运行稳定性**：控制单次 runner 批量（必要时拆分 query 子集），固定 snapshot/依赖版本，避免长会话超时；失败场景写入 `anomalies.jsonl` 并在下一轮重试。
+7. **评测格式输出**：在聚合后派生 rerank/embedding 评测所需的列表格式（query + 候选 + 标签），并保留基准统计（chunks per query、置信度分布）以便回归比较。
+
+该计划作为 docs 基线，后续评测相关改动需同步更新进度与执行结果。
