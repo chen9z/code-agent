@@ -196,6 +196,7 @@ class SemanticCodeIndexer:
         for point in scored_points:
             payload = point.payload or {}
             relative_path = payload.get("relative_path")
+            metadata = payload.get("metadata") or {}
             chunk = CodeChunkEmbedding(
                 relative_path=str(relative_path or ""),
                 absolute_path=str(payload.get("absolute_path") or ""),
@@ -203,6 +204,7 @@ class SemanticCodeIndexer:
                 end_line=int(payload.get("end_line") or 0),
                 language=payload.get("language"),
                 content=str(payload.get("snippet") or ""),
+                metadata=metadata,
                 vector=(),
             )
             hits.append(
